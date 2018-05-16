@@ -41,10 +41,10 @@ bool MainScene::init()
 	Menu* mainMenu = Menu::create(startMenuItem, NULL);
 	mainMenu->alignItemsVerticallyWithPadding(5);
 	mainMenu->setAnchorPoint(Point::ZERO);
-	mainMenu->setPosition(100, 170);
+	mainMenu->setPosition(100, 140);
 	this->addChild(mainMenu, tagInfoText, tagInfoText);
 
-
+	/*
 	MenuItemImage* cartMenuItem = MenuItemImage::create("NewUI/btn_cart.png", "NewUI/btn_cart_s.png", CC_CALLBACK_1(MainScene::callbackOnPushed_buyMenuItem, this));
 
 	Menu* subMenu = Menu::create(cartMenuItem, NULL);
@@ -52,6 +52,7 @@ bool MainScene::init()
 	subMenu->setAnchorPoint(Point::ZERO);
 	subMenu->setPosition(100, 70);
 	this->addChild(subMenu, tagInfoText, tagInfoText);
+	*/
 
 	m_rankTableLayer = Layer::create();
 	this->addChild(m_rankTableLayer, tagInfoText, tagInfoText);
