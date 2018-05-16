@@ -24,8 +24,7 @@ bool MainScene::init()
 	{
 		return false;
 	}
-
-
+		
 	Sprite* backGround = Sprite::create("NewUI/title_bg.png") ;
 	if (backGround)
 	{

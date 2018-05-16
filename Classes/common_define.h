@@ -23,6 +23,10 @@ enum STR_ANCHO_TYPE
 #define FRAME_HEIGHT				640.0f
 #define FRAME_WIDTH					960.0f
 
+// 원본 리소스 기준 사이즈
+#define RESOURCE_HEIGHT				320.0f
+#define RESOURCE_WIDTH				480.0f
+
 
 enum TAG
 {

@@ -1,6 +1,7 @@
 #include "AppDelegate.h"
 //#include "HelloWorldScene.h"
 #include "MainScene.h"
+#include "common_define.h"
 
 // #define USE_AUDIO_ENGINE 1
 // #define USE_SIMPLE_AUDIO_ENGINE 1
@@ -19,10 +20,22 @@ using namespace CocosDenshion;
 
 USING_NS_CC;
 
-static cocos2d::Size designResolutionSize = cocos2d::Size(480, 320);
-static cocos2d::Size smallResolutionSize = cocos2d::Size(480, 320);
-static cocos2d::Size mediumResolutionSize = cocos2d::Size(1024, 768);
-static cocos2d::Size largeResolutionSize = cocos2d::Size(2048, 1536);
+
+typedef struct tagResource
+{
+	cocos2d::CCSize size;
+	char directory[128];
+} Resource;
+
+static Resource			resource1 = { cocos2d::Size(960, 640), "iphone4" };
+static Resource			resource2 = { cocos2d::Size(1136, 640), "iphoneSE5678" };
+static Resource			resource3 = { cocos2d::Size(2048 / 2, 1536 / 2), "ipad" };
+static Resource			resource4 = { cocos2d::Size(1704, 960), "iphone6p" };
+static Resource			resource5 = { cocos2d::Size(2436 / 2, 1125 / 2), "iphoneX" };
+
+static cocos2d::Size designResolutionSize = cocos2d::Size(FRAME_WIDTH, FRAME_HEIGHT);
+
+
 
 AppDelegate::AppDelegate()
 {
@@ -58,9 +71,13 @@ bool AppDelegate::applicationDidFinishLaunching() {
     // initialize director
     auto director = Director::getInstance();
     auto glview = director->getOpenGLView();
+
+	// ###################### 사이즈를 픽스한다. #########################
+	auto contSize = resource2.size;
+
     if(!glview) {
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_WIN32) || (CC_TARGET_PLATFORM == CC_PLATFORM_MAC) || (CC_TARGET_PLATFORM == CC_PLATFORM_LINUX)
-        glview = GLViewImpl::createWithRect("Hanoi", cocos2d::Rect(0, 0, designResolutionSize.width, designResolutionSize.height));
+        glview = GLViewImpl::createWithRect("Hanoi", cocos2d::Rect(0, 0, contSize.width, contSize.height));
 #else
         glview = GLViewImpl::create("Hanoi");
 #endif
@@ -73,24 +90,9 @@ bool AppDelegate::applicationDidFinishLaunching() {
     // set FPS. the default value is 1.0/60 if you don't call this
     director->setAnimationInterval(1.0f / 60);
 
-    // Set the design resolution
-    glview->setDesignResolutionSize(designResolutionSize.width, designResolutionSize.height, ResolutionPolicy::SHOW_ALL);
-    auto frameSize = glview->getFrameSize();
-    // if the frame's height is larger than the height of medium size.
-    if (frameSize.height > mediumResolutionSize.height)
-    {        
-        director->setContentScaleFactor(MIN(largeResolutionSize.height/designResolutionSize.height, largeResolutionSize.width/designResolutionSize.width));
-    }
-    // if the frame's height is larger than the height of small size.
-    else if (frameSize.height > smallResolutionSize.height)
-    {        
-        director->setContentScaleFactor(MIN(mediumResolutionSize.height/designResolutionSize.height, mediumResolutionSize.width/designResolutionSize.width));
-    }
-    // if the frame's height is smaller than the height of medium size.
-    else
-    {        
-        director->setContentScaleFactor(MIN(smallResolutionSize.height/designResolutionSize.height, smallResolutionSize.width/designResolutionSize.width));
-    }
+	// Set the design resolution
+	glview->setDesignResolutionSize(RESOURCE_WIDTH, RESOURCE_HEIGHT, ResolutionPolicy::SHOW_ALL);
+
 
     register_all_packages();
 
