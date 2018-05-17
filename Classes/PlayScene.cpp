@@ -122,13 +122,15 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 		imgCount->addChild(text);
 	}
 
+#ifdef LITE_VER
 	if (false == UserDataManager::Instance()->GetCart())
 	{
-		MenuItemImage* pLockMenu = MenuItemImage::create("lock_icon.png", "lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
+		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
 		Menu* pMenu = Menu::create(pLockMenu, NULL);
 		pMenu->setPosition(ccp(105, 200));
 		this->addChild(pMenu);
 	}
+#endif //LITE_VER
 
 	return true;
 }

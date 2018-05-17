@@ -2,6 +2,10 @@
 //#include "HelloWorldScene.h"
 #include "MainScene.h"
 #include "common_define.h"
+#ifdef LITE_VER
+#include "UserDataManager.h"
+#include "MKStoreManager_cpp.h"
+#endif
 
 // #define USE_AUDIO_ENGINE 1
 // #define USE_SIMPLE_AUDIO_ENGINE 1
@@ -102,6 +106,14 @@ bool AppDelegate::applicationDidFinishLaunching() {
 
     // run
     director->runWithScene(scene);
+
+#ifdef LITE_VER
+	CMKStoreManager::Instance()->restorePreviousTransactions();
+	if (CMKStoreManager::Instance()->isFeaturePurchased(kProductIdTotal))
+	{
+		UserDataManager::Instance()->SetCart(true);
+	}
+#endif //LITE_VER
 
     return true;
 }

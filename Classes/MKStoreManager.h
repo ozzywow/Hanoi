@@ -25,25 +25,8 @@
 #import <StoreKit/StoreKit.h>
 #import "MKStoreObserver.h"
 
-#define IPAD_VER
-// CONFIGURATION STARTS -- Change this in your app
-#ifdef IPAD_VER
-#define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
-#define kConsumableBaseFeatureId @"com.ozzywow.kw4ipadlite"
-#define kProductIdStep2 @"com.ozzywow.kw4ipadlite.step2"
-#define kProductIdStep3 @"com.ozzywow.kw4ipadlite.step3"
-#define kProductIdStep4 @"com.ozzywow.kw4ipadlite.step4"
-#define kProductIdStep5 @"com.ozzywow.kw4ipadlite.step5"
-#define kProductIdTotal @"com.ozzywow.kw4ipadlite.total"
-#else //IPAD_VER
-#define BUY_AT_STORE_URL "http://itunes.apple.com/app/id509909625?mt=8"
-#define kConsumableBaseFeatureId @"com.ozzywow.kw4iphonelite"
-#define kProductIdStep2 @"com.ozzywow.kw4iphonelite.step2"
-#define kProductIdStep3 @"com.ozzywow.kw4iphonelite.step3"
-#define kProductIdStep4 @"com.ozzywow.kw4iphonelite.step4"
-#define kProductIdStep5 @"com.ozzywow.kw4iphonelite.step5"
-#define kProductIdTotal @"com.ozzywow.kw4iphonelite.total"
-#endif //IPAD_VER
+
+
 // consumable features should have only number as the last part of the product name
 // MKStoreKit automatically keeps track of the count of your consumable product
 

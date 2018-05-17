@@ -3,11 +3,15 @@
 
 #include <vector>
 #include "cocos2d.h"
+#include "MKStoreManagerDelegate.h"
 using namespace cocos2d;
 
 
 
 class  MainScene : public Scene
+#ifdef LITE_VER
+	, public MKStoreManagerDelegate
+#endif //LITE_VER
 {
 public:
 	static MainScene* createScene()
@@ -24,6 +28,9 @@ public:
 	std::vector<int>	m_arrPrize;
 	
 
+	bool isProgress;
+	bool isRestored;
+
 
 	MainScene();
 	~MainScene();	
@@ -39,6 +46,13 @@ public:
 
 	void callbackOnPushed_startMenuItem(Ref* pSender);	
 	void callbackOnPushed_buyMenuItem(Ref* pSender);
+
+#ifdef LITE_VER
+	virtual void productFetchComplete();
+	virtual void productPurchased(std::string productId);
+	virtual void transactionCanceled();
+	virtual void restorePreviousTransactions(int count);
+#endif //LITE_VER
 	
 };
 

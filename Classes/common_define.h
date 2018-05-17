@@ -5,10 +5,11 @@
 using namespace cocos2d;
 
 #define LITE_VER // LITE version
-#define IPAD_VER // IPAD version
-
-#define MAX_FREE_LEVEL	5
 #define MAX_PLAY_LEVEL	10
+
+#define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
+#define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
+#define kProductIdTotal "com.ozzywow.TowerOfHanoiOlympic.FullVersion"
 
 enum STR_ANCHO_TYPE
 {

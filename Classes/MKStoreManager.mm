@@ -139,13 +139,7 @@ static MKStoreManager* _sharedStoreManager;
 
 -(void) requestProductData
 {
-	SKProductsRequest *request= [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithObjects: 
-								  kProductIdStep2,
-								  kProductIdStep3,
-								kProductIdStep4,
-								kProductIdStep5,
-                                kProductIdTotal,
-								  nil]];
+	SKProductsRequest *request= [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithObjects: kProductIdTotal, nil]];
 	request.delegate = self;
 	[request start];
 }
