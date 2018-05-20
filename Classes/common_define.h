@@ -39,6 +39,7 @@ enum TAG
 	tagCoin,
 	tagPopup,
 	tagCountDown,
+	tagCart,
 };
 
 enum PLAY_STATE

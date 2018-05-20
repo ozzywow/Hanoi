@@ -59,7 +59,7 @@ bool MainScene::init()
 		subMenu->alignItemsVerticallyWithPadding(0);
 		subMenu->setAnchorPoint(Point::ZERO);
 		subMenu->setPosition(100, 70);
-		this->addChild(subMenu, tagInfoText, tagInfoText);
+		this->addChild(subMenu, tagCart, tagCart);
 	}	
 #endif //LITE_VER
 	
@@ -164,11 +164,11 @@ void MainScene::restorePreviousTransactions(int count)
 {
 	if (true == isRestored) { return; }
 
-	cocos2d::log("restorePreviousTransactions");
-
-	CMKStoreManager::Instance()->ToggleIndicator(false);
 	isRestored = true;
 	isProgress = false;
+	if (count == 0)	{ return; }
+	cocos2d::log("restorePreviousTransactions");
+	CMKStoreManager::Instance()->ToggleIndicator(false);	
 	SoundFactory::Instance()->play("move_ok");
 
 	//Purchase items restored.
@@ -179,7 +179,7 @@ void MainScene::restorePreviousTransactions(int count)
 
 
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
-	std::string strMsg = "You can play all levels.";
+	std::string strMsg = "Restored all levels you bought.";
 	Label* pPrizeMsg = Label::create(strMsg, "Arial", 30);
 	pPrizeMsg->setPosition(ccp(180, 130));
 	pMSGBG->addChild(pPrizeMsg);
@@ -188,9 +188,14 @@ void MainScene::restorePreviousTransactions(int count)
 	pMSGBG->setScale(0.5);
 
 
-	auto action = ScaleTo::create(0.1, 1.0);
-	pMSGBG->runAction(action);
+	auto action1 = ScaleTo::create(0.1, 1.0);
+	auto action2 = Blink::create(2, 2);
+	auto action3 = FadeOut::create(1);
+	auto actionSeq = Sequence::create(action1, action2, action3, NULL);
+	pMSGBG->runAction(actionSeq);
 	this->addChild(pMSGBG, tagPopup, tagPopup);
+
+	this->removeChildByTag(tagCart);
 
 }
 #endif //LITE_VER
