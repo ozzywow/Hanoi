@@ -31,14 +31,14 @@ enum STR_ANCHO_TYPE
 
 enum TAG
 {
-	tagBG,
+	tagBG,	
 	tagInfoText,
 	tagSelectionMark,
 	tagDiscus,
 	tagTouchingLayer,
 	tagCoin,
 	tagPopup,
-	tagCountDown,
+	tagCountDown,	
 	tagCart,
 };
 

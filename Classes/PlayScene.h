@@ -77,7 +77,7 @@ public:
 	void callbackOnPushed_nextMenuItem(Ref* sender);
 	void callbackOnPushed_speakerMenuItem(Ref* sender);
 	void callbackNeedCoinBtn(Ref* sender) {};	
-	void callbackLockBtn(Ref* sender) {};
+	void callbackLockBtn(Ref* sender);
 };
 
 

@@ -4,6 +4,7 @@
 #include "PlayScene.h"
 #include "Discus.h"
 #include "SoundFactory.h"
+#include "UserDataManager.h"
 
 
 void PlaySceneTouchHandlerLayer::Reset()
@@ -61,6 +62,12 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 	
 	if (NONE == m_pPlayScene->GetPlayState()) 
 	{
+		if (false == UserDataManager::Instance()->GetCart())
+		{
+			SoundFactory::Instance()->play("Cancel");
+			return true;
+		}
+
 		
 		if (location.x > 50 )
 		{

@@ -5,6 +5,7 @@
 #include "SoundFactory.h"
 #include "MainScene.h"
 #include "UserDataManager.h"
+#include "MKStoreManager_cpp.h"
 
 
 static Point arrPosOfPole[3] ;
@@ -123,12 +124,13 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	}
 
 #ifdef LITE_VER
+	else if(m_countOfDiscus >= 5)
 	if (false == UserDataManager::Instance()->GetCart())
 	{
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
 		Menu* pMenu = Menu::create(pLockMenu, NULL);
 		pMenu->setPosition(ccp(105, 200));
-		this->addChild(pMenu);
+		this->addChild(pMenu, tagCart, tagCart);
 	}
 #endif //LITE_VER
 
@@ -701,3 +703,10 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 	
 }
 
+
+
+void PlayScene::callbackLockBtn(Ref* sender)
+{
+	SoundFactory::Instance()->play("drop_coin");
+	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+}
