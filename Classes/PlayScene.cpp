@@ -713,6 +713,7 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 
 void PlayScene::callbackLockBtn(Ref* sender)
 {	
+	SoundFactory::Instance()->play("move_ok");
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
 }
 
