@@ -134,9 +134,12 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	if (false == UserDataManager::Instance()->GetCart())
 	{
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
-		Menu* pMenu = Menu::create(pLockMenu, NULL);
+		Menu* pMenu = Menu::create(pLockMenu, NULL);		
 		pMenu->setPosition(ccp(105, 200));
 		this->addChild(pMenu, tagCart, tagCart);
+
+		auto action = Blink::create(10, 10);
+		pMenu->runAction(action);
 	}
 #endif //LITE_VER
 
@@ -713,8 +716,13 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 
 void PlayScene::callbackLockBtn(Ref* sender)
 {	
-	SoundFactory::Instance()->play("move_ok");
+	if (true == isProgress) { return;  }
+	isProgress = true;
+	
+	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+
+	SoundFactory::Instance()->play("FX0070", 0.4);
 }
 
 
@@ -725,8 +733,7 @@ void PlayScene::productFetchComplete()
 {
 	cocos2d::log("productFetchComplete");
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	isProgress = false;
-	SoundFactory::Instance()->play("move_ok");
+	isProgress = false;	
 }
 void PlayScene::productPurchased(std::string productId)
 {
@@ -756,8 +763,7 @@ void PlayScene::transactionCanceled()
 {
 	cocos2d::log("transactionCanceled");
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	isProgress = false;
-	SoundFactory::Instance()->play("Cancel");
+	isProgress = false;	
 }
 
 void PlayScene::restorePreviousTransactions(int count)
@@ -769,7 +775,7 @@ void PlayScene::restorePreviousTransactions(int count)
 	if (count == 0) { return; }
 	cocos2d::log("restorePreviousTransactions");
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	SoundFactory::Instance()->play("move_ok");
+	SoundFactory::Instance()->play("FX0070", 0.4);
 
 	//Purchase items restored.
 	auto director = Director::getInstance();

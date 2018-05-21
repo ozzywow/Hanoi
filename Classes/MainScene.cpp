@@ -130,6 +130,10 @@ void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 void MainScene::callbackOnPushed_buyMenuItem(Ref* pSender)
 {
 #ifdef LITE_VER
+	if (true == isProgress) { return; }
+	isProgress = true;
+
+	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
 #endif //LITE_VER
 }
@@ -140,8 +144,7 @@ void MainScene::productFetchComplete()
 {
 	cocos2d::log("productFetchComplete");
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	isProgress = false;
-	SoundFactory::Instance()->play("move_ok");
+	isProgress = false;	
 }
 void MainScene::productPurchased(std::string productId)
 {
@@ -151,6 +154,18 @@ void MainScene::productPurchased(std::string productId)
 
 	if (productId == kProductIdTotal)
 	{
+		SoundFactory::Instance()->play("drop_coin");
+		std::string strMsg = "You can play all levels.";
+		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 20));
+		this->addChild(pPrizeMsg);
+
+		auto action1 = ScaleTo::create(0.1, 1.0);
+		auto action2 = Blink::create(4, 4);
+		auto actionSeq = Sequence::create(action1, action2, NULL);
+		pPrizeMsg->runAction(actionSeq);
+		this->removeChildByTag(tagCart);
+
 		UserDataManager::Instance()->SetCart(true);
 	}	
 }
@@ -158,8 +173,7 @@ void MainScene::transactionCanceled()
 {
 	cocos2d::log("transactionCanceled");
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	isProgress = false;
-	SoundFactory::Instance()->play("Cancel");
+	isProgress = false;	
 }
 
 void MainScene::restorePreviousTransactions(int count)
@@ -171,7 +185,7 @@ void MainScene::restorePreviousTransactions(int count)
 	if (count == 0)	{ return; }
 	cocos2d::log("restorePreviousTransactions");
 	CMKStoreManager::Instance()->ToggleIndicator(false);	
-	SoundFactory::Instance()->play("move_ok");
+	SoundFactory::Instance()->play("FX0070", 0.4);
 
 	//Purchase items restored.
 	auto director = Director::getInstance();
