@@ -745,6 +745,7 @@ void PlayScene::productPurchased(std::string productId)
 	{
 		SoundFactory::Instance()->play("drop_coin");
 		UserDataManager::Instance()->SetCart(true);
+		UserDataManager::Instance()->SaveUserData();
 
 		std::string strMsg = "You can play all levels.";
 		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
@@ -756,7 +757,7 @@ void PlayScene::productPurchased(std::string productId)
 		auto actionSeq = Sequence::create(action1, action2, NULL);
 		pPrizeMsg->runAction(actionSeq);
 
-		this->removeChildByTag(tagCart);
+		this->removeChildByTag(tagCart);		
 	}
 }
 void PlayScene::transactionCanceled()
@@ -773,7 +774,13 @@ void PlayScene::restorePreviousTransactions(int count)
 	isRestored = true;
 	isProgress = false;
 	if (count == 0) { return; }
+
 	cocos2d::log("restorePreviousTransactions");
+
+	UserDataManager::Instance()->SetCart(true);
+	UserDataManager::Instance()->SaveUserData();
+
+
 	CMKStoreManager::Instance()->ToggleIndicator(false);
 	SoundFactory::Instance()->play("FX0070", 0.4);
 

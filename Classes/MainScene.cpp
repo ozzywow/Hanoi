@@ -187,6 +187,7 @@ void MainScene::productPurchased(std::string productId)
 		this->removeChildByTag(tagCart);
 
 		UserDataManager::Instance()->SetCart(true);
+		UserDataManager::Instance()->SaveUserData();
 	}	
 }
 void MainScene::transactionCanceled()
@@ -219,6 +220,11 @@ void MainScene::restorePreviousTransactions(int count)
 	}
 
 	cocos2d::log("restorePreviousTransactions");
+
+	UserDataManager::Instance()->SetCart(true);
+	UserDataManager::Instance()->SaveUserData();
+
+
 	CMKStoreManager::Instance()->ToggleIndicator(false);	
 	SoundFactory::Instance()->play("FX0070", 0.4);
 
@@ -240,6 +246,7 @@ void MainScene::restorePreviousTransactions(int count)
 	pPrizeMsg->runAction(actionSeq);	
 
 	this->removeChildByTag(tagCart);
+		
 
 }
 #endif //LITE_VER
