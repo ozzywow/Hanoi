@@ -62,11 +62,15 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 	
 	if (NONE == m_pPlayScene->GetPlayState()) 
 	{
-		if (false == UserDataManager::Instance()->GetCart())
+		if (m_pPlayScene->m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
 		{
-			SoundFactory::Instance()->play("Cancel");
-			return true;
+			if (false == UserDataManager::Instance()->GetCart())
+			{
+				SoundFactory::Instance()->play("Cancel");
+				return true;
+			}
 		}
+		
 
 		
 		if (location.x > 50 )

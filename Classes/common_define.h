@@ -6,6 +6,7 @@ using namespace cocos2d;
 
 #define LITE_VER // LITE version
 #define MAX_PLAY_LEVEL	10
+#define MAX_LIMIT_LEVEL_FOR_LITE 4
 
 #define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"

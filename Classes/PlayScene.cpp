@@ -130,7 +130,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	}
 
 #ifdef LITE_VER
-	else if(m_countOfDiscus >= 5)
+	else if(m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
 	if (false == UserDataManager::Instance()->GetCart())
 	{
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
