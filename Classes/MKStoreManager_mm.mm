@@ -65,7 +65,7 @@ void iosUI::ToggleIndicator(bool lock)
 	if (nil == _activity)
 	{
 		_activity
-			= [[UIActivityIndicatorView alloc] initWithFrame:CGRectMake(320 / 2, 480 / 2, 40.0, 40.0)];
+			= [[UIActivityIndicatorView alloc] initWithFrame:CGRectMake(480 / 2, 320 / 2, 40.0, 40.0)];
 
 		[_rootView addSubview : _activity];
 	}
