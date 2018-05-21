@@ -46,6 +46,7 @@ public:
 
 	void callbackOnPushed_startMenuItem(Ref* pSender);	
 	void callbackOnPushed_buyMenuItem(Ref* pSender);
+	void callbackLockBtn(Ref* sender);
 
 #ifdef LITE_VER
 	virtual void productFetchComplete();

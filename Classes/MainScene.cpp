@@ -54,15 +54,17 @@ bool MainScene::init()
 	if (false == UserDataManager::Instance()->GetCart())
 	{
 		MenuItemImage* cartMenuItem = MenuItemImage::create("NewUI/btn_cart.png", "NewUI/btn_cart_s.png", CC_CALLBACK_1(MainScene::callbackOnPushed_buyMenuItem, this));
+		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(MainScene::callbackLockBtn, this));
 
-		Menu* subMenu = Menu::create(cartMenuItem, NULL);
-		subMenu->alignItemsVerticallyWithPadding(0);
+		Menu* subMenu = Menu::create(cartMenuItem, pLockMenu, NULL);
+		subMenu->alignItemsHorizontallyWithPadding(0);
 		subMenu->setAnchorPoint(Point::ZERO);
 		subMenu->setPosition(100, 70);
 		this->addChild(subMenu, tagCart, tagCart);
-	}	
 
-	CMKStoreManager::Instance()->SetDelegate(this);
+		CMKStoreManager::Instance()->SetDelegate(this);
+	}	
+	
 #endif //LITE_VER
 	
 
@@ -135,8 +137,26 @@ void MainScene::callbackOnPushed_buyMenuItem(Ref* pSender)
 
 	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+
+	SoundFactory::Instance()->play("FX0070", 0.4);
 #endif //LITE_VER
 }
+
+
+
+
+void MainScene::callbackLockBtn(Ref* sender)
+{
+	if (isRestored) { return; }
+	if (true == isProgress) { return; }
+	isProgress = true;	
+
+	CMKStoreManager::Instance()->ToggleIndicator(true);
+	CMKStoreManager::Instance()->restorePreviousTransactions();
+
+	SoundFactory::Instance()->play("FX0070", 0.4);
+}
+
 
 
 #ifdef LITE_VER
@@ -182,7 +202,22 @@ void MainScene::restorePreviousTransactions(int count)
 
 	isRestored = true;
 	isProgress = false;
-	if (count == 0)	{ return; }
+
+	this->removeChildByTag(tagPopup);
+	if (count == 0)	
+	{ 
+		std::string strMsg = "No item you bought.";
+		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 300));
+		this->addChild(pPrizeMsg, tagPopup, tagPopup);
+
+		auto action1 = ScaleTo::create(0.1, 1.0);
+		auto action2 = Blink::create(4, 4);
+		auto actionSeq = Sequence::create(action1, action2, NULL);
+		pPrizeMsg->runAction(actionSeq);
+		return; 
+	}
+
 	cocos2d::log("restorePreviousTransactions");
 	CMKStoreManager::Instance()->ToggleIndicator(false);	
 	SoundFactory::Instance()->play("FX0070", 0.4);
@@ -197,7 +232,7 @@ void MainScene::restorePreviousTransactions(int count)
 	std::string strMsg = "Restored all levels you bought.";
 	Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
 	pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH/2, 300));
-	this->addChild(pPrizeMsg);
+	this->addChild(pPrizeMsg, tagPopup, tagPopup);
 	
 	auto action1 = ScaleTo::create(0.1, 1.0);
 	auto action2 = Blink::create(4, 4);	
