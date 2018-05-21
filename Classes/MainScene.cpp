@@ -54,7 +54,16 @@ bool MainScene::init()
 	if (false == UserDataManager::Instance()->GetCart())
 	{
 		MenuItemImage* cartMenuItem = MenuItemImage::create("NewUI/btn_cart.png", "NewUI/btn_cart_s.png", CC_CALLBACK_1(MainScene::callbackOnPushed_buyMenuItem, this));
+		std::string strBuy = "BUY";
+		auto labelBuy = Label::create(strBuy, "Arial", 10);				
+		labelBuy->setPosition(cartMenuItem->getContentSize().width/2, -5);
+		cartMenuItem->addChild(labelBuy);
+
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(MainScene::callbackLockBtn, this));
+		std::string strRestore = "RESTORE";
+		auto labelRestore = Label::create(strRestore, "Arial", 10);
+		labelRestore->setPosition(pLockMenu->getContentSize().width / 2, -5);
+		pLockMenu->addChild(labelRestore);
 
 		Menu* subMenu = Menu::create(cartMenuItem, pLockMenu, NULL);
 		subMenu->alignItemsHorizontallyWithPadding(0);
