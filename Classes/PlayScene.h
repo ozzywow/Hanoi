@@ -9,8 +9,16 @@ class PlaySceneTouchHandlerLayer;
 class Discus;
 
 class PlayScene : public Scene 
+#ifdef LITE_VER
+	, public MKStoreManagerDelegate
+#endif //LITE_VER
 {
 public:
+
+#ifdef LITE_VER
+	bool isProgress;
+	bool isRestored;
+#endif //LITE_VER
 
 	int									m_countOfDiscus ;
 	std::vector< std::vector<Discus*> >	m_pole ;
@@ -78,6 +86,13 @@ public:
 	void callbackOnPushed_speakerMenuItem(Ref* sender);
 	void callbackNeedCoinBtn(Ref* sender) {};	
 	void callbackLockBtn(Ref* sender);
+
+#ifdef LITE_VER
+	virtual void productFetchComplete();
+	virtual void productPurchased(std::string productId);
+	virtual void transactionCanceled();
+	virtual void restorePreviousTransactions(int count);
+#endif //LITE_VER
 };
 
 

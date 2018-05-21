@@ -113,6 +113,8 @@ bool AppDelegate::applicationDidFinishLaunching() {
 	{
 		UserDataManager::Instance()->SetCart(true);
 	}
+
+	CMKStoreManager::Instance()->SetDelegate((MKStoreManagerDelegate*)scene);
 #endif //LITE_VER
 
     return true;

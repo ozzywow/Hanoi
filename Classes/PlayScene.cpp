@@ -18,6 +18,12 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	{
 		return false;
 	}
+
+#ifdef LITE_VER
+	this->isProgress = false;
+	this->isRestored = false;
+	CMKStoreManager::Instance()->SetDelegate(this);
+#endif //LITE_VER
 	
 	m_countOfDiscus = numOfDiscus;
 

@@ -61,6 +61,8 @@ bool MainScene::init()
 		subMenu->setPosition(100, 70);
 		this->addChild(subMenu, tagCart, tagCart);
 	}	
+
+	CMKStoreManager::Instance()->SetDelegate(this);
 #endif //LITE_VER
 	
 
