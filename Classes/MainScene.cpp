@@ -36,7 +36,7 @@ bool MainScene::init()
 		backGround->setAnchorPoint(Point::ZERO);
 		this->addChild(backGround, tagBG, tagBG);
 	}
-
+	
 
 	m_arrPrize.assign(11, 0);
 
@@ -182,20 +182,14 @@ void MainScene::restorePreviousTransactions(int count)
 
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
 	std::string strMsg = "Restored all levels you bought.";
-	Label* pPrizeMsg = Label::create(strMsg, "Arial", 30);
-	pPrizeMsg->setPosition(ccp(180, 130));
-	pMSGBG->addChild(pPrizeMsg);
-	pMSGBG->setAnchorPoint(ccp(0.5, 0.5));
-	pMSGBG->setPosition(ccp(480 / 2, 320 / 2));
-	pMSGBG->setScale(0.5);
-
-
+	Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
+	pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH/2, 300));
+	this->addChild(pPrizeMsg);
+	
 	auto action1 = ScaleTo::create(0.1, 1.0);
-	auto action2 = Blink::create(2, 2);
-	auto action3 = FadeOut::create(1);
-	auto actionSeq = Sequence::create(action1, action2, action3, NULL);
-	pMSGBG->runAction(actionSeq);
-	this->addChild(pMSGBG, tagPopup, tagPopup);
+	auto action2 = Blink::create(4, 4);	
+	auto actionSeq = Sequence::create(action1, action2, NULL);
+	pPrizeMsg->runAction(actionSeq);	
 
 	this->removeChildByTag(tagCart);
 
