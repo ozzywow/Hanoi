@@ -19,6 +19,7 @@ public:
 	static bool isFeaturePurchased(std::string featureId);
 	static void buyFeature(std::string featureId);
 	static void setDelegate(MKStoreManagerDelegate* delegate);
+	static MKStoreManagerDelegate* getDelegate();
 	static void restorePreviousTransactions();
 #endif 
 };

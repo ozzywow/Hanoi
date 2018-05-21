@@ -152,6 +152,10 @@ PlayScene::~PlayScene()
 	SoundFactory::Instance()->stop("BGM2");
 	m_pole.clear();
 	m_arrDiscurs.clear();
+
+	#ifdef LITE_VER
+	CMKStoreManager::Instance()->SetDelegate(NULL);
+#endif //LITE_VER
 }
 
 

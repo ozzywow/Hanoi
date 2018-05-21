@@ -17,7 +17,9 @@ MainScene::MainScene()
 
 MainScene::~MainScene()
 {
-
+#ifdef LITE_VER
+	CMKStoreManager::Instance()->SetDelegate(NULL);
+#endif //LITE_VER
 }
 
 bool MainScene::init()

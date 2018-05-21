@@ -58,8 +58,9 @@ static MKStoreManager* _sharedStoreManager;
     return _delegate;
 }
 
-+ (void)setDelegate:(id)newDelegate {
-	
++ (void)setDelegate:(id)newDelegate 
+{
+	[_delegate release];
     _delegate = newDelegate;	
 }
 
