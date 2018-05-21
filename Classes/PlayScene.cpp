@@ -712,8 +712,7 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 
 
 void PlayScene::callbackLockBtn(Ref* sender)
-{
-	SoundFactory::Instance()->play("drop_coin");
+{	
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
 }
 
@@ -736,7 +735,9 @@ void PlayScene::productPurchased(std::string productId)
 
 	if (productId == kProductIdTotal)
 	{
+		SoundFactory::Instance()->play("drop_coin");
 		UserDataManager::Instance()->SetCart(true);
+		this->removeChildByTag(tagCart);
 	}
 }
 void PlayScene::transactionCanceled()
