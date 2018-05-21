@@ -619,6 +619,10 @@ bool PlayScene::CheckSuccess()
 
 void PlayScene::callbackOnPushed_homeMenuItem(Ref* pSender)
 {
+#ifdef LITE_VER
+	CMKStoreManager::Instance()->SetDelegate(NULL);
+#endif //LITE_VER
+
 	SoundFactory::Instance()->play("FX0066", 0.3) ;
 	
 	MainScene* mainScene = MainScene::createScene();

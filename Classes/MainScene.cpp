@@ -71,11 +71,9 @@ bool MainScene::init()
 		subMenu->alignItemsHorizontallyWithPadding(0);
 		subMenu->setAnchorPoint(Point::ZERO);
 		subMenu->setPosition(100, 70);
-		this->addChild(subMenu, tagCart, tagCart);
-
-		CMKStoreManager::Instance()->SetDelegate(this);
+		this->addChild(subMenu, tagCart, tagCart);		
 	}	
-	
+	CMKStoreManager::Instance()->SetDelegate(this);
 #endif //LITE_VER
 	
 
@@ -124,6 +122,10 @@ bool MainScene::init()
 
 void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 {
+#ifdef LITE_VER
+	CMKStoreManager::Instance()->SetDelegate(NULL);
+#endif //LITE_VER
+
 	SoundFactory::Instance()->play("FX0066");
 
 	if (m_rankBG)
