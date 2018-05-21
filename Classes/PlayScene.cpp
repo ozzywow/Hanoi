@@ -716,3 +716,73 @@ void PlayScene::callbackLockBtn(Ref* sender)
 	SoundFactory::Instance()->play("drop_coin");
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
 }
+
+
+
+
+#ifdef LITE_VER
+void PlayScene::productFetchComplete()
+{
+	cocos2d::log("productFetchComplete");
+	CMKStoreManager::Instance()->ToggleIndicator(false);
+	isProgress = false;
+	SoundFactory::Instance()->play("move_ok");
+}
+void PlayScene::productPurchased(std::string productId)
+{
+	cocos2d::log("productPurchased /%s", productId.c_str());
+	CMKStoreManager::Instance()->ToggleIndicator(false);
+	isProgress = false;
+
+	if (productId == kProductIdTotal)
+	{
+		UserDataManager::Instance()->SetCart(true);
+	}
+}
+void PlayScene::transactionCanceled()
+{
+	cocos2d::log("transactionCanceled");
+	CMKStoreManager::Instance()->ToggleIndicator(false);
+	isProgress = false;
+	SoundFactory::Instance()->play("Cancel");
+}
+
+void PlayScene::restorePreviousTransactions(int count)
+{
+	if (true == isRestored) { return; }
+
+	isRestored = true;
+	isProgress = false;
+	if (count == 0) { return; }
+	cocos2d::log("restorePreviousTransactions");
+	CMKStoreManager::Instance()->ToggleIndicator(false);
+	SoundFactory::Instance()->play("move_ok");
+
+	//Purchase items restored.
+	auto director = Director::getInstance();
+	auto glview = director->getOpenGLView();
+	auto frameSize = glview->getDesignResolutionSize();
+	const int		sizeOfFont = FRAME_WIDTH*0.05f;
+
+
+	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
+	std::string strMsg = "Restored all levels you bought.";
+	Label* pPrizeMsg = Label::create(strMsg, "Arial", 30);
+	pPrizeMsg->setPosition(ccp(180, 130));
+	pMSGBG->addChild(pPrizeMsg);
+	pMSGBG->setAnchorPoint(ccp(0.5, 0.5));
+	pMSGBG->setPosition(ccp(480 / 2, 320 / 2));
+	pMSGBG->setScale(0.5);
+
+
+	auto action1 = ScaleTo::create(0.1, 1.0);
+	auto action2 = Blink::create(2, 2);
+	auto action3 = FadeOut::create(1);
+	auto actionSeq = Sequence::create(action1, action2, action3, NULL);
+	pMSGBG->runAction(actionSeq);
+	this->addChild(pMSGBG, tagPopup, tagPopup);
+
+	this->removeChildByTag(tagCart);
+
+}
+#endif //LITE_VER

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-
+#include "MKStoreManagerDelegate.h"
 #include "cocos2d.h"
 using namespace cocos2d;
 
