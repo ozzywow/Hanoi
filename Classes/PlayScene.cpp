@@ -737,6 +737,17 @@ void PlayScene::productPurchased(std::string productId)
 	{
 		SoundFactory::Instance()->play("drop_coin");
 		UserDataManager::Instance()->SetCart(true);
+
+		std::string strMsg = "You can play all levels.";
+		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 20));
+		this->addChild(pPrizeMsg);
+
+		auto action1 = ScaleTo::create(0.1, 1.0);
+		auto action2 = Blink::create(4, 4);
+		auto actionSeq = Sequence::create(action1, action2, NULL);
+		pPrizeMsg->runAction(actionSeq);
+
 		this->removeChildByTag(tagCart);
 	}
 }

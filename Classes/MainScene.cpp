@@ -179,8 +179,7 @@ void MainScene::restorePreviousTransactions(int count)
 	auto frameSize = glview->getDesignResolutionSize();
 	const int		sizeOfFont = FRAME_WIDTH*0.05f;
 
-
-	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
+		
 	std::string strMsg = "Restored all levels you bought.";
 	Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
 	pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH/2, 300));
