@@ -35,6 +35,7 @@ public:
 	MainScene();
 	~MainScene();	
 	virtual bool init();
+	virtual void onExitTransitionDidStart();
 	/*
 	void DrawRank(std::vector<int>& scores);
 	void DrawNationRank(std::vector<std::string>& nationRank);

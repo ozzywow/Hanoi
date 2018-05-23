@@ -11,6 +11,16 @@
 static Point arrPosOfPole[3] ;
 
 
+void PlayScene::onExitTransitionDidStart()
+{
+#ifdef LITE_VER
+	this->isProgress = false;
+	this->isRestored = false;
+	CMKStoreManager::Instance()->ToggleIndicator(false);
+#endif //#ifdef LITE_VER
+}
+
+
 
 bool PlayScene::initWithDiscusNum(int numOfDiscus)
 {
@@ -720,11 +730,13 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 
 void PlayScene::callbackLockBtn(Ref* sender)
 {	
+#ifdef LITE_VER
 	if (true == isProgress) { return;  }
 	isProgress = true;
 	
 	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+#endif //LITE_VER
 
 	SoundFactory::Instance()->play("FX0070", 0.4);
 }

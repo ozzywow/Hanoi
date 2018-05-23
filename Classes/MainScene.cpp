@@ -116,12 +116,18 @@ bool MainScene::init()
 }
 
 
+void MainScene::onExitTransitionDidStart()
+{
+#ifdef LITE_VER
+	this->isProgress = false;
+	this->isRestored = false;
+	CMKStoreManager::Instance()->ToggleIndicator(false);	
+#endif //LITE_VER
+}
+
 
 void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 {
-#ifdef LITE_VER
-	CMKStoreManager::Instance()->SetDelegate(NULL);
-#endif //LITE_VER
 
 	SoundFactory::Instance()->play("FX0066");
 
@@ -144,12 +150,11 @@ void MainScene::callbackOnPushed_buyMenuItem(Ref* pSender)
 #ifdef LITE_VER
 	if (true == isProgress) { return; }
 	isProgress = true;
-
 	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+#endif //LITE_VER
 
 	SoundFactory::Instance()->play("FX0070", 0.4);
-#endif //LITE_VER
 }
 
 
@@ -157,12 +162,14 @@ void MainScene::callbackOnPushed_buyMenuItem(Ref* pSender)
 
 void MainScene::callbackLockBtn(Ref* sender)
 {
+#ifdef LITE_VER
 	if (isRestored) { return; }
 	if (true == isProgress) { return; }
 	isProgress = true;	
 
 	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->restorePreviousTransactions();
+#endif //LITE_VER
 
 	SoundFactory::Instance()->play("FX0070", 0.4);
 }

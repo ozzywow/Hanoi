@@ -55,6 +55,8 @@ public:
 
 	~PlayScene();
 
+	virtual void onExitTransitionDidStart();
+
 	bool	initWithDiscusNum(int numOfDiscus);
 	
 	void	DrawMenu(bool SoundOpt);

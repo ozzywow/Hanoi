@@ -4,7 +4,7 @@
 #include "cocos2d.h"
 using namespace cocos2d;
 
-#define LITE_VER // LITE version
+//#define LITE_VER // LITE version
 #define MAX_PLAY_LEVEL	10
 #define MAX_LIMIT_LEVEL_FOR_LITE 4
 
