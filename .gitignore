@@ -34,3 +34,8 @@ proj.win32/Release.win32/
 
 # Claude local settings
 .claude/settings.local.json
+
+# macOS metadata
+.DS_Store
+._.DS_Store
+._*
