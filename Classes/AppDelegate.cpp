@@ -2,6 +2,7 @@
 //#include "HelloWorldScene.h"
 #include "MainScene.h"
 #include "common_define.h"
+#include "SimulatorConfig.h"
 
 
 // #define USE_AUDIO_ENGINE 1
@@ -73,8 +74,11 @@ bool AppDelegate::applicationDidFinishLaunching() {
     auto director = Director::getInstance();
     auto glview = director->getOpenGLView();
 
-	// ###################### ����� �Ƚ��Ѵ�. #########################
-	auto contSize = resource2.size;
+#if (CC_TARGET_PLATFORM == CC_PLATFORM_WIN32) || (CC_TARGET_PLATFORM == CC_PLATFORM_MAC)
+    auto contSize = getSimulatorWindowSize();
+#else
+    auto contSize = resource2.size;
+#endif
 
     if(!glview) {
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_WIN32) || (CC_TARGET_PLATFORM == CC_PLATFORM_MAC) || (CC_TARGET_PLATFORM == CC_PLATFORM_LINUX)
@@ -97,7 +101,7 @@ bool AppDelegate::applicationDidFinishLaunching() {
 
     register_all_packages();
 
-    // create a scene. it's an autorelease object
+    // create a scene. it's an autorelease object  
     //auto scene = HelloWorld::createScene();
 	auto scene = MainScene::createScene();
 

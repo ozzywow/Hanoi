@@ -28,7 +28,8 @@ endif()
 # Resources
 # ------------------------------------------------------------
 set(GAME_RES_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/Resources")
-if(APPLE OR WINDOWS)
+# Apple only: mark resources for bundling into .app
+if(APPLE)
     cocos_mark_multi_resources(common_res_files RES_TO "Resources"
                                FOLDERS ${GAME_RES_FOLDER})
 endif()
@@ -52,6 +53,7 @@ set(GAME_HEADER
     Classes/MKStoreManager_cpp.h
     Classes/MKStoreManager_mm.h
     Classes/MKStoreManagerDelegate.h
+    Classes/SimulatorConfig.h
 )
 
 # ------------------------------------------------------------
@@ -88,7 +90,6 @@ elseif(WINDOWS)
     )
     list(APPEND GAME_SOURCE
         proj.win32/main.cpp
-        ${common_res_files}
     )
 
 elseif(APPLE)
@@ -101,7 +102,6 @@ elseif(APPLE)
         )
         set(APP_UI_RES
             proj.ios_mac/ios/LaunchScreen.storyboard
-            proj.ios_mac/ios/LaunchScreenBackground.png
         )
         list(APPEND GAME_SOURCE
             proj.ios_mac/ios/main.m
@@ -159,9 +159,21 @@ if(APPLE)
     endif()
 elseif(WINDOWS)
     cocos_copy_target_dll(${APP_NAME})
+    # Run from project root so Resources/ is found without copying
+    set_target_properties(${APP_NAME} PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
 endif()
 
-if(LINUX OR WINDOWS)
+if(MACOSX)
+    # Run from project root so Resources/ is found without copying
+    set_target_properties(${APP_NAME} PROPERTIES
+        XCODE_GENERATE_SCHEME YES
+        XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+endif()
+
+if(LINUX)
     cocos_get_resource_path(APP_RES_DIR ${APP_NAME})
     cocos_copy_target_res(${APP_NAME} LINK_TO ${APP_RES_DIR}
                           FOLDERS ${GAME_RES_FOLDER})
