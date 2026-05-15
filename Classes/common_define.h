@@ -4,6 +4,10 @@
 #include "cocos2d.h"
 using namespace cocos2d;
 
+#ifndef _WIN32
+#include <sys/time.h>
+#endif
+
 //#define LITE_VER // LITE version
 #define MAX_PLAY_LEVEL	10
 #define MAX_LIMIT_LEVEL_FOR_LITE 4
@@ -25,7 +29,7 @@ enum STR_ANCHO_TYPE
 #define FRAME_HEIGHT				640.0f
 #define FRAME_WIDTH					960.0f
 
-// ¿øº» ¸®¼Ò½º ±âÁØ »çÀÌÁî
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ò½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 #define RESOURCE_HEIGHT				320.0f
 #define RESOURCE_WIDTH				480.0f
 
@@ -124,12 +128,19 @@ static std::string replace_all(
 
 
 
+#ifdef _WIN32
 static inline unsigned long timeGetTimeEx()
 {
-	struct timeval tv;
-	gettimeofday(&tv, 0);
-	return ((tv.tv_sec * 1000) + (tv.tv_usec / 1000));
-};
+    return static_cast<unsigned long>(GetTickCount());
+}
+#else
+static inline unsigned long timeGetTimeEx()
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return ((tv.tv_sec * 1000) + (tv.tv_usec / 1000));
+}
+#endif
 
 
 

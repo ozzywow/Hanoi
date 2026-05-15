@@ -24,7 +24,7 @@ USING_NS_CC;
 
 typedef struct tagResource
 {
-	cocos2d::CCSize size;
+	cocos2d::Size size;
 	char directory[128];
 } Resource;
 
@@ -73,7 +73,7 @@ bool AppDelegate::applicationDidFinishLaunching() {
     auto director = Director::getInstance();
     auto glview = director->getOpenGLView();
 
-	// ###################### »çÀÌÁî¸¦ ÇÈ½ºÇÑ´Ù. #########################
+	// ###################### ï¿½ï¿½ï¿½ï¿½ï¿½î¸¦ ï¿½È½ï¿½ï¿½Ñ´ï¿½. #########################
 	auto contSize = resource2.size;
 
     if(!glview) {

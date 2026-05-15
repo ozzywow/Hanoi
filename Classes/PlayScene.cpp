@@ -37,9 +37,9 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	
 	m_countOfDiscus = numOfDiscus;
 
-	arrPosOfPole[0] = ccp(105, 140);
-	arrPosOfPole[1] = ccp(241, 140);
-	arrPosOfPole[2] = ccp(377, 140);
+	arrPosOfPole[0] = Vec2(105, 140);
+	arrPosOfPole[1] = Vec2(241, 140);
+	arrPosOfPole[2] = Vec2(377, 140);
 
 	std::vector<Discus*> poleQueue0;
 	std::vector<Discus*> poleQueue1;
@@ -68,9 +68,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	m_selectionMark = Sprite::create("NewUI/block_selectEff.png");
 	if (m_selectionMark)
 	{
-		ccBlendFunc bfMask = ccBlendFunc();
-		bfMask.src = GL_SRC_ALPHA;
-		bfMask.dst = GL_ONE;
+		BlendFunc bfMask = {backend::BlendFactor::SRC_ALPHA, backend::BlendFactor::ONE};
 		m_selectionMark->setBlendFunc(bfMask);
 		m_selectionMark->setOpacity(100);
 		m_selectionMark->setAnchorPoint(Point(0.5, 0));
@@ -81,9 +79,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	m_deselectionMark = Sprite::create("NewUI/block_selectEff.png") ;
 	if (m_deselectionMark)
 	{
-		ccBlendFunc bfMask = ccBlendFunc();
-		bfMask.src = GL_SRC_ALPHA;
-		bfMask.dst = GL_ONE;
+		BlendFunc bfMask = {backend::BlendFactor::SRC_ALPHA, backend::BlendFactor::ONE};
 		m_deselectionMark->setBlendFunc(bfMask);
 		m_deselectionMark->setOpacity(100);
 		m_deselectionMark->setAnchorPoint(Point(0.5, 0));
@@ -93,9 +89,9 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 
 	std::string timeString = StringUtils::format("00:00:00");
-	m_labelTime = Label::create(timeString, "Arial", 20);
-	m_labelTime->setColor(ccc3(255, 255, 255));
-	m_labelTime->setPosition(ccp(415, 310));
+	m_labelTime = Label::createWithSystemFont(timeString, "Arial", 20);
+	m_labelTime->setColor(Color3B(255, 255, 255));
+	m_labelTime->setPosition(Vec2(415, 310));
 	this->addChild(m_labelTime, tagInfoText, tagInfoText);
 
 
@@ -128,14 +124,14 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 		Sprite* imgCount = NULL;
 		imgCount = Sprite::create("NewUI/arrow.png");
 		this->addChild(imgCount, tagCountDown, tagCountDown);
-		imgCount->setAnchorPoint(ccp(0.5, 0.5));
-		imgCount->setPosition(ccp(480 / 2, 220));
+		imgCount->setAnchorPoint(Vec2(0.5, 0.5));
+		imgCount->setPosition(Vec2(480 / 2, 220));
 		
 
 		Sprite* text = NULL;		
 		text = Sprite::create("NewUI/text_en.png");
-		text->setAnchorPoint(ccp(0.5, 0.5));
-		text->setPosition(ccp(imgCount->getContentSize().width / 2, (imgCount->getContentSize().height / 2) - 80));
+		text->setAnchorPoint(Vec2(0.5, 0.5));
+		text->setPosition(Vec2(imgCount->getContentSize().width / 2, (imgCount->getContentSize().height / 2) - 80));
 		imgCount->addChild(text);
 	}
 
@@ -145,7 +141,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	{
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
 		Menu* pMenu = Menu::create(pLockMenu, NULL);		
-		pMenu->setPosition(ccp(105, 200));
+		pMenu->setPosition(Vec2(105, 200));
 		this->addChild(pMenu, tagCart, tagCart);
 
 		auto action = Blink::create(10, 10);
@@ -192,7 +188,7 @@ void	PlayScene::DrawMenu(bool SoundOpt)
 	
 	Menu* mainMenuTop = Menu::create(homeMenuItem, resetMenuItem, nextMenuItem, prevMenuItem, speakerMenuItem, NULL) ;	
 	mainMenuTop->alignItemsVerticallyWithPadding(5);
-	mainMenuTop->setPosition(ccp(20, 220));
+	mainMenuTop->setPosition(Vec2(20, 220));
 	this->addChild(mainMenuTop, 1234, 1234);
 }
 
@@ -289,17 +285,17 @@ void PlayScene::MessagePopup()
 		strMsg = "NEW RECORD!!!";
 	}	
 	
-	Label* pPrizeMsg = Label::create(strMsg, "Arial" , 30);
-	pPrizeMsg->setPosition(ccp(180, 130));
+	Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial" , 30);
+	pPrizeMsg->setPosition(Vec2(180, 130));
 
-	Label* pRecordTime = Label::create(strRecordTime, "Arial", 30);
-	pRecordTime->setPosition(ccp(180, 90));
+	Label* pRecordTime = Label::createWithSystemFont(strRecordTime, "Arial", 30);
+	pRecordTime->setPosition(Vec2(180, 90));
 	
 	pMSGBG->addChild(pPrizeMsg);
 	pMSGBG->addChild(pRecordTime);
 
-	pMSGBG->setAnchorPoint(ccp(0.5, 0.5));
-	pMSGBG->setPosition(ccp(480 / 2, 320 / 2));
+	pMSGBG->setAnchorPoint(Vec2(0.5, 0.5));
+	pMSGBG->setPosition(Vec2(480 / 2, 320 / 2));
 	pMSGBG->setScale(0.5);
 
 
@@ -338,8 +334,8 @@ void	PlayScene::ResetGame()
 	m_touchHanderLayer->Reset();
 	
 	
-	m_selectionMark->setPosition(ccp(500,500));
-	m_deselectionMark->setPosition(ccp(500,500));
+	m_selectionMark->setPosition(Vec2(500,500));
+	m_deselectionMark->setPosition(Vec2(500,500));
 	
 	
 
@@ -371,7 +367,7 @@ void  PlayScene::DrawDiscus()
 		for (auto& it : pole)
 		{
 			Discus* pDiscus = it;
-			Point posOfDiscus = ccp(arrPosOfPole[i].x, arrPosOfPole[i].y + (15 * j));
+			Point posOfDiscus = Vec2(arrPosOfPole[i].x, arrPosOfPole[i].y + (15 * j));
 			pDiscus->setPosition(posOfDiscus);
 			++j;
 		}
@@ -393,9 +389,9 @@ void PlayScene::DrawInfoText ()
 	std::string strLevelInfo = StringUtils::format("%d / %d",m_countOfDiscus, MAX_PLAY_LEVEL-1);
 	if( NULL == m_labelLevel )
 	{
-		m_labelLevel = Label::create(strLevelInfo, "Arial", 20);
-		m_labelLevel->setColor(ccc3(255,255,255));
-		m_labelLevel->setPosition(ccp( 110, 310 ));
+		m_labelLevel = Label::createWithSystemFont(strLevelInfo, "Arial", 20);
+		m_labelLevel->setColor(Color3B(255,255,255));
+		m_labelLevel->setPosition(Vec2( 110, 310 ));
 		this->addChild(m_labelLevel, tagInfoText, tagInfoText);
 	}
 	else 
@@ -409,10 +405,10 @@ void PlayScene::DrawInfoText ()
 	
 	if( NULL == m_labelMoveCount )
 	{
-		m_labelMoveCount = Label::create(strMoveCount, "Arial", 20) ;
-		m_labelMoveCount->setColor(ccc3(255,255,255));
-		m_labelMoveCount->setAnchorPoint(ccp(0, 0.5));
-		m_labelMoveCount->setPosition(ccp( 210, 310 ));
+		m_labelMoveCount = Label::createWithSystemFont(strMoveCount, "Arial", 20) ;
+		m_labelMoveCount->setColor(Color3B(255,255,255));
+		m_labelMoveCount->setAnchorPoint(Vec2(0, 0.5));
+		m_labelMoveCount->setPosition(Vec2( 210, 310 ));
 		this->addChild(m_labelMoveCount, tagInfoText, tagInfoText);
 	}
 	else 
@@ -453,7 +449,7 @@ void PlayScene::CountDown()
 		
 		
 		imgCount = Sprite::create("NewUI/spr_ready.png");
-		imgCount->setPosition(ccp( 480/2, 200 ));
+		imgCount->setPosition(Vec2( 480/2, 200 ));
 		this->addChild(imgCount, tagCountDown, tagCountDown);
 		
 	}
@@ -478,7 +474,7 @@ void PlayScene::CountDown()
 		imgCount = Sprite::create(strCount);
 		if( m_countDown )
 		{
-			imgCount->setPosition(ccp( 480/2, 200 ));
+			imgCount->setPosition(Vec2( 480/2, 200 ));
 			this->addChild(imgCount, tagCountDown, tagCountDown);
 		}
 		
@@ -569,23 +565,23 @@ void PlayScene::SelectPole(int poleID, bool bIsAble)
 	{
 		if( bIsAble )
 		{
-			m_selectionMark->setPosition(ccp( arrPosOfPole[poleID].x, 110));
-			m_deselectionMark->setPosition(ccp(500,500));
+			m_selectionMark->setPosition(Vec2( arrPosOfPole[poleID].x, 110));
+			m_deselectionMark->setPosition(Vec2(500,500));
 			SoundFactory::Instance()->play("select");
 			
 		}
 		else 
 		{
-			m_deselectionMark->setPosition(ccp( arrPosOfPole[poleID].x, 110));
-			m_selectionMark->setPosition(ccp(500,500));
+			m_deselectionMark->setPosition(Vec2( arrPosOfPole[poleID].x, 110));
+			m_selectionMark->setPosition(Vec2(500,500));
 			SoundFactory::Instance()->play("deselect") ;
 		}
 		
 	}
 	else 
 	{
-		m_selectionMark->setPosition(ccp(500,500));
-		m_deselectionMark->setPosition(ccp(500,500));
+		m_selectionMark->setPosition(Vec2(500,500));
+		m_deselectionMark->setPosition(Vec2(500,500));
 	}
 }
 
@@ -764,8 +760,8 @@ void PlayScene::productPurchased(std::string productId)
 		UserDataManager::Instance()->SaveUserData();
 
 		std::string strMsg = "You can play all levels.";
-		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
-		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 20));
+		Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(Vec2(RESOURCE_WIDTH / 2, 20));
 		this->addChild(pPrizeMsg);
 
 		auto action1 = ScaleTo::create(0.1, 1.0);
@@ -809,11 +805,11 @@ void PlayScene::restorePreviousTransactions(int count)
 
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
 	std::string strMsg = "Restored all levels you bought.";
-	Label* pPrizeMsg = Label::create(strMsg, "Arial", 30);
-	pPrizeMsg->setPosition(ccp(180, 130));
+	Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial", 30);
+	pPrizeMsg->setPosition(Vec2(180, 130));
 	pMSGBG->addChild(pPrizeMsg);
-	pMSGBG->setAnchorPoint(ccp(0.5, 0.5));
-	pMSGBG->setPosition(ccp(480 / 2, 320 / 2));
+	pMSGBG->setAnchorPoint(Vec2(0.5, 0.5));
+	pMSGBG->setPosition(Vec2(480 / 2, 320 / 2));
 	pMSGBG->setScale(0.5);
 
 

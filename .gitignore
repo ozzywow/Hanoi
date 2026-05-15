@@ -1,0 +1,36 @@
+# Build artifacts
+build_win32/
+build_mac/
+build_ios/
+build/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Visual Studio
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+.vs/
+
+# Xcode
+*.xcworkspace
+xcuserdata/
+
+# Compiled objects
+*.o
+*.obj
+*.exe
+*.dll
+*.dylib
+*.so
+
+# Cocos2d-x runtime
+proj.win32/Debug.win32/
+proj.win32/Release.win32/
+
+# Claude local settings
+.claude/settings.local.json

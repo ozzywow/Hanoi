@@ -54,13 +54,13 @@ bool MainScene::init()
 	{
 		MenuItemImage* cartMenuItem = MenuItemImage::create("NewUI/btn_cart.png", "NewUI/btn_cart_s.png", CC_CALLBACK_1(MainScene::callbackOnPushed_buyMenuItem, this));
 		std::string strBuy = "BUY";
-		auto labelBuy = Label::create(strBuy, "Arial", 10);				
+		auto labelBuy = Label::createWithSystemFont(strBuy, "Arial", 10);				
 		labelBuy->setPosition(cartMenuItem->getContentSize().width/2, -5);
 		cartMenuItem->addChild(labelBuy);
 
 		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(MainScene::callbackLockBtn, this));
 		std::string strRestore = "RESTORE";
-		auto labelRestore = Label::create(strRestore, "Arial", 10);
+		auto labelRestore = Label::createWithSystemFont(strRestore, "Arial", 10);
 		labelRestore->setPosition(pLockMenu->getContentSize().width / 2, -5);
 		pLockMenu->addChild(labelRestore);
 
@@ -95,9 +95,9 @@ bool MainScene::init()
 			int record = UserDataManager::Instance()->GetBestRecord(level);
 			RecordTime recordTime = getRecordTime(record);
 			std::string strRecord = StringUtils::format("%02d                                         %02d:%02d:%02d", level, recordTime.min, recordTime.sec, recordTime.ms);
-			Label* labelRecord = Label::create(strRecord, "Arial", 14);
-			labelRecord->setAnchorPoint(ccp(0, 0));
-			labelRecord->setPosition(ccp(40, (level * 22) - 20));
+			Label* labelRecord = Label::createWithSystemFont(strRecord, "Arial", 14);
+			labelRecord->setAnchorPoint(Vec2(0, 0));
+			labelRecord->setPosition(Vec2(40, (level * 22) - 20));
 			m_rankBG->addChild(labelRecord);
 		}
 		
@@ -133,7 +133,7 @@ void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 
 	if (m_rankBG)
 	{
-		auto action = MoveTo::create(0.3, ccp(600, 320 - 60));
+		auto action = MoveTo::create(0.3, Vec2(600, 320 - 60));
 		m_rankBG->runAction(action);
 		SoundFactory::Instance()->play("FX0108");
 	}
@@ -193,8 +193,8 @@ void MainScene::productPurchased(std::string productId)
 	{
 		SoundFactory::Instance()->play("drop_coin");
 		std::string strMsg = "You can play all levels.";
-		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
-		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 20));
+		Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(Vec2(RESOURCE_WIDTH / 2, 20));
 		this->addChild(pPrizeMsg);
 
 		auto action1 = ScaleTo::create(0.1, 1.0);
@@ -225,8 +225,8 @@ void MainScene::restorePreviousTransactions(int count)
 	if (count == 0)	
 	{ 
 		std::string strMsg = "No item you bought.";
-		Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
-		pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH / 2, 300));
+		Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial", 20);
+		pPrizeMsg->setPosition(Vec2(RESOURCE_WIDTH / 2, 300));
 		this->addChild(pPrizeMsg, tagPopup, tagPopup);
 
 		auto action1 = ScaleTo::create(0.1, 1.0);
@@ -253,8 +253,8 @@ void MainScene::restorePreviousTransactions(int count)
 
 		
 	std::string strMsg = "Restored all levels you bought.";
-	Label* pPrizeMsg = Label::create(strMsg, "Arial", 20);
-	pPrizeMsg->setPosition(ccp(RESOURCE_WIDTH/2, 300));
+	Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial", 20);
+	pPrizeMsg->setPosition(Vec2(RESOURCE_WIDTH/2, 300));
 	this->addChild(pPrizeMsg, tagPopup, tagPopup);
 	
 	auto action1 = ScaleTo::create(0.1, 1.0);
