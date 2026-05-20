@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.10)
 set(APP_NAME HanoiOlympic)
 project(${APP_NAME})
 
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 if(XCODE)
     if(NOT DEFINED CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET)
         set(CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET 9.0)
@@ -54,6 +58,7 @@ set(GAME_HEADER
     Classes/MKStoreManager_mm.h
     Classes/MKStoreManagerDelegate.h
     Classes/SimulatorConfig.h
+    Classes/LeaderboardManager.h
 )
 
 # ------------------------------------------------------------
@@ -71,6 +76,7 @@ set(GAME_SOURCE
     Classes/stdafx.cpp
     Classes/MKStoreManager_cpp.cpp
     Classes/MKStoreManagerDelegate.cpp
+    Classes/LeaderboardManager.cpp
 )
 
 # ------------------------------------------------------------

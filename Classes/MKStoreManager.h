@@ -1,4 +1,4 @@
-//
+﻿//
 //  StoreManager.h
 //  MKStoreKit
 //

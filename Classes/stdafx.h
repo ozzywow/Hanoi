@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 //#include "KoreanUTF8.h"
 #include "cocos2d.h"

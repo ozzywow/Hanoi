@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "cocostudio/SimpleAudioEngine.h"
 #include "Singleton.h"

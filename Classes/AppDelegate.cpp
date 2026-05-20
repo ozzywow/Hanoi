@@ -1,4 +1,4 @@
-#include "AppDelegate.h"
+﻿#include "AppDelegate.h"
 //#include "HelloWorldScene.h"
 #include "MainScene.h"
 #include "common_define.h"

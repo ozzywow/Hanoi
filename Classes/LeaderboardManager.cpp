@@ -1,0 +1,254 @@
+﻿#include "stdafx.h"
+#include "LeaderboardManager.h"
+#include "UserDataManager.h"
+#include "GameConfig.h"
+#include "common_define.h"
+#include "network/HttpClient.h"
+#include "json/document.h"
+
+using namespace cocos2d;
+using namespace cocos2d::network;
+
+const std::string LeaderboardManager::BASE_URL = "https://" PLAYFAB_TITLE_ID ".playfabapi.com";
+
+std::string LeaderboardManager::statName(int level)
+{
+    return StringUtils::format("BestTime_L%02d", level);
+}
+
+static std::string getOrCreateDeviceId()
+{
+    const char* KEY = "playfab_custom_id";
+    auto ud = UserDefault::getInstance();
+    std::string id = ud->getStringForKey(KEY, "");
+    if (id.empty()) {
+        srand((unsigned int)time(nullptr));
+        id = StringUtils::format("hanoi_%08x%08x", rand(), rand());
+        ud->setStringForKey(KEY, id);
+        ud->flush();
+    }
+    return id;
+}
+
+static std::string escapeJson(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '"')       { out += "\\\""; }
+        else if (c == '\\') { out += "\\\\"; }
+        else                { out += c; }
+    }
+    return out;
+}
+
+LeaderboardManager::LeaderboardManager() {}
+
+void LeaderboardManager::httpPost(const std::string& url,
+                                   const std::string& jsonBody,
+                                   const std::string& authValue,
+                                   std::function<void(bool, const std::string&)> callback)
+{
+    auto req = new HttpRequest();
+    req->setUrl(url);
+    req->setRequestType(HttpRequest::Type::POST);
+
+    std::vector<std::string> headers = {
+        "Content-Type: application/json",
+        "Accept: application/json"
+    };
+    if (!authValue.empty())
+        headers.push_back("X-Authorization: " + authValue);
+
+    req->setHeaders(headers);
+    req->setRequestData(jsonBody.c_str(), jsonBody.size());
+
+    req->setResponseCallback([callback, url](HttpClient*, HttpResponse* response) {
+        if (!response) {
+            log("PlayFab HTTP error: url=%s no response", url.c_str());
+            if (callback) callback(false, "");
+            return;
+        }
+        long httpCode = response->getResponseCode();
+        std::string body;
+        auto* data = response->getResponseData();
+        if (data && !data->empty())
+            body.assign(data->begin(), data->end());
+
+        if (!response->isSucceed() || httpCode != 200) {
+            const char* err = response->getErrorBuffer() ? response->getErrorBuffer() : "";
+            log("PlayFab HTTP %ld: url=%s err=%s body=%.400s", httpCode, url.c_str(), err, body.c_str());
+            if (callback) callback(false, body);
+            return;
+        }
+        if (callback) callback(true, body);
+    });
+
+    HttpClient::getInstance()->sendImmediate(req);
+    req->release();
+}
+
+void LeaderboardManager::login(std::function<void(bool)> callback)
+{
+    if (isLoggedIn()) {
+        if (callback) callback(true);
+        return;
+    }
+
+    std::string customId = getOrCreateDeviceId();
+    std::string displayName = UserDataManager::Instance()->GetUserName();
+
+    std::string body = StringUtils::format(
+        "{\"TitleId\":\"" PLAYFAB_TITLE_ID "\",\"CustomId\":\"%s\",\"CreateAccount\":true}",
+        customId.c_str()
+    );
+
+    httpPost(BASE_URL + "/Client/LoginWithCustomID", body, "",
+        [this, displayName, callback](bool ok, const std::string& resp) {
+            if (!ok) {
+                log("PlayFab login failed");
+                if (callback) callback(false);
+                return;
+            }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) {
+                if (callback) callback(false);
+                return;
+            }
+
+            const auto& data = doc["data"];
+            if (data.HasMember("SessionTicket"))
+                m_sessionTicket = data["SessionTicket"].GetString();
+            if (data.HasMember("PlayFabId"))
+                m_playFabId = data["PlayFabId"].GetString();
+
+            log("PlayFab login OK: %s", m_playFabId.c_str());
+
+            if (!displayName.empty()) {
+                std::string nameBody = StringUtils::format(
+                    "{\"DisplayName\":\"%s\"}", escapeJson(displayName).c_str()
+                );
+                httpPost(BASE_URL + "/Client/UpdateUserTitleDisplayName",
+                         nameBody, m_sessionTicket, nullptr);
+            }
+
+            if (callback) callback(true);
+        });
+}
+
+void LeaderboardManager::submitScore(int level, int scoreMs)
+{
+    if (!isLoggedIn()) {
+        login([this, level, scoreMs](bool ok) {
+            if (ok) submitScore(level, scoreMs);
+        });
+        return;
+    }
+
+    // Skip if scoreMs is worse than the stored best (best was already saved before this call)
+    int best = UserDataManager::Instance()->GetBestRecord(level);
+    if (best > 0 && scoreMs > best) return;
+
+    std::string body = StringUtils::format(
+        "{\"Statistics\":[{\"StatisticName\":\"%s\",\"Value\":%d}]}",
+        statName(level).c_str(), scoreMs
+    );
+
+    httpPost(BASE_URL + "/Client/UpdatePlayerStatistics", body, m_sessionTicket,
+        [level, scoreMs](bool ok, const std::string& resp) {
+            log("PlayFab submitScore L%d %dms: %s | %s",
+                level, scoreMs, ok ? "OK" : "FAIL", resp.c_str());
+        });
+}
+
+void LeaderboardManager::updateDisplayName(const std::string& name)
+{
+    if (!isLoggedIn() || name.empty()) return;
+    std::string body = StringUtils::format(
+        "{\"DisplayName\":\"%s\"}", escapeJson(name).c_str()
+    );
+    httpPost(BASE_URL + "/Client/UpdateUserTitleDisplayName", body, m_sessionTicket,
+        [name](bool ok, const std::string&) {
+            log("PlayFab updateDisplayName '%s': %s", name.c_str(), ok ? "OK" : "FAIL");
+        });
+}
+
+void LeaderboardManager::resetStats()
+{
+    if (!isLoggedIn()) {
+        login([this](bool ok) {
+            if (ok) resetStats();
+        });
+        return;
+    }
+
+    std::string statsJson = "[";
+    for (int level = 3; level < MAX_PLAY_LEVEL; ++level) {
+        if (level > 3) statsJson += ",";
+        statsJson += StringUtils::format("{\"StatisticName\":\"%s\",\"Value\":0}",
+            statName(level).c_str());
+    }
+    statsJson += "]";
+
+    httpPost(BASE_URL + "/Client/UpdatePlayerStatistics",
+        "{\"Statistics\":" + statsJson + "}", m_sessionTicket,
+        [](bool ok, const std::string&) {
+            log("PlayFab resetStats: %s", ok ? "OK" : "FAIL");
+        });
+}
+
+void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
+    std::function<void(const std::vector<LeaderboardEntry>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, maxCount, callback](bool ok) {
+            if (ok) fetchLeaderboard(level, maxCount, callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    std::string body = StringUtils::format(
+        "{\"StatisticName\":\"%s\",\"MaxResultsCount\":%d,\"StartPosition\":0}",
+        statName(level).c_str(), maxCount
+    );
+
+    httpPost(BASE_URL + "/Client/GetLeaderboard", body, m_sessionTicket,
+        [callback, level](bool ok, const std::string& resp) {
+            log("PlayFab fetchLeaderboard L%d: %s | %s",
+                level, ok ? "OK" : "FAIL", resp.substr(0, 300).c_str());
+            std::vector<LeaderboardEntry> entries;
+            if (!ok) {
+                if (callback) callback(entries);
+                return;
+            }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) {
+                if (callback) callback(entries);
+                return;
+            }
+
+            const auto& data = doc["data"];
+            if (!data.HasMember("Leaderboard") || !data["Leaderboard"].IsArray()) {
+                if (callback) callback(entries);
+                return;
+            }
+
+            const auto& lb = data["Leaderboard"];
+            for (rapidjson::SizeType i = 0; i < lb.Size(); i++) {
+                LeaderboardEntry e;
+                e.scoreMs = lb[i]["StatValue"].GetInt();
+                if (e.scoreMs == 0) continue; // 珥덇린?붾맂 ?뚮젅?댁뼱 ?쒖쇅
+                e.rank        = lb[i]["Position"].GetInt() + 1;
+                e.displayName = (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString())
+                                    ? lb[i]["DisplayName"].GetString()
+                                    : "Player";
+                entries.push_back(e);
+            }
+            if (callback) callback(entries);
+        });
+}

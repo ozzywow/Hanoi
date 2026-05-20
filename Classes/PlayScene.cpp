@@ -1,10 +1,11 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "PlayScene.h"
 #include "PlaySceneTouchHandlerLayer.h"
 #include "Discus.h"
 #include "SoundFactory.h"
 #include "MainScene.h"
 #include "UserDataManager.h"
+#include "LeaderboardManager.h"
 #include "MKStoreManager_cpp.h"
 
 
@@ -52,7 +53,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 	
 
-	// 터치 이벤트를 담당할 Layer를 만든 후 GameScene에 넣습니다.	
+	// ?곗튂 ?대깽?몃? ?대떦??Layer瑜?留뚮뱺 ??GameScene???ｌ뒿?덈떎.	
 	m_touchHanderLayer = PlaySceneTouchHandlerLayer::createAppleTouchedHandleLayer(this);
 	this->addChild(m_touchHanderLayer, tagTouchingLayer, tagTouchingLayer);
 
@@ -282,6 +283,7 @@ void PlayScene::MessagePopup()
 			UserDataManager::Instance()->SetLevel(m_countOfDiscus);
 		}
 		UserDataManager::Instance()->SaveUserData();
+		LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
 		strMsg = "NEW RECORD!!!";
 	}	
 	

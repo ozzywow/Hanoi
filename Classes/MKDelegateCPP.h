@@ -1,4 +1,4 @@
-#ifndef MKDELEGATE_CPP_H
+﻿#ifndef MKDELEGATE_CPP_H
 #define MKDELEGATE_CPP_H
 
 #include "MKStoreManager.h"

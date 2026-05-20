@@ -1,4 +1,4 @@
-//
+﻿//
 //  GameConfig.h
 //  Hanoi
 //
@@ -33,5 +33,7 @@
 	#define GAME_AUTOROTATION kGameAutorotationNone
 #endif
 
+
+#define PLAYFAB_TITLE_ID "119C4E"
 
 #endif // __GAME_CONFIG_H

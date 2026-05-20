@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 
 #include <vector>
@@ -45,9 +45,18 @@ public:
 	*/
 	
 
-	void callbackOnPushed_startMenuItem(Ref* pSender);	
+	void callbackOnPushed_startMenuItem(Ref* pSender);
 	void callbackOnPushed_buyMenuItem(Ref* pSender);
 	void callbackLockBtn(Ref* sender);
+	void callbackOnPushed_rankMenuItem(Ref* pSender);
+	void callbackRankPrev(Ref* pSender);
+	void callbackRankNext(Ref* pSender);
+	void callbackOnPushed_resetMenuItem(Ref* pSender);
+
+	void drawOnlineRank(int level);
+	void showNameInputDialog(std::function<void()> onDone = nullptr);
+
+	int m_rankLevel = 3;
 
 #ifdef LITE_VER
 	virtual void productFetchComplete();

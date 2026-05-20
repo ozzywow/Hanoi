@@ -1,4 +1,4 @@
-//
+﻿//
 //  MKStoreObserver.h
 //  MKStoreKit
 //

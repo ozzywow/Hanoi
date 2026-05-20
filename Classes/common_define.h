@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <stdlib.h>
 #include "sys/timeb.h"
 #include "cocos2d.h"
@@ -15,7 +15,7 @@ using namespace cocos2d;
 #define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
 #define kProductIdTotal "com.ozzywow.TowerOfHanoiOlympic.FullVersion"
-
+  
 enum STR_ANCHO_TYPE
 {
 	LEFT,
@@ -29,7 +29,7 @@ enum STR_ANCHO_TYPE
 #define FRAME_HEIGHT				640.0f
 #define FRAME_WIDTH					960.0f
 
-// 원본 리소스 기준 사이즈
+// ?먮낯 由ъ냼??湲곗? ?ъ씠利?
 #define RESOURCE_HEIGHT				320.0f
 #define RESOURCE_WIDTH				480.0f
 

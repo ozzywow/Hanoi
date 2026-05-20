@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "SoundFactory.h"
 
 SoundFactory::SoundFactory(float initVol)

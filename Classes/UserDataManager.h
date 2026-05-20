@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "cocos2d.h"
 using namespace cocos2d;
@@ -44,6 +44,11 @@ public:
 		if (level < 3 || level >= MAX_PLAY_LEVEL) { return ; }
 		m_arrRecord[level] = time;
 	}
+	void ResetRecords()
+	{
+		for (auto& kv : m_arrRecord) kv.second = 0;
+		SaveUserData();
+	}
 
 	bool GetSoundOpt() { return m_soundOption;  }
 	void SetSoundOpt(bool opt) { m_soundOption = opt; }
@@ -52,6 +57,6 @@ public:
 	void SetCart(bool b) { m_cart = b; }
 	bool GetCart() { return m_cart; }
 
-	bool IsProgressing() { return m_isProgress; }
+	bool IsProgressing() { return m_isProgress; } 
 
 };

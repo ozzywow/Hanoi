@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 
 #include "UserDataManager.h"
 
@@ -53,7 +53,7 @@ void UserDataManager::SetUserName(std::string& name)
 	m_userName = name;
 }
 
-std::string& UserDataManager::GetUserName()
+std::string& UserDataManager::GetUserName() 
 {
 	return m_userName;
 }
