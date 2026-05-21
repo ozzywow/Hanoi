@@ -97,6 +97,7 @@ bool AppDelegate::applicationDidFinishLaunching() {
 
 	// Set the design resolution
 	glview->setDesignResolutionSize(RESOURCE_WIDTH, RESOURCE_HEIGHT, ResolutionPolicy::SHOW_ALL);
+	director->setClearColor(Color4F(0.04f, 0.04f, 0.15f, 1.0f));
 
 
     register_all_packages();

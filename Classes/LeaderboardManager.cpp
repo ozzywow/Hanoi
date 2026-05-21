@@ -64,24 +64,28 @@ void LeaderboardManager::httpPost(const std::string& url,
     req->setRequestData(jsonBody.c_str(), jsonBody.size());
 
     req->setResponseCallback([callback, url](HttpClient*, HttpResponse* response) {
+        // This callback may fire on the HTTP worker thread.
+        // Parse the response here, then dispatch to GL thread for all Cocos2d-x/UI work.
+        bool success = false;
+        std::string body;
         if (!response) {
             log("PlayFab HTTP error: url=%s no response", url.c_str());
-            if (callback) callback(false, "");
-            return;
+        } else {
+            long httpCode = response->getResponseCode();
+            auto* data = response->getResponseData();
+            if (data && !data->empty())
+                body.assign(data->begin(), data->end());
+            if (!response->isSucceed() || httpCode != 200) {
+                const char* err = response->getErrorBuffer() ? response->getErrorBuffer() : "";
+                log("PlayFab HTTP %ld: url=%s err=%s body=%.400s", httpCode, url.c_str(), err, body.c_str());
+            } else {
+                success = true;
+            }
         }
-        long httpCode = response->getResponseCode();
-        std::string body;
-        auto* data = response->getResponseData();
-        if (data && !data->empty())
-            body.assign(data->begin(), data->end());
-
-        if (!response->isSucceed() || httpCode != 200) {
-            const char* err = response->getErrorBuffer() ? response->getErrorBuffer() : "";
-            log("PlayFab HTTP %ld: url=%s err=%s body=%.400s", httpCode, url.c_str(), err, body.c_str());
-            if (callback) callback(false, body);
-            return;
-        }
-        if (callback) callback(true, body);
+        Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+            [callback, success, body]() {
+                if (callback) callback(success, body);
+            });
     });
 
     HttpClient::getInstance()->sendImmediate(req);
@@ -165,7 +169,13 @@ void LeaderboardManager::submitScore(int level, int scoreMs)
 
 void LeaderboardManager::updateDisplayName(const std::string& name)
 {
-    if (!isLoggedIn() || name.empty()) return;
+    if (name.empty()) return;
+    if (!isLoggedIn()) {
+        login([this, name](bool ok) {
+            if (ok) updateDisplayName(name);
+        });
+        return;
+    }
     std::string body = StringUtils::format(
         "{\"DisplayName\":\"%s\"}", escapeJson(name).c_str()
     );
@@ -242,7 +252,7 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             for (rapidjson::SizeType i = 0; i < lb.Size(); i++) {
                 LeaderboardEntry e;
                 e.scoreMs = lb[i]["StatValue"].GetInt();
-                if (e.scoreMs == 0) continue; // 珥덇린?붾맂 ?뚮젅?댁뼱 ?쒖쇅
+                if (e.scoreMs == 0) continue; // scoreMs == 0인 항목 스킵
                 e.rank        = lb[i]["Position"].GetInt() + 1;
                 e.displayName = (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString())
                                     ? lb[i]["DisplayName"].GetString()

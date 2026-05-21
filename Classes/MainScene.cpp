@@ -2,7 +2,6 @@
 #include "MainScene.h"
 #include "SoundFactory.h"
 #include "PlayScene.h"
-//#include "RankScene.h"
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
 #include "ui/CocosGUI.h"
@@ -14,7 +13,6 @@ MainScene::MainScene()
 {
 	m_rankTableLayer = NULL;
 	m_rankBG = NULL;
-	m_arrPrize.clear();
 }
 
 MainScene::~MainScene()
@@ -30,7 +28,8 @@ bool MainScene::init()
 
 	this->isProgress = false;
 	this->isRestored = false;
-		
+	m_aliveFlag = std::make_shared<bool>(true);
+
 	Sprite* backGround = Sprite::create("NewUI/title_bg.png") ;
 	if (backGround)
 	{
@@ -39,8 +38,6 @@ bool MainScene::init()
 	}
 	
 
-	m_arrPrize.assign(11, 0);
-
 	MenuItemImage* startMenuItem = MenuItemImage::create("NewUI/btn_start_n.png", "NewUI/btn_start_s.png", CC_CALLBACK_1(MainScene::callbackOnPushed_startMenuItem, this));
 	
 
@@ -48,8 +45,8 @@ bool MainScene::init()
 
 	Menu* mainMenu = Menu::create(startMenuItem, rankMenuItem, NULL);
 	mainMenu->alignItemsVerticallyWithPadding(5);
-	mainMenu->setPosition(100, 140);
 	mainMenu->setAnchorPoint(Point::ZERO);
+	mainMenu->setPosition(100, 180);
 	this->addChild(mainMenu, tagInfoText, tagInfoText);
 
 	auto resetLabel = Label::createWithSystemFont("RESET", "Arial", 12);
@@ -61,9 +58,9 @@ bool MainScene::init()
 	this->addChild(resetMenu, tagInfoText, tagInfoText);
 
 	std::string name = UserDataManager::Instance()->GetUserName();
-		auto nameLabel = Label::createWithSystemFont(name, "Arial", 20);
-		nameLabel->setPosition(Vec2(100, 14));
-		this->addChild(nameLabel);
+	auto nameLabel = Label::createWithSystemFont(name, "Arial", 14);
+	nameLabel->setPosition(Vec2(100, 12)); 
+	this->addChild(nameLabel);
 
 	
 #ifdef LITE_VER
@@ -112,28 +109,9 @@ bool MainScene::init()
 
 		MoveTo* action = MoveTo::create(0.3, Vec2(180, 320 - 60));
 		m_rankBG->runAction(action);
-		m_rankTableLayer->addChild(m_rankBG, tagInfoText, tagInfoText);
-				
-		for (int level = 3; level < MAX_PLAY_LEVEL; ++level)
-		{
-			int record = UserDataManager::Instance()->GetBestRecord(level);
-			RecordTime recordTime = getRecordTime(record);
-			std::string strRecord = StringUtils::format("%02d                                         %02d:%02d:%02d", level, recordTime.min, recordTime.sec, recordTime.ms);
-			Label* labelRecord = Label::createWithSystemFont(strRecord, "Arial", 14);
-			labelRecord->setAnchorPoint(Vec2(0, 0));
-			labelRecord->setPosition(Vec2(40, (level * 22) - 20));
-			m_rankBG->addChild(labelRecord);
-		}
-		
+		m_rankTableLayer->addChild(m_rankBG, tagInfoText, tagInfoText);			
 
-		Label* infoLabel = Label::createWithSystemFont("BEST OF BEST",  "Arial", 20);
-		infoLabel->setPosition(340, 135);
-		this->addChild(infoLabel, tagBG, tagBG);		
-
-		std::string pLevelStr = StringUtils::format("LEVEL %d", level);
-		Label* levelLabel = Label::createWithSystemFont(pLevelStr, "Arial", 20);
-		levelLabel->setPosition(340, 115);
-		this->addChild(levelLabel, tagBG, tagBG);
+		this->drawOnlineRank(level);
 	}
 
 	return true;
@@ -142,10 +120,12 @@ bool MainScene::init()
 
 void MainScene::onExitTransitionDidStart()
 {
+	if (m_aliveFlag) *m_aliveFlag = false;
+
 #ifdef LITE_VER
 	this->isProgress = false;
 	this->isRestored = false;
-	CMKStoreManager::Instance()->ToggleIndicator(false);	
+	CMKStoreManager::Instance()->ToggleIndicator(false);
 #endif //LITE_VER
 }
 
@@ -192,9 +172,7 @@ void MainScene::callbackOnPushed_resetMenuItem(Ref* pSender)
 				m_rankBG->addChild(lbl);
 			}
 		}
-		showNameInputDialog([]() {
-			Director::getInstance()->replaceScene(MainScene::create());
-		});
+		showNameInputDialog();
 	};
 
 	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
@@ -388,23 +366,24 @@ void MainScene::callbackRankNext(Ref* pSender)
 
 void MainScene::drawOnlineRank(int level)
 {
-	// removeAllChildren??m_rankBG瑜??댁젣?섎?濡?癒쇱? ?ъ씤?곕? 臾댄슚??
+	// removeAllChildren 대신 m_rankBG를 직접 해제 (removeAllChildren 사용시 크래시 발생)
 	if (m_rankBG)
 	{
 		m_rankBG->setVisible(false);
 		m_rankBG = nullptr;
 	}
 
-	// 濡쒕뵫 ?쒖떆 (?댁쟾 ?댁슜 吏?곌린)
+	// 로딩 표시 (이전 내용 지우기)
 	m_rankTableLayer->removeAllChildren();
 
 	const int TAG_LOADING = 50;
 
 	Label* loading = Label::createWithSystemFont("Loading...", "Arial", 16);
-	loading->setPosition(Vec2(300, 160));
+	loading->setPosition(Vec2(340, 120));
 	m_rankTableLayer->addChild(loading, 0, TAG_LOADING);
 
-	// prev / next ?ㅻ퉬寃뚯씠??踰꾪듉
+
+	// prev / next 네비게이션 버튼
 	MenuItemImage* prevBtn = MenuItemImage::create(
 		"NewUI/btn_prev.png", "NewUI/btn_prev.png",
 		CC_CALLBACK_1(MainScene::callbackRankPrev, this));
@@ -417,11 +396,13 @@ void MainScene::drawOnlineRank(int level)
 
 	Menu* navMenu = Menu::create(prevBtn, nextBtn, NULL);
 	navMenu->alignItemsHorizontallyWithPadding(10);
-	navMenu->setPosition(Vec2(100, 80));
+	navMenu->setPosition(Vec2(100, 120));
 	m_rankTableLayer->addChild(navMenu);
 
+	auto alive = m_aliveFlag;
 	LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
-		[this, level](const std::vector<LeaderboardEntry>& entries) {
+		[this, alive, level](const std::vector<LeaderboardEntry>& entries) {
+			if (!alive || !*alive) return;
 
 			const int TAG_LOADING = 50;
 			m_rankTableLayer->removeChildByTag(TAG_LOADING);
@@ -431,13 +412,26 @@ void MainScene::drawOnlineRank(int level)
 			if (!bg) return;
 			bg->setAnchorPoint(Point::ANCHOR_TOP_LEFT);
 			bg->setPosition(Vec2(180, 320 - 60));
-			m_rankTableLayer->addChild(bg, 0, tagBG);
+
+			MoveTo* action = MoveTo::create(0.3, Vec2(180, 320 - 60));
+			bg->runAction(action);		
+
+			m_rankTableLayer->addChild(bg, tagBGRankingBoard, tagBGRankingBoard);
 
 			std::string title = StringUtils::format("LEVEL %d  ONLINE RANK", level);
 			Label* titleLabel = Label::createWithSystemFont(title, "Arial", 12);
 			titleLabel->setAnchorPoint(Vec2(0, 0));
 			titleLabel->setPosition(Vec2(40, 230));
 			bg->addChild(titleLabel);
+
+			Label* infoLabel = Label::createWithSystemFont("BEST IN THE WORLD",  "Arial", 20);
+			infoLabel->setPosition(160, 135);
+			bg->addChild(infoLabel, -1);
+
+			std::string pLevelStr = StringUtils::format("LEVEL %d", level);
+			Label* levelLabel = Label::createWithSystemFont(pLevelStr, "Arial", 18);
+			levelLabel->setPosition(160, 115);
+			bg->addChild(levelLabel, -1);
 
 			if (entries.empty()) {
 				Label* noData = Label::createWithSystemFont("No records yet", "Arial", 12);
@@ -473,7 +467,7 @@ void MainScene::drawOnlineRank(int level)
 		});
 }
 
-void MainScene::showNameInputDialog(std::function<void()> onDone)
+void MainScene::showNameInputDialog()
 {
 	const int DIALOG_TAG = 199;
 	const float DW = 230, DH = 95;
@@ -486,7 +480,7 @@ void MainScene::showNameInputDialog(std::function<void()> onDone)
 	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
 	backdrop->addChild(dlg);
 
-	auto prompt = Label::createWithSystemFont("Enter your name:", "Arial", 13);
+	auto prompt = Label::createWithSystemFont("Enter your name (3-12):", "Arial", 13);
 	prompt->setAnchorPoint(Vec2(0, 0.5f));
 	prompt->setPosition(Vec2(10, 75));
 	dlg->addChild(prompt);
@@ -495,29 +489,30 @@ void MainScene::showNameInputDialog(std::function<void()> onDone)
 	auto editBox = cocos2d::ui::EditBox::create(Size(DW - 20, 24), editBg);
 	editBox->setFont("Arial", 13);
 	editBox->setFontColor(Color3B::BLACK);
-	editBox->setPlaceHolder("Player");
+	editBox->setPlaceHolder("3-12 chars");
 	editBox->setMaxLength(12);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
 	editBox->setPosition(Vec2(10, 48));
 	dlg->addChild(editBox);
 
 	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 14);
-	okLabel->setColor(Color3B::YELLOW);
-	auto okBtn = MenuItemLabel::create(okLabel, [this, editBox, onDone](Ref*) {
+	okLabel->setColor(Color3B(100, 100, 100));
+	auto okBtn = MenuItemLabel::create(okLabel, [editBox](Ref*) {
 		std::string name = editBox->getText();
-		if (name.empty()) name = "Player";
 		UserDataManager::Instance()->SetUserName(name);
 		UserDataManager::Instance()->SaveUserData();
-		this->removeChildByTag(199);
-		auto* lm = LeaderboardManager::Instance();
-		if (lm->isLoggedIn())
-			lm->updateDisplayName(name);
-		else
-			lm->login([](bool ok) {
-				log("PlayFab startup login: %s", ok ? "OK" : "FAIL");
-			});
-		if (onDone) onDone();
+		LeaderboardManager::Instance()->updateDisplayName(name);
+		Director::getInstance()->replaceScene(
+			TransitionFade::create(0.3f, MainScene::createScene()));
 	});
+	okBtn->setEnabled(false);
+
+	dlg->schedule([editBox, okBtn, okLabel](float) {
+		bool valid = strlen(editBox->getText()) >= 3;
+		okBtn->setEnabled(valid);
+		okLabel->setColor(valid ? Color3B::YELLOW : Color3B(100, 100, 100));
+	}, 0.05f, CC_REPEAT_FOREVER, 0.f, "nameCheck");
+
 	auto menu = Menu::create(okBtn, nullptr);
 	menu->setPosition(Vec2(DW / 2, 15));
 	dlg->addChild(menu);

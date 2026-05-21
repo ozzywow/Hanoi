@@ -1,7 +1,8 @@
 ﻿#pragma once
 
-
+#include "common_define.h"
 #include <vector>
+#include <memory>
 #include "cocos2d.h"
 #include "MKStoreManagerDelegate.h"
 using namespace cocos2d;
@@ -23,27 +24,16 @@ public:
 
 	Layer*	m_rankTableLayer;
 	Sprite* m_rankBG;
-//CCScene* m_nationRankingBG;
-
-	std::vector<int>	m_arrPrize;
-	
 
 	bool isProgress;
 	bool isRestored;
 
 
 	MainScene();
-	~MainScene();	
+	~MainScene();
 	virtual bool init();
 	virtual void onExitTransitionDidStart();
-	/*
-	void DrawRank(std::vector<int>& scores);
-	void DrawNationRank(std::vector<std::string>& nationRank);
-	void DrawPrize(std::vector<int>& scores);
-	void requestScore(int level);
-	void requestPrize();
-	*/
-	
+
 
 	void callbackOnPushed_startMenuItem(Ref* pSender);
 	void callbackOnPushed_buyMenuItem(Ref* pSender);
@@ -54,9 +44,10 @@ public:
 	void callbackOnPushed_resetMenuItem(Ref* pSender);
 
 	void drawOnlineRank(int level);
-	void showNameInputDialog(std::function<void()> onDone = nullptr);
+	void showNameInputDialog();
 
 	int m_rankLevel = 3;
+	std::shared_ptr<bool> m_aliveFlag;
 
 #ifdef LITE_VER
 	virtual void productFetchComplete();

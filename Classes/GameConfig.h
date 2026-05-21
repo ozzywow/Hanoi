@@ -22,16 +22,8 @@
 //
 // Define here the type of autorotation that you want for your game
 //
-#ifdef KR_VERSION
-	#ifdef AD_VER
-		#define GAME_AUTOROTATION kGameAutorotationUIViewController
-	#else
-		#define GAME_AUTOROTATION kGameAutorotationNone
-	#endif
-#else //KR_VERSION
+#define GAME_AUTOROTATION kGameAutorotationNone
 	
-	#define GAME_AUTOROTATION kGameAutorotationNone
-#endif
 
 
 #define PLAYFAB_TITLE_ID "119C4E"

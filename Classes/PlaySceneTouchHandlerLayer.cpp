@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 
 #include "PlaySceneTouchHandlerLayer.h"
 #include "PlayScene.h"
@@ -54,7 +54,7 @@ int PlaySceneTouchHandlerLayer::GetTouchedPoleID(Point convertedLocation)
 
 
 ///////////////
-// 泥섏쓬 ?먭??쎌씠 ?붾㈃???용뒗 ?쒓컙 ?몄텧?⑸땲??
+// 처음 손가락이 화면에 닿는 순간 호출됩니다.
 bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 {	
 	Point location = touch->getLocation();
@@ -102,12 +102,11 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 	int touchedPoleID = GetTouchedPoleID(location) ;
 	if( touchedPoleID != -1 )
 	{	
-		// ?대? ?먮컲???좏깮?섏뼱?덈뒗 ?곹깭
-		if( m_pTouchingDiscus != NULL && true == m_pTouchingDiscus->IsTouching()) 
+		// 이미 원반이 선택되어있는 상태
+		if( m_pTouchingDiscus != NULL && true == m_pTouchingDiscus->IsTouching())
 		{
-			int touchedPoleID = GetTouchedPoleID(location) ;
 			if( touchedPoleID != -1 )
-			{					
+			{
 				bool isAbleToMove = m_pPlayScene->IsAbleToMoveDiscus(m_pTouchingDiscus, touchedPoleID) ;
 				if (isAbleToMove) 
 				{
@@ -132,11 +131,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 			if( pTouchedDiscus )
 			{
 				pTouchedDiscus->SetTouchingState(true);
-				int touchedPoleID = GetTouchedPoleID(location) ;
-				if( touchedPoleID != -1 )
-				{	
-					m_pPlayScene->SelectPole(touchedPoleID, true);
-				}
+				m_pPlayScene->SelectPole(touchedPoleID, true);
 			}
 		}
 
@@ -151,9 +146,9 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 }
 
 
-// ?먭??쎌쓣 ?붾㈃?먯꽌 ?쇱??딄퀬 ?대━?由??吏곸씪 ??怨꾩냽?댁꽌 ?몄텧?⑸땲??  ?쇰쭏???먯＜ ?몄텧?섎뒓?먮뒗 ?꾩쟻?쇰줈
+// 손가락을 화면에서 떼지않고 이리저리 움직일 때 계속해서 호출됩니다.  얼마나 자주 호출되느냐는 전적으로
 
-// ?대깽?몃? ?몃뱾留곹븯???좏뵆由ъ??댁뀡??Run Loop???щ젮?덉뒿?덈떎.
+// 이벤트를 핸들링하는 애플리케이션의 Run Loop에 달려있습니다.
 
 void PlaySceneTouchHandlerLayer::onTouchMoved(Touch* touch, Event* unused_event)
 {	
@@ -167,7 +162,7 @@ void PlaySceneTouchHandlerLayer::onTouchMoved(Touch* touch, Event* unused_event)
 	Point location = touch->getLocation();
 
 
-	// ???꾩튂媛 ?덈뒗 ?댁뿉 ?꾩떆濡??댄뀒移섑븿..	
+	// 손 위치가 있는 폴에 임시로 어테치함..
 	int touchedPoleID = GetTouchedPoleID(location);
 	if( touchedPoleID != -1 )
 	{	
@@ -178,7 +173,7 @@ void PlaySceneTouchHandlerLayer::onTouchMoved(Touch* touch, Event* unused_event)
 }
 
 
-// ?먭??쎌쓣 ?붾㈃?먯꽌 ?쇰뒗 ?쒓컙 ?몄텧?섎뒗 ?⑥닔?낅땲??
+// 손가락을 화면에서 떼는 순간 호출되는 함수입니다.
 void PlaySceneTouchHandlerLayer::onTouchCancelled(Touch* touch, Event* unused_event)
 {	
 	m_pTouchingDiscus = NULL ;
@@ -206,7 +201,7 @@ void PlaySceneTouchHandlerLayer::onTouchEnded(Touch* touch, Event *unused_event)
 	{
 		if (m_pTouchingDiscus->GetCurrPoleID() == touchedPoleID)
 		{
-			// ?ш린濡?鍮좎?硫?洹몃깷 ?대┃?대씪??嫄곗엫..
+			// 여기로 빠지면 그냥 클릭이라는 거임..
 			return;
 		}
 		else

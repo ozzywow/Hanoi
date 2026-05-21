@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "PlayScene.h"
 #include "PlaySceneTouchHandlerLayer.h"
 #include "Discus.h"
@@ -6,7 +6,9 @@
 #include "MainScene.h"
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
+#ifdef LITE_VER
 #include "MKStoreManager_cpp.h"
+#endif
 
 
 static Point arrPosOfPole[3] ;
@@ -14,6 +16,8 @@ static Point arrPosOfPole[3] ;
 
 void PlayScene::onExitTransitionDidStart()
 {
+	this->stopAllActions();
+
 #ifdef LITE_VER
 	this->isProgress = false;
 	this->isRestored = false;
@@ -53,7 +57,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 	
 
-	// ?곗튂 ?대깽?몃? ?대떦??Layer瑜?留뚮뱺 ??GameScene???ｌ뒿?덈떎.	
+	// 터치 이벤트를 담당할 Layer를 만든 후 GameScene에 넣습니다.
 	m_touchHanderLayer = PlaySceneTouchHandlerLayer::createAppleTouchedHandleLayer(this);
 	this->addChild(m_touchHanderLayer, tagTouchingLayer, tagTouchingLayer);
 
@@ -138,15 +142,17 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 #ifdef LITE_VER
 	else if(m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
-	if (false == UserDataManager::Instance()->GetCart())
 	{
-		MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
-		Menu* pMenu = Menu::create(pLockMenu, NULL);		
-		pMenu->setPosition(Vec2(105, 200));
-		this->addChild(pMenu, tagCart, tagCart);
+		if (false == UserDataManager::Instance()->GetCart())
+		{
+			MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
+			Menu* pMenu = Menu::create(pLockMenu, NULL);
+			pMenu->setPosition(Vec2(105, 200));
+			this->addChild(pMenu, tagCart, tagCart);
 
-		auto action = Blink::create(10, 10);
-		pMenu->runAction(action);
+			auto action = Blink::create(10, 10);
+			pMenu->runAction(action);
+		}
 	}
 #endif //LITE_VER
 
@@ -272,7 +278,7 @@ void PlayScene::MessagePopup()
 	
 	if (m_mastTime < 100) m_mastTime = 100;
 	RecordTime recordTime = getRecordTime(m_mastTime);
-	std::string strRecordTime = StringUtils::format("Record Time  %02d:%02d:%02d", recordTime.min, recordTime.sec, recordTime.sec);
+	std::string strRecordTime = StringUtils::format("Record Time  %02d:%02d:%02d", recordTime.min, recordTime.sec, recordTime.ms);
 	std::string strMsg = "GOOD!!";
 	int bestRecordTime = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	if (bestRecordTime == 0 || (bestRecordTime > 0 && bestRecordTime > m_mastTime))
@@ -797,13 +803,6 @@ void PlayScene::restorePreviousTransactions(int count)
 
 	CMKStoreManager::Instance()->ToggleIndicator(false);
 	SoundFactory::Instance()->play("FX0070", 0.4);
-
-	//Purchase items restored.
-	auto director = Director::getInstance();
-	auto glview = director->getOpenGLView();
-	auto frameSize = glview->getDesignResolutionSize();
-	const int		sizeOfFont = FRAME_WIDTH*0.05f;
-
 
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
 	std::string strMsg = "Restored all levels you bought.";

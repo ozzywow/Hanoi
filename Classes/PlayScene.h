@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "common_define.h"
 #include <vector>
 #include "MKStoreManagerDelegate.h"
 #include "cocos2d.h"
@@ -32,14 +33,12 @@ public:
 	Label*			m_labelMoveCount ;
 	Label*			m_labelLevel ;
 	Label*			m_labelTime;
-	Label*			m_pCoinLabel;
-	
+
 	
 	PLAY_STATE		m_isIng;
 	int				m_dateTime;	
-	Action*			m_actionTimeRun;	
-	Layer*			m_discusLayer;	
-	Layer*			m_coinLayer;	
+	Action*			m_actionTimeRun;
+	Layer*			m_discusLayer;
 	int				m_mastTime;
 	
 	PlaySceneTouchHandlerLayer* m_touchHanderLayer ;
@@ -86,7 +85,6 @@ public:
 	void callbackOnPushed_prevMenuItem(Ref* sender);
 	void callbackOnPushed_nextMenuItem(Ref* sender);
 	void callbackOnPushed_speakerMenuItem(Ref* sender);
-	void callbackNeedCoinBtn(Ref* sender) {};	
 	void callbackLockBtn(Ref* sender);
 
 #ifdef LITE_VER
