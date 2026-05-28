@@ -14,7 +14,7 @@ const std::string LeaderboardManager::BASE_URL = "https://" PLAYFAB_TITLE_ID ".p
 std::string LeaderboardManager::statName(int level)
 {
     return StringUtils::format("BestTime_L%02d", level);
-}
+} 
 
 static std::string getOrCreateDeviceId()
 {

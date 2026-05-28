@@ -9,7 +9,7 @@
 #ifdef LITE_VER
 #include "MKStoreManager_cpp.h"
 #endif
-
+ 
 
 static Point arrPosOfPole[3] ;
 

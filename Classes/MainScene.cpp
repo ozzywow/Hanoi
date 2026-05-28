@@ -476,7 +476,7 @@ void MainScene::drawOnlineRank(int level)
 				bg->addChild(timeLabel);
 			}
 		});
-}
+} 
 
 void MainScene::showNameInputDialog()
 {

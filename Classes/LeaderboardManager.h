@@ -18,16 +18,16 @@ class LeaderboardManager : public Singleton<LeaderboardManager>
 public:
     LeaderboardManager();
 
-    // ?듬챸 濡쒓렇??(CustomID = 湲곌린 怨좎쑀ID, ?먮룞 ?앹꽦)
+    // 익명 로그인 (CustomID = 기기 고유ID, 자동 생성)
     void login(std::function<void(bool)> callback = nullptr);
 
-    // 寃뚯엫 ?꾨즺 ??湲곕줉 ?쒖텧 (媛쒖씤 理쒓퀬 湲곕줉???뚮쭔 ?꾩넚)
+    // 스테이지 완료 시 기록 제출 (로그인 없으면 무시)
     void submitScore(int level, int scoreMs);
 
     void resetStats();
     void updateDisplayName(const std::string& name);
 
-    // ??궧 議고쉶
+    // 리더보드 조회
     void fetchLeaderboard(int level, int maxCount,
                           std::function<void(const std::vector<LeaderboardEntry>&)> callback);
 
