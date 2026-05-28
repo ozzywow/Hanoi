@@ -9,6 +9,7 @@
 struct LeaderboardEntry {
     int         rank;
     std::string displayName;
+    std::string countryCode;  // ISO 2자리 소문자 (e.g., "kr"), 없으면 빈 문자열
     int         scoreMs;
 };
 

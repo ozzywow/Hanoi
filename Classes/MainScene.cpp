@@ -452,10 +452,21 @@ void MainScene::drawOnlineRank(int level)
 				rankLabel->setPosition(Vec2(40, y));
 				bg->addChild(rankLabel);
 
+				if (!e.countryCode.empty()) {
+					std::string flagPath = "flag_icon/" + e.countryCode + ".png";
+					auto flag = Sprite::create(flagPath);
+					if (flag) {
+						flag->setAnchorPoint(Vec2(0, 0.5f));
+						flag->setScale(0.70f);
+						flag->setPosition(Vec2(65, y + 7));
+						bg->addChild(flag);
+					}
+				}
+
 				Label* nameLabel = Label::createWithSystemFont(
 					e.displayName.substr(0, 10), "Arial", 14);
 				nameLabel->setAnchorPoint(Vec2(0, 0));
-				nameLabel->setPosition(Vec2(120, y));
+				nameLabel->setPosition(Vec2(92, y));
 				bg->addChild(nameLabel);
 
 				Label* timeLabel = Label::createWithSystemFont(
@@ -491,6 +502,8 @@ void MainScene::showNameInputDialog()
 	editBox->setFontColor(Color3B::BLACK);
 	editBox->setPlaceHolder("3-12 chars");
 	editBox->setMaxLength(12);
+	editBox->setInputMode(cocos2d::ui::EditBox::InputMode::SINGLE_LINE);
+	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
 	editBox->setPosition(Vec2(10, 48));
 	dlg->addChild(editBox);

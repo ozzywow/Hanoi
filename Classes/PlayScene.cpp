@@ -261,7 +261,9 @@ void PlayScene::Finished()
 	SoundFactory::Instance()->stop("BGM2");
 	
 	
-	m_mastTime = elapsedTime ;
+	m_mastTime = elapsedTime;
+	RecordTime rt = getRecordTime(m_mastTime);
+	m_labelTime->setString(StringUtils::format("%02d:%02d:%02d", rt.min, rt.sec, rt.ms));
 		
 	
 	DelayTime* delay = DelayTime::create(2.0);

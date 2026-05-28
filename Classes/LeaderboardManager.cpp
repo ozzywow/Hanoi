@@ -221,7 +221,8 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
     }
 
     std::string body = StringUtils::format(
-        "{\"StatisticName\":\"%s\",\"MaxResultsCount\":%d,\"StartPosition\":0}",
+        "{\"StatisticName\":\"%s\",\"MaxResultsCount\":%d,\"StartPosition\":0"
+        ",\"ProfileConstraints\":{\"ShowLocations\":true,\"ShowDisplayName\":true}}",
         statName(level).c_str(), maxCount
     );
 
@@ -253,12 +254,39 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
                 LeaderboardEntry e;
                 e.scoreMs = lb[i]["StatValue"].GetInt();
                 if (e.scoreMs == 0) continue; // scoreMs == 0인 항목 스킵
-                e.rank        = lb[i]["Position"].GetInt() + 1;
-                e.displayName = (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString())
-                                    ? lb[i]["DisplayName"].GetString()
-                                    : "Player";
+                // top-level DisplayName 우선, 없으면 Profile.DisplayName
+                if (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString()) {
+                    e.displayName = lb[i]["DisplayName"].GetString();
+                } else if (lb[i].HasMember("Profile") && lb[i]["Profile"].IsObject()
+                           && lb[i]["Profile"].HasMember("DisplayName")
+                           && lb[i]["Profile"]["DisplayName"].IsString()) {
+                    e.displayName = lb[i]["Profile"]["DisplayName"].GetString();
+                } else {
+                    e.displayName = "Player";
+                }
+
+                // Profile.Locations[0].CountryCode 추출 (IP 기반 PlayFab 자동 감지)
+                if (lb[i].HasMember("Profile") && lb[i]["Profile"].IsObject()) {
+                    const auto& profile = lb[i]["Profile"];
+                    if (profile.HasMember("Locations") && profile["Locations"].IsArray()
+                        && profile["Locations"].Size() > 0) {
+                        const auto& loc = profile["Locations"][0];
+                        if (loc.HasMember("CountryCode") && loc["CountryCode"].IsString()) {
+                            std::string code = loc["CountryCode"].GetString();
+                            for (char& c : code) c = (char)tolower((unsigned char)c);
+                            e.countryCode = code;
+                        }
+                    }
+                }
+
                 entries.push_back(e);
             }
+            // 타임어택: 시간이 짧을수록 상위 랭크
+            std::sort(entries.begin(), entries.end(), [](const LeaderboardEntry& a, const LeaderboardEntry& b) {
+                return a.scoreMs < b.scoreMs;
+            });
+            for (size_t i = 0; i < entries.size(); ++i)
+                entries[i].rank = (int)i + 1;
             if (callback) callback(entries);
         });
 }
