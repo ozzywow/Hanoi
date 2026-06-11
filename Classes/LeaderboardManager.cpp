@@ -142,18 +142,22 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
         });
 }
 
-void LeaderboardManager::submitScore(int level, int scoreMs)
+void LeaderboardManager::submitScore(int level, int scoreMs, std::function<void(bool)> callback)
 {
     if (!isLoggedIn()) {
-        login([this, level, scoreMs](bool ok) {
-            if (ok) submitScore(level, scoreMs);
+        login([this, level, scoreMs, callback](bool ok) {
+            if (ok) submitScore(level, scoreMs, callback);
+            else if (callback) callback(false);
         });
         return;
     }
 
     // Skip if scoreMs is worse than the stored best (best was already saved before this call)
     int best = UserDataManager::Instance()->GetBestRecord(level);
-    if (best > 0 && scoreMs > best) return;
+    if (best > 0 && scoreMs > best) {
+        if (callback) callback(true);
+        return;
+    }
 
     std::string body = StringUtils::format(
         "{\"Statistics\":[{\"StatisticName\":\"%s\",\"Value\":%d}]}",
@@ -161,18 +165,23 @@ void LeaderboardManager::submitScore(int level, int scoreMs)
     );
 
     httpPost(BASE_URL + "/Client/UpdatePlayerStatistics", body, m_sessionTicket,
-        [level, scoreMs](bool ok, const std::string& resp) {
+        [level, scoreMs, callback](bool ok, const std::string& resp) {
             log("PlayFab submitScore L%d %dms: %s | %s",
                 level, scoreMs, ok ? "OK" : "FAIL", resp.c_str());
+            if (callback) callback(ok);
         });
 }
 
-void LeaderboardManager::updateDisplayName(const std::string& name)
+void LeaderboardManager::updateDisplayName(const std::string& name, std::function<void(bool)> callback)
 {
-    if (name.empty()) return;
+    if (name.empty()) {
+        if (callback) callback(false);
+        return;
+    }
     if (!isLoggedIn()) {
-        login([this, name](bool ok) {
-            if (ok) updateDisplayName(name);
+        login([this, name, callback](bool ok) {
+            if (ok) updateDisplayName(name, callback);
+            else if (callback) callback(false);
         });
         return;
     }
@@ -180,8 +189,9 @@ void LeaderboardManager::updateDisplayName(const std::string& name)
         "{\"DisplayName\":\"%s\"}", escapeJson(name).c_str()
     );
     httpPost(BASE_URL + "/Client/UpdateUserTitleDisplayName", body, m_sessionTicket,
-        [name](bool ok, const std::string&) {
+        [name, callback](bool ok, const std::string&) {
             log("PlayFab updateDisplayName '%s': %s", name.c_str(), ok ? "OK" : "FAIL");
+            if (callback) callback(ok);
         });
 }
 
@@ -253,7 +263,7 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             for (rapidjson::SizeType i = 0; i < lb.Size(); i++) {
                 LeaderboardEntry e;
                 e.scoreMs = lb[i]["StatValue"].GetInt();
-                if (e.scoreMs == 0) continue; // scoreMs == 0인 항목 스킵
+                if (e.scoreMs == 0 || e.scoreMs >= 3599590) continue; // 0 또는 만료(cloudscript EXPIRED_VAL) 항목 스킵
                 // top-level DisplayName 우선, 없으면 Profile.DisplayName
                 if (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString()) {
                     e.displayName = lb[i]["DisplayName"].GetString();

@@ -21,11 +21,11 @@ public:
     // 익명 로그인 (CustomID = 기기 고유ID, 자동 생성)
     void login(std::function<void(bool)> callback = nullptr);
 
-    // 스테이지 완료 시 기록 제출 (로그인 없으면 무시)
-    void submitScore(int level, int scoreMs);
+    // 스테이지 완료 시 기록 제출 (로그인 없으면 자동 로그인 후 제출)
+    void submitScore(int level, int scoreMs, std::function<void(bool)> callback = nullptr);
 
     void resetStats();
-    void updateDisplayName(const std::string& name);
+    void updateDisplayName(const std::string& name, std::function<void(bool)> callback = nullptr);
 
     // 리더보드 조회
     void fetchLeaderboard(int level, int maxCount,

@@ -61,7 +61,7 @@ bool MainScene::init()
 	auto nameLabel = Label::createWithSystemFont(name, "Arial", 14);
 	nameLabel->setPosition(Vec2(100, 12)); 
 	this->addChild(nameLabel);
-
+ 
 	
 #ifdef LITE_VER
 	if (false == UserDataManager::Instance()->GetCart())
@@ -91,27 +91,32 @@ bool MainScene::init()
 	m_rankTableLayer = Layer::create();
 	this->addChild(m_rankTableLayer, tagInfoText, tagInfoText);
 
-	if (UserDataManager::Instance()->GetUserName().empty())
+	if (UserDataManager::Instance()->GetUserName().empty()) {
+		if (!UserDataManager::Instance()->HasPendingSubmit()) {
+			// 완전 신규 유저 — 첫판 플레이 후 이름 입력
+			scheduleOnce([](float) {
+				Director::getInstance()->replaceScene(
+					TransitionFade::create(0.3f, PlayScene::createScene(3, true)));
+			}, 0.0f, "firstPlay");
+			return true;
+		}
+		// 첫판 완료, 이름 미입력 — 이름 입력창 표시
 		showNameInputDialog();
-	else
-		LeaderboardManager::Instance()->login([](bool ok) {
-			log("PlayFab startup login: %s", ok ? "OK" : "FAIL");
-		});
+	}
 
+	LeaderboardManager::Instance()->login([](bool ok) {
+		log("PlayFab startup login: %s", ok ? "OK" : "FAIL");
+	});
 
 	int level = UserDataManager::Instance()->GetLevel();
-	if (NULL == m_rankBG)
-	{
-		SoundFactory::Instance()->play("FX0108");
-		m_rankBG = Sprite::create("NewUI/top_rank_bg_2.png");
-		m_rankBG->setAnchorPoint(Point::ANCHOR_TOP_LEFT);
-		m_rankBG->setPosition(600, 320 - 60);
+	SoundFactory::Instance()->play("FX0108");
+	this->drawOnlineRank(level);
 
-		MoveTo* action = MoveTo::create(0.3, Vec2(180, 320 - 60));
-		m_rankBG->runAction(action);
-		m_rankTableLayer->addChild(m_rankBG, tagInfoText, tagInfoText);			
-
-		this->drawOnlineRank(level);
+	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 재갱신
+	if (UserDataManager::Instance()->m_justRegistered) {
+		UserDataManager::Instance()->m_justRegistered = false;
+		int lv = level;
+		scheduleOnce([this, lv](float) { drawOnlineRank(lv); }, 2.0f, "refreshRank");
 	}
 
 	return true;
@@ -416,6 +421,7 @@ void MainScene::drawOnlineRank(int level)
 			MoveTo* action = MoveTo::create(0.3, Vec2(180, 320 - 60));
 			bg->runAction(action);		
 
+			m_rankBG = bg;
 			m_rankTableLayer->addChild(bg, tagBGRankingBoard, tagBGRankingBoard);
 
 			std::string title = StringUtils::format("LEVEL %d  ONLINE RANK", level);
@@ -491,7 +497,7 @@ void MainScene::showNameInputDialog()
 	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
 	backdrop->addChild(dlg);
 
-	auto prompt = Label::createWithSystemFont("Enter your name (3-12):", "Arial", 13);
+	auto prompt = Label::createWithSystemFont("Enter your ranker name!", "Arial", 13);
 	prompt->setAnchorPoint(Vec2(0, 0.5f));
 	prompt->setPosition(Vec2(10, 75));
 	dlg->addChild(prompt);
@@ -499,7 +505,8 @@ void MainScene::showNameInputDialog()
 	auto editBg = cocos2d::ui::Scale9Sprite::create("NewUI/text_empty.png");
 	auto editBox = cocos2d::ui::EditBox::create(Size(DW - 20, 24), editBg);
 	editBox->setFont("Arial", 13);
-	editBox->setFontColor(Color3B::BLACK);
+	editBox->setFontColor(Color3B::WHITE);
+	editBox->setPlaceholderFontColor(Color3B(180, 180, 180));
 	editBox->setPlaceHolder("3-12 chars");
 	editBox->setMaxLength(12);
 	editBox->setInputMode(cocos2d::ui::EditBox::InputMode::SINGLE_LINE);
@@ -514,9 +521,28 @@ void MainScene::showNameInputDialog()
 		std::string name = editBox->getText();
 		UserDataManager::Instance()->SetUserName(name);
 		UserDataManager::Instance()->SaveUserData();
-		LeaderboardManager::Instance()->updateDisplayName(name);
-		Director::getInstance()->replaceScene(
-			TransitionFade::create(0.3f, MainScene::createScene()));
+
+		auto* ud = UserDataManager::Instance();
+		int lv = ud->m_pendingSubmitLevel;
+		int tm = ud->m_pendingSubmitTime;
+		bool hasPending = ud->HasPendingSubmit();
+		ud->ClearPendingSubmit();
+
+		// updateDisplayName 완료 → submitScore 완료 → replaceScene 순서로 체이닝
+		LeaderboardManager::Instance()->updateDisplayName(name, [lv, tm, hasPending](bool) {
+			auto goToMain = []() {
+				UserDataManager::Instance()->m_justRegistered = true;
+				Director::getInstance()->replaceScene(
+					TransitionFade::create(0.3f, MainScene::createScene()));
+			};
+			if (hasPending) {
+				LeaderboardManager::Instance()->submitScore(lv, tm, [goToMain](bool) {
+					goToMain();
+				});
+			} else {
+				goToMain();
+			}
+		});
 	});
 	okBtn->setEnabled(false);
 

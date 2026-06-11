@@ -284,16 +284,17 @@ void PlayScene::MessagePopup()
 	std::string strMsg = "GOOD!!";
 	int bestRecordTime = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	if (bestRecordTime == 0 || (bestRecordTime > 0 && bestRecordTime > m_mastTime))
-	{		
+	{
 		UserDataManager::Instance()->SetBestRecord(m_countOfDiscus, m_mastTime);
 		if (m_countOfDiscus < MAX_PLAY_LEVEL)
 		{
 			UserDataManager::Instance()->SetLevel(m_countOfDiscus);
 		}
 		UserDataManager::Instance()->SaveUserData();
-		LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
+		if (!m_isFirstPlay)
+			LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
 		strMsg = "NEW RECORD!!!";
-	}	
+	}
 	
 	Label* pPrizeMsg = Label::createWithSystemFont(strMsg, "Arial" , 30);
 	pPrizeMsg->setPosition(Vec2(180, 130));
@@ -313,6 +314,24 @@ void PlayScene::MessagePopup()
 	pMSGBG->runAction(action);
 
 	this->addChild(pMSGBG, tagPopup, tagPopup);
+
+	if (m_isFirstPlay) {
+		auto hint = Label::createWithSystemFont("Tap to continue", "Arial", 14);
+		hint->setPosition(Vec2(180, 50));
+		hint->setColor(Color3B::YELLOW);
+		pMSGBG->addChild(hint);
+
+		UserDataManager::Instance()->SetPendingSubmit(m_countOfDiscus, m_mastTime);
+
+		auto listener = EventListenerTouchOneByOne::create();
+		listener->setSwallowTouches(true);
+		listener->onTouchBegan = [](Touch*, Event*) {
+			Director::getInstance()->replaceScene(
+				TransitionFade::create(0.3f, MainScene::createScene()));
+			return true;
+		};
+		_eventDispatcher->addEventListenerWithSceneGraphPriority(listener, pMSGBG);
+	}
 }
 
 

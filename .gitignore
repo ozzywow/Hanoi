@@ -39,3 +39,16 @@ proj.win32/Release.win32/
 .DS_Store
 ._.DS_Store
 ._*
+
+# Android local SDK path (machine-specific)
+proj.android/local.properties
+
+# Android Gradle cache
+proj.android/.gradle/
+
+# Android CMake build cache
+proj.android/app/.cxx/
+
+# IDE caches (device streaming, etc.)
+.idea/caches/
+proj.android/.idea/caches/

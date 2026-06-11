@@ -44,9 +44,12 @@ public:
 	PlaySceneTouchHandlerLayer* m_touchHanderLayer ;
 
 
-	static PlayScene* createScene(int numOfDiscus)
+	bool m_isFirstPlay = false;
+
+	static PlayScene* createScene(int numOfDiscus, bool isFirstPlay = false)
 	{
 		PlayScene* pRes = PlayScene::create();
+		pRes->m_isFirstPlay = isFirstPlay;
 		pRes->initWithDiscusNum(numOfDiscus);
 		return pRes;
 	}
