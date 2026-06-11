@@ -59,6 +59,7 @@ set(GAME_HEADER
     Classes/MKStoreManagerDelegate.h
     Classes/SimulatorConfig.h
     Classes/LeaderboardManager.h
+    Classes/AndroidBilling.h
 )
 
 # ------------------------------------------------------------
@@ -84,8 +85,10 @@ set(GAME_SOURCE
 # .m / .mm files are iOS-only — excluded on Win/Mac desktop
 # ------------------------------------------------------------
 if(ANDROID)
-    set(APP_NAME MyGame)
-    list(APPEND GAME_SOURCE proj.android/app/jni/hellocpp/main.cpp)
+    list(APPEND GAME_SOURCE
+        proj.android/app/jni/hellocpp/main.cpp
+        Classes/AndroidBilling.cpp
+    )
 
 elseif(LINUX)
     list(APPEND GAME_SOURCE proj.linux/main.cpp)

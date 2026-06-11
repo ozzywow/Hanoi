@@ -57,6 +57,15 @@ public:
 	void SetCart(bool b) { m_cart = b; }
 	bool GetCart() { return m_cart; }
 
-	bool IsProgressing() { return m_isProgress; } 
+	bool IsProgressing() { return m_isProgress; }
+
+	// In-memory only: score pending submission after first-play name entry
+	int  m_pendingSubmitLevel = 0;
+	int  m_pendingSubmitTime  = 0;
+	bool m_justRegistered     = false;
+
+	void SetPendingSubmit(int level, int time) { m_pendingSubmitLevel = level; m_pendingSubmitTime = time; }
+	bool HasPendingSubmit() const              { return m_pendingSubmitTime > 0; }
+	void ClearPendingSubmit()                  { m_pendingSubmitLevel = 0; m_pendingSubmitTime = 0; }
 
 };

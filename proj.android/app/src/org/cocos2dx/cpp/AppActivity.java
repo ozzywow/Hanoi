@@ -1,0 +1,75 @@
+package org.cocos2dx.cpp;
+
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+
+import org.cocos2dx.lib.Cocos2dxActivity;
+
+public class AppActivity extends Cocos2dxActivity {
+
+    private static AppActivity sInstance;
+    private BillingManager mBillingManager;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        sInstance = this;
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        );
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        );
+
+        super.onCreate(savedInstanceState);
+        mBillingManager = new BillingManager(this);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            );
+        }
+    }
+
+    // Called from C++ via JNI
+    public static void purchaseProduct(final String productId) {
+        if (sInstance == null) return;
+        sInstance.runOnUiThread(() -> {
+            if (sInstance.mBillingManager != null) {
+                sInstance.mBillingManager.purchaseProduct(productId);
+            }
+        });
+    }
+
+    // Called from C++ via JNI
+    public static void restorePurchases() {
+        if (sInstance == null) return;
+        sInstance.runOnUiThread(() -> {
+            if (sInstance.mBillingManager != null) {
+                sInstance.mBillingManager.restorePurchases();
+            }
+        });
+    }
+
+    // Callbacks to C++ (called from BillingManager)
+    public static native void nativeOnPurchaseSuccess(String productId);
+    public static native void nativeOnTransactionCanceled();
+    public static native void nativeOnRestoreComplete(int count);
+}

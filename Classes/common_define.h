@@ -1,10 +1,11 @@
 #pragma once
 #include <stdlib.h>
-#include "sys/timeb.h"
 #include "cocos2d.h"
 using namespace cocos2d;
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <sys/timeb.h>
+#else
 #include <sys/time.h>
 #endif
 
@@ -14,7 +15,11 @@ using namespace cocos2d;
 
 #define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
+#if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
+#define kProductIdTotal "com.ozzywow.nanoi.fullversion"
+#else
 #define kProductIdTotal "com.ozzywow.TowerOfHanoiOlympic.FullVersion"
+#endif
   
 enum STR_ANCHO_TYPE
 {
@@ -76,12 +81,15 @@ static inline unsigned long timeGetTimeEx()
 
 static int getMilliCount()
 {
+#ifdef _WIN32
 	timeb tb;
 	ftime(&tb);
-	int nCount;
-	nCount = tb.millitm + (tb.time & 0xfffff) * 1000;
-	return nCount;
-
+	return (int)(tb.millitm + (tb.time & 0xfffff) * 1000);
+#else
+	struct timeval tv;
+	gettimeofday(&tv, 0);
+	return (int)((tv.tv_sec & 0xfffff) * 1000 + tv.tv_usec / 1000);
+#endif
 }
 
 struct RecordTime
