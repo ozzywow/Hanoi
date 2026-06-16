@@ -461,15 +461,20 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				return;
 			}
 
+			const std::string myId = LeaderboardManager::Instance()->getPlayFabId();
 			for (int i = 0; i < (int)entries.size(); ++i) {
 				const auto& e = entries[i];
 				RecordTime rt = getRecordTime(e.scoreMs);
-				float y = 178 - i * 22;
+				float y = 195 - i * 17;
+				bool isMe = !myId.empty() && (e.playFabId == myId);
+				Color3B rowColor = isMe ? Color3B(255, 215, 0) : Color3B::WHITE;
+				int rowFont = isMe ? 13 : 12;
 
 				Label* rankLabel = Label::createWithSystemFont(
-					StringUtils::format("%d", e.rank), "Arial", 14);
+					StringUtils::format("%d", e.rank), "Arial", rowFont);
 				rankLabel->setAnchorPoint(Vec2(0, 0));
 				rankLabel->setPosition(Vec2(40, y));
+				rankLabel->setColor(rowColor);
 				bg->addChild(rankLabel);
 
 				if (!e.countryCode.empty()) {
@@ -477,22 +482,24 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 					auto flag = Sprite::create(flagPath);
 					if (flag) {
 						flag->setAnchorPoint(Vec2(0, 0.5f));
-						flag->setScale(0.70f);
-						flag->setPosition(Vec2(65, y + 7));
+						flag->setScale(0.60f);
+						flag->setPosition(Vec2(65, y + 6));
 						bg->addChild(flag);
 					}
 				}
 
 				Label* nameLabel = Label::createWithSystemFont(
-					e.displayName.substr(0, 10), "Arial", 14);
+					e.displayName.substr(0, 10), "Arial", rowFont);
 				nameLabel->setAnchorPoint(Vec2(0, 0));
 				nameLabel->setPosition(Vec2(92, y));
+				nameLabel->setColor(rowColor);
 				bg->addChild(nameLabel);
 
 				Label* timeLabel = Label::createWithSystemFont(
-					StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 14);
+					StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", rowFont);
 				timeLabel->setAnchorPoint(Vec2(0, 0));
 				timeLabel->setPosition(Vec2(220, y));
+				timeLabel->setColor(rowColor);
 				bg->addChild(timeLabel);
 			}
 		});
