@@ -369,8 +369,11 @@ void MainScene::callbackRankNext(Ref* pSender)
 	scheduleOnce([this, lv](float) { drawOnlineRank(lv); }, 0.0f, "rankNext");
 }
 
-void MainScene::drawOnlineRank(int level)
+void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 {
+	// 대기 중인 재시도 취소
+	this->unschedule("rankRetry");
+
 	// removeAllChildren 대신 m_rankBG를 직접 해제 (removeAllChildren 사용시 크래시 발생)
 	if (m_rankBG)
 	{
@@ -406,7 +409,7 @@ void MainScene::drawOnlineRank(int level)
 
 	auto alive = m_aliveFlag;
 	LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
-		[this, alive, level](const std::vector<LeaderboardEntry>& entries) {
+		[this, alive, level, retryOnEmpty](const std::vector<LeaderboardEntry>& entries) {
 			if (!alive || !*alive) return;
 
 			const int TAG_LOADING = 50;
@@ -440,10 +443,21 @@ void MainScene::drawOnlineRank(int level)
 			bg->addChild(levelLabel, -1);
 
 			if (entries.empty()) {
-				Label* noData = Label::createWithSystemFont("No records yet", "Arial", 12);
-				noData->setAnchorPoint(Vec2(0, 0));
-				noData->setPosition(Vec2(340, 135));
-				bg->addChild(noData);
+				if (retryOnEmpty) {
+					Label* refreshing = Label::createWithSystemFont("Refreshing...", "Arial", 12);
+					refreshing->setAnchorPoint(Vec2(0.5f, 0.5f));
+					refreshing->setPosition(Vec2(154, 135));
+					bg->addChild(refreshing);
+					this->scheduleOnce([this, alive, level](float) {
+						if (!alive || !*alive) return;
+						drawOnlineRank(level, false);
+					}, 2.0f, "rankRetry");
+				} else {
+					Label* noData = Label::createWithSystemFont("No records yet", "Arial", 12);
+					noData->setAnchorPoint(Vec2(0.5f, 0.5f));
+					noData->setPosition(Vec2(154, 135));
+					bg->addChild(noData);
+				}
 				return;
 			}
 
@@ -476,7 +490,7 @@ void MainScene::drawOnlineRank(int level)
 				bg->addChild(nameLabel);
 
 				Label* timeLabel = Label::createWithSystemFont(
-					StringUtils::format("%02d:%02d:%02d", rt.min, rt.sec, rt.ms), "Arial", 14);
+					StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 14);
 				timeLabel->setAnchorPoint(Vec2(0, 0));
 				timeLabel->setPosition(Vec2(220, y));
 				bg->addChild(timeLabel);

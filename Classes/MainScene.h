@@ -43,7 +43,7 @@ public:
 	void callbackRankNext(Ref* pSender);
 	void callbackOnPushed_resetMenuItem(Ref* pSender);
 
-	void drawOnlineRank(int level);
+	void drawOnlineRank(int level, bool retryOnEmpty = true);
 	void showNameInputDialog();
 
 	int m_rankLevel = 3;
