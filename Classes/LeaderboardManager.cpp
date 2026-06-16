@@ -264,6 +264,8 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
                 LeaderboardEntry e;
                 e.scoreMs = lb[i]["StatValue"].GetInt();
                 if (e.scoreMs == 0 || e.scoreMs >= 3599590) continue; // 0 또는 만료(cloudscript EXPIRED_VAL) 항목 스킵
+                if (lb[i].HasMember("PlayFabId") && lb[i]["PlayFabId"].IsString())
+                    e.playFabId = lb[i]["PlayFabId"].GetString();
                 // top-level DisplayName 우선, 없으면 Profile.DisplayName
                 if (lb[i].HasMember("DisplayName") && lb[i]["DisplayName"].IsString()) {
                     e.displayName = lb[i]["DisplayName"].GetString();
