@@ -45,6 +45,7 @@ public:
 
 
 	bool m_isFirstPlay = false;
+	int  m_popupShownTime = 0;
 
 	static PlayScene* createScene(int numOfDiscus, bool isFirstPlay = false)
 	{

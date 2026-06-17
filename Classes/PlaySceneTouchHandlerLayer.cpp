@@ -83,6 +83,9 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 
 	if (COMPLATE == m_pPlayScene->GetPlayState())
 	{
+		int shownTime = m_pPlayScene->m_popupShownTime;
+		if (shownTime == 0 || (getMilliCount() - shownTime) < 2000)
+			return true;
 		m_pPlayScene->InitGame();
 		m_pPlayScene->ResetGame();
 		m_pPlayScene->DrawDiscus();
