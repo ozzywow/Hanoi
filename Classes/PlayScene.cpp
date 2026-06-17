@@ -256,6 +256,7 @@ void PlayScene::Start()
 void PlayScene::Finished()
 {
 	m_isIng = COMPLATE;
+	m_popupShownTime = 0;
 	this->stopAction(m_actionTimeRun);	
 	int elapsedTime = getMilliCount() - m_dateTime;	
 	SoundFactory::Instance()->stop("BGM2");
@@ -275,6 +276,7 @@ void PlayScene::Finished()
 
 void PlayScene::MessagePopup()
 {
+	m_popupShownTime = getMilliCount();
 	SoundFactory::Instance()->play("drop_coin");
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
 	
