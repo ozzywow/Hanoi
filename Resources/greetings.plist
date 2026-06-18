@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+    <dict><key>lang</key><string>KOREAN</string>    <key>text</key><string>안녕하세요</string></dict>
+    <dict><key>lang</key><string>ENGLISH</string>   <key>text</key><string>Hello</string></dict>
+    <dict><key>lang</key><string>JAPANESE</string>  <key>text</key><string>こんにちは</string></dict>
+    <dict><key>lang</key><string>CHINESE</string>   <key>text</key><string>你好</string></dict>
+    <dict><key>lang</key><string>FRENCH</string>    <key>text</key><string>Bonjour</string></dict>
+    <dict><key>lang</key><string>SPANISH</string>   <key>text</key><string>Hola</string></dict>
+    <dict><key>lang</key><string>GERMAN</string>    <key>text</key><string>Hallo</string></dict>
+    <dict><key>lang</key><string>ITALIAN</string>   <key>text</key><string>Ciao</string></dict>
+    <dict><key>lang</key><string>PORTUGUESE</string><key>text</key><string>Olá</string></dict>
+    <dict><key>lang</key><string>RUSSIAN</string>   <key>text</key><string>Привет</string></dict>
+    <dict><key>lang</key><string>ARABIC</string>    <key>text</key><string>مرحبا</string></dict>
+    <dict><key>lang</key><string>THAI</string>      <key>text</key><string>สวัสดี</string></dict>
+    <dict><key>lang</key><string>DUTCH</string>     <key>text</key><string>Hallo</string></dict>
+    <dict><key>lang</key><string>POLISH</string>    <key>text</key><string>Cześć</string></dict>
+    <dict><key>lang</key><string>TURKISH</string>   <key>text</key><string>Merhaba</string></dict>
+    <dict><key>lang</key><string>NORWEGIAN</string> <key>text</key><string>Hei</string></dict>
+    <dict><key>lang</key><string>HUNGARIAN</string> <key>text</key><string>Helló</string></dict>
+    <dict><key>lang</key><string>HINDI</string>     <key>text</key><string>नमस्ते</string></dict>
+    <dict><key>lang</key><string>SWEDISH</string>   <key>text</key><string>Hej</string></dict>
+    <dict><key>lang</key><string>INDONESIAN</string><key>text</key><string>Halo</string></dict>
+    <dict><key>lang</key><string>VIETNAMESE</string><key>text</key><string>Xin chào</string></dict>
+</array>
+</plist>

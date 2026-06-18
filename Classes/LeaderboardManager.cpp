@@ -165,9 +165,14 @@ void LeaderboardManager::submitScore(int level, int scoreMs, std::function<void(
     );
 
     httpPost(BASE_URL + "/Client/UpdatePlayerStatistics", body, m_sessionTicket,
-        [level, scoreMs, callback](bool ok, const std::string& resp) {
+        [this, level, scoreMs, callback](bool ok, const std::string& resp) {
             log("PlayFab submitScore L%d %dms: %s | %s",
                 level, scoreMs, ok ? "OK" : "FAIL", resp.c_str());
+            if (ok) {
+                // 내 기록이 갱신됐으므로 캐시 무효화 후 서버에서 재갱신
+                m_leaderboardCache.erase(level);
+                fetchLeaderboard(level, 10, nullptr);
+            }
             if (callback) callback(ok);
         });
 }
@@ -205,7 +210,7 @@ void LeaderboardManager::resetStats()
     }
 
     std::string statsJson = "[";
-    for (int level = 3; level < MAX_PLAY_LEVEL; ++level) {
+    for (int level = 3; level <= MAX_PLAY_LEVEL; ++level) {
         if (level > 3) statsJson += ",";
         statsJson += StringUtils::format("{\"StatisticName\":\"%s\",\"Value\":0}",
             statName(level).c_str());
@@ -214,8 +219,9 @@ void LeaderboardManager::resetStats()
 
     httpPost(BASE_URL + "/Client/UpdatePlayerStatistics",
         "{\"Statistics\":" + statsJson + "}", m_sessionTicket,
-        [](bool ok, const std::string&) {
+        [this](bool ok, const std::string&) {
             log("PlayFab resetStats: %s", ok ? "OK" : "FAIL");
+            if (ok) m_leaderboardCache.clear();
         });
 }
 
@@ -230,6 +236,23 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
         return;
     }
 
+    // 캐시 확인: CACHE_TTL_HOURS 이내면 캐시 반환
+    auto it = m_leaderboardCache.find(level);
+    if (it != m_leaderboardCache.end()) {
+        double elapsedHours = difftime(time(nullptr), it->second.cachedAt) / 3600.0;
+        if (elapsedHours < CACHE_TTL_HOURS) {
+            log("LeaderboardManager: cache hit L%d (%.2fh old)", level, elapsedHours);
+            if (callback) {
+                // 캐시 히트도 항상 비동기 dispatch — initWithDiscusNum 내 순서 역전 방지
+                auto entries = it->second.entries;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, entries]() { callback(entries); });
+            }
+            return;
+        }
+        log("LeaderboardManager: cache expired L%d (%.2fh old)", level, elapsedHours);
+    }
+
     std::string body = StringUtils::format(
         "{\"StatisticName\":\"%s\",\"MaxResultsCount\":%d,\"StartPosition\":0"
         ",\"ProfileConstraints\":{\"ShowLocations\":true,\"ShowDisplayName\":true}}",
@@ -237,7 +260,7 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
     );
 
     httpPost(BASE_URL + "/Client/GetLeaderboard", body, m_sessionTicket,
-        [callback, level](bool ok, const std::string& resp) {
+        [this, callback, level](bool ok, const std::string& resp) {
             log("PlayFab fetchLeaderboard L%d: %s | %s",
                 level, ok ? "OK" : "FAIL", resp.substr(0, 300).c_str());
             std::vector<LeaderboardEntry> entries;
@@ -299,6 +322,11 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             });
             for (size_t i = 0; i < entries.size(); ++i)
                 entries[i].rank = (int)i + 1;
+
+            // 서버 응답 성공 시 캐시 저장
+            m_leaderboardCache[level] = CacheEntry{ entries, time(nullptr) };
+            log("LeaderboardManager: cached L%d (%d entries)", level, (int)entries.size());
+
             if (callback) callback(entries);
         });
 }

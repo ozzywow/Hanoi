@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <map>
+#include <ctime>
 
 struct LeaderboardEntry {
     int         rank;
@@ -37,9 +39,18 @@ public:
 
     static std::string statName(int level);
 
+    // 캐시 TTL: 이 시간(시간 단위)이 지나면 서버 재질의
+    static constexpr double CACHE_TTL_HOURS = 1.0;
+
 private:
     std::string m_sessionTicket;
     std::string m_playFabId;
+
+    struct CacheEntry {
+        std::vector<LeaderboardEntry> entries;
+        std::time_t cachedAt;
+    };
+    std::map<int, CacheEntry> m_leaderboardCache;
 
     void httpPost(const std::string& url,
                   const std::string& jsonBody,

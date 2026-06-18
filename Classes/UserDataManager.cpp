@@ -24,7 +24,7 @@ void UserDataManager::LoadUserData()
 	m_soundOption = UserDefault::getInstance()->getBoolForKey("soundOption", true);
 	m_cart = UserDefault::getInstance()->getBoolForKey("cart", false);
 
-	for (int level = 3; level < MAX_PLAY_LEVEL; ++level)
+	for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
 	{
 		std::string key = StringUtils::format("level_%d", level);
 		int record = UserDefault::getInstance()->getIntegerForKey(key.c_str(), 0);
@@ -40,7 +40,7 @@ void UserDataManager::SaveUserData()
 	UserDefault::getInstance()->setBoolForKey("soundOption", m_soundOption);
 	UserDefault::getInstance()->setBoolForKey("cart", m_cart);
 
-	for (int level = 3; level < MAX_PLAY_LEVEL; ++level)
+	for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
 	{
 		int record = m_arrRecord[level];
 		std::string key = StringUtils::format("level_%d", level);

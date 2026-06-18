@@ -168,9 +168,14 @@ if(APPLE)
     endif()
 elseif(WINDOWS)
     cocos_copy_target_dll(${APP_NAME})
-    # Run from project root so Resources/ is found without copying
     set_target_properties(${APP_NAME} PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    # Create a junction from each build config output dir to project Resources
+    add_custom_command(TARGET ${APP_NAME} POST_BUILD
+        COMMAND powershell -NoProfile -Command
+            "if (-not (Test-Path '$<TARGET_FILE_DIR:${APP_NAME}>/Resources')) { New-Item -ItemType Junction -Path '$<TARGET_FILE_DIR:${APP_NAME}>/Resources' -Target '${CMAKE_CURRENT_SOURCE_DIR}/Resources' | Out-Null }"
+        COMMENT "Linking Resources -> output dir"
     )
 endif()
 
