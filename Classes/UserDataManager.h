@@ -36,12 +36,12 @@ public:
 
 	int GetBestRecord(int level)
 	{
-		if (level < 3 || level >= MAX_PLAY_LEVEL) { return 0; }
+		if (level < 3 || level > MAX_PLAY_LEVEL) { return 0; }
 		return m_arrRecord[level];
 	}
 	void SetBestRecord(int level, int time)
 	{
-		if (level < 3 || level >= MAX_PLAY_LEVEL) { return ; }
+		if (level < 3 || level > MAX_PLAY_LEVEL) { return ; }
 		m_arrRecord[level] = time;
 	}
 	void ResetRecords()

@@ -4,10 +4,12 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/Classes",
+                "${workspaceFolder}/cocos2d",
                 "${workspaceFolder}/cocos2d/cocos",
                 "${workspaceFolder}/cocos2d/cocos/platform",
                 "${workspaceFolder}/cocos2d/cocos/audio/include",
                 "${workspaceFolder}/cocos2d/cocos/editor-support",
+                "${workspaceFolder}/cocos2d/cocos/ui",
                 "${workspaceFolder}/cocos2d/external",
                 "${workspaceFolder}/cocos2d/external/glfw3/include/win32",
                 "${workspaceFolder}/cocos2d/external/win32-specific/gles/include/OGLES"
@@ -22,8 +24,7 @@
             "compilerPath": "cl.exe",
             "cStandard": "c17",
             "cppStandard": "c++17",
-            "intelliSenseMode": "windows-msvc-x64",
-            "compileCommands": "${workspaceFolder}/build_win32/compile_commands.json"
+            "intelliSenseMode": "windows-msvc-x64"
         }
     ],
     "version": 4

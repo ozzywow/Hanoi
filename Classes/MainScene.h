@@ -23,7 +23,7 @@ public:
 
 
 	Layer*	m_rankTableLayer;
-	Sprite* m_rankBG;
+	Node*   m_rankBG;
 
 	bool isProgress;
 	bool isRestored;
@@ -38,7 +38,6 @@ public:
 	void callbackOnPushed_startMenuItem(Ref* pSender);
 	void callbackOnPushed_buyMenuItem(Ref* pSender);
 	void callbackLockBtn(Ref* sender);
-	void callbackOnPushed_rankMenuItem(Ref* pSender);
 	void callbackRankPrev(Ref* pSender);
 	void callbackRankNext(Ref* pSender);
 	void callbackOnPushed_resetMenuItem(Ref* pSender);
@@ -48,6 +47,15 @@ public:
 
 	int m_rankLevel = 3;
 	std::shared_ptr<bool> m_aliveFlag;
+
+	Label*               m_nameplateLabel   = nullptr;
+	std::string          m_playerDisplayName;
+	std::vector<std::string> m_greetingTexts;
+	int                  m_greetingIndex    = 1;
+	bool                 m_showingPlayerName = false;
+	bool                 m_showNative       = true;
+	void showNextNameplateText();
+	void showResultDialog(const std::string& title, Color3B titleColor, const std::string& msg);
 
 #ifdef LITE_VER
 	virtual void productFetchComplete();
