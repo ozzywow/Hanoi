@@ -2,6 +2,7 @@
 //#include "HelloWorldScene.h"
 #include "MainScene.h"
 #include "common_define.h"
+#include "SoundFactory.h"
 #include "SimulatorConfig.h"
 
 
@@ -105,6 +106,8 @@ bool AppDelegate::applicationDidFinishLaunching() {
     // create a scene. it's an autorelease object  
     //auto scene = HelloWorld::createScene();
 	auto scene = MainScene::createScene();
+
+    SoundFactory::Instance()->setMasterVolume(MASTER_VOLUME);
 
     // run
     director->runWithScene(scene);

@@ -52,3 +52,13 @@ proj.android/app/.cxx/
 # IDE caches (device streaming, etc.)
 .idea/caches/
 proj.android/.idea/caches/
+cloudscript.js
+proj.android/build.gradle
+proj.android/.idea/misc.xml
+proj.android/app/AndroidManifest.xml
+proj.android/app/build.gradle
+proj.android/app/release/HanoiOlympic-release.aab
+proj.android/gradle/wrapper/gradle-wrapper.properties
+
+# Java heap dumps (auto-generated, never commit)
+*.hprof

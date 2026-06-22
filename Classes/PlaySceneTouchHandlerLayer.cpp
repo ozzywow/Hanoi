@@ -66,7 +66,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 		{
 			if (false == UserDataManager::Instance()->GetCart())
 			{
-				SoundFactory::Instance()->play("Cancel");
+				SoundFactory::Instance()->play("efs_cancel_select");
 				return true;
 			}
 		}
@@ -86,10 +86,11 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 		int shownTime = m_pPlayScene->m_popupShownTime;
 		if (shownTime == 0 || (getMilliCount() - shownTime) < 2000)
 			return true;
+		SoundFactory::Instance()->play("efs_click");
 		m_pPlayScene->InitGame();
 		m_pPlayScene->ResetGame();
 		m_pPlayScene->DrawDiscus();
-		m_pPlayScene->DrawInfoText();
+		m_pPlayScene->EnterWaitingState();
 		return true;
 	}
 			
@@ -115,11 +116,11 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 				{
 					m_pPlayScene->AttachDiscusToPole(m_pTouchingDiscus, touchedPoleID) ;
 					m_pPlayScene->SelectPole(touchedPoleID, isAbleToMove);
-					SoundFactory::Instance()->play("move_ok") ;
+					SoundFactory::Instance()->play("efs_move_disc_ok");
 				}
 				else
 				{
-					SoundFactory::Instance()->play("Cancel") ;
+					SoundFactory::Instance()->play("efs_cancel_select") ;
 				}
 			}
 			m_pPlayScene->SelectPole(-1, false);
@@ -135,6 +136,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 			{
 				pTouchedDiscus->SetTouchingState(true);
 				m_pPlayScene->SelectPole(touchedPoleID, true);
+				SoundFactory::Instance()->play("efs_select_disc");
 			}
 		}
 
@@ -215,12 +217,12 @@ void PlaySceneTouchHandlerLayer::onTouchEnded(Touch* touch, Event *unused_event)
 			{
 				m_pPlayScene->AttachDiscusToPole(m_pTouchingDiscus, touchedPoleID);
 				m_pPlayScene->SelectPole(touchedPoleID, isAbleToMove);
-				SoundFactory::Instance()->play("move_ok");
+				SoundFactory::Instance()->play("efs_move_disc_ok");
 			}
 			else
 			{
 				m_pPlayScene->SelectPole(-1, false);
-				SoundFactory::Instance()->play("Cancel");
+				SoundFactory::Instance()->play("efs_cancel_select");
 			}
 
 		}

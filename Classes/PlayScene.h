@@ -77,6 +77,7 @@ public:
 	void	DrawInfoText();
 	void	ResetGame();
 	void	InitGame();
+	void	EnterWaitingState();
 
 	Discus*	GetTopDiscus(int poleID);
 	bool IsAbleToMoveDiscus(Discus* pDiscus, int poleID);

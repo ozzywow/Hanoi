@@ -245,6 +245,9 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             if (callback) {
                 // 캐시 히트도 항상 비동기 dispatch — initWithDiscusNum 내 순서 역전 방지
                 auto entries = it->second.entries;
+                // 캐시는 전체 항목을 보관 — 요청한 개수만큼 잘라 반환
+                if ((int)entries.size() > maxCount)
+                    entries.resize(maxCount);
                 Director::getInstance()->getScheduler()->performFunctionInCocosThread(
                     [callback, entries]() { callback(entries); });
             }
@@ -253,14 +256,20 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
         log("LeaderboardManager: cache expired L%d (%.2fh old)", level, elapsedHours);
     }
 
+    // PlayFab 리더보드는 내림차순(값이 큰 순)으로만 정렬되는데, 이 게임은 타임어택(ms가 작을수록 1위)이라
+    // raw ms 저장 시 진짜 빠른 기록은 리더보드 맨 아래에 위치한다. StartPosition:0에서 maxCount만 받으면
+    // non-zero 기록이 maxCount를 넘는 순간 빠른 기록(=실제 1위)이 조회 윈도우 밖으로 탈락한다.
+    // → 넉넉히 받아온 뒤 오름차순 정렬 후 maxCount로 잘라 반환한다. (cloudscript가 TOP_N=10 유지하므로 20이면 충분)
+    int fetchCount = std::max(maxCount, 20);
+
     std::string body = StringUtils::format(
         "{\"StatisticName\":\"%s\",\"MaxResultsCount\":%d,\"StartPosition\":0"
         ",\"ProfileConstraints\":{\"ShowLocations\":true,\"ShowDisplayName\":true}}",
-        statName(level).c_str(), maxCount
+        statName(level).c_str(), fetchCount
     );
 
     httpPost(BASE_URL + "/Client/GetLeaderboard", body, m_sessionTicket,
-        [this, callback, level](bool ok, const std::string& resp) {
+        [this, callback, level, maxCount](bool ok, const std::string& resp) {
             log("PlayFab fetchLeaderboard L%d: %s | %s",
                 level, ok ? "OK" : "FAIL", resp.substr(0, 300).c_str());
             std::vector<LeaderboardEntry> entries;
@@ -323,9 +332,13 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             for (size_t i = 0; i < entries.size(); ++i)
                 entries[i].rank = (int)i + 1;
 
-            // 서버 응답 성공 시 캐시 저장
+            // 캐시는 전체 항목 저장 (truncate 전) — 이후 maxCount=1 호출이 캐시를 오염시키지 않도록
             m_leaderboardCache[level] = CacheEntry{ entries, time(nullptr) };
             log("LeaderboardManager: cached L%d (%d entries)", level, (int)entries.size());
+
+            // 콜백에는 요청한 maxCount 만큼만 전달
+            if ((int)entries.size() > maxCount)
+                entries.resize(maxCount);
 
             if (callback) callback(entries);
         });

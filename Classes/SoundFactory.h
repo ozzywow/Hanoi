@@ -17,8 +17,9 @@ public:
 	SoundFactory(float initVol = 1);
 	~SoundFactory();
 
-	void play(char* soundFile, bool bPuase = false, bool bBGM = false);
+	void play(char* soundFile, bool bPuase = false, bool bBGM = false, bool bLoop = true);
 	void stop(char* soundFile);
+	void setMasterVolume(float vol);
 
 
 };
