@@ -10,6 +10,7 @@ import com.android.billingclient.api.BillingClient;
 import com.android.billingclient.api.BillingClientStateListener;
 import com.android.billingclient.api.BillingFlowParams;
 import com.android.billingclient.api.BillingResult;
+import com.android.billingclient.api.PendingPurchasesParams;
 import com.android.billingclient.api.ProductDetails;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
@@ -36,7 +37,11 @@ public class BillingManager implements PurchasesUpdatedListener {
         mActivity = activity;
         mBillingClient = BillingClient.newBuilder(activity)
                 .setListener(this)
-                .enablePendingPurchases()
+                .enablePendingPurchases(
+                    PendingPurchasesParams.newBuilder()
+                        .enableOneTimeProducts()
+                        .build()
+                )
                 .build();
         connect();
     }
@@ -74,10 +79,10 @@ public class BillingManager implements PurchasesUpdatedListener {
                 .setProductList(products)
                 .build();
 
-        mBillingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
+        mBillingClient.queryProductDetailsAsync(params, (billingResult, queryResult) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                mProductDetailsList = productDetailsList;
-                Log.d(TAG, "queryProductDetails OK, count=" + productDetailsList.size());
+                mProductDetailsList = queryResult.getProductDetailsList();
+                Log.d(TAG, "queryProductDetails OK, count=" + mProductDetailsList.size());
             } else {
                 Log.e(TAG, "queryProductDetails failed: " + billingResult.getDebugMessage());
             }

@@ -9,7 +9,7 @@ android {
         applicationId "com.ozzywow.hanoi"
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 17
+        versionCode 21
         versionName "1.0"
 
         externalNativeBuild {
@@ -60,7 +60,7 @@ android {
             jniDebuggable false
             minifyEnabled true
             shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig signingConfigs.release
             }
@@ -75,6 +75,6 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation project(':libcocos2dx')
-    implementation 'com.android.billingclient:billing:7.0.0'
-    implementation 'androidx.fragment:fragment:1.8.5'
+    implementation 'com.android.billingclient:billing:9.1.0'
+    implementation 'androidx.fragment:fragment:1.8.9'
 }

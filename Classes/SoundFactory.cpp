@@ -3,15 +3,15 @@
 
 SoundFactory::SoundFactory(float initVol)
 {
-	m_mastVolume = initVol;	
 	m_soundIdMap.clear();
+	setMasterVolume(initVol);
 }
 
 SoundFactory::~SoundFactory()
 {	
 }
 
-void SoundFactory::play(char* soundFile, bool bOn, bool bBGM)
+void SoundFactory::play(char* soundFile, bool bOn, bool bBGM, bool bLoop)
 {	
 	std::string filePath = StringUtils::format("Sound/%s.wav", soundFile);
 	if (bBGM)
@@ -20,7 +20,7 @@ void SoundFactory::play(char* soundFile, bool bOn, bool bBGM)
 
 		if (false == CocosDenshion::SimpleAudioEngine::getInstance()->isBackgroundMusicPlaying())
 		{
-			CocosDenshion::SimpleAudioEngine::getInstance()->playBackgroundMusic(filePath.c_str(), true);
+			CocosDenshion::SimpleAudioEngine::getInstance()->playBackgroundMusic(filePath.c_str(), bLoop);
 		}		
 
 		if(bOn)
@@ -37,6 +37,13 @@ void SoundFactory::play(char* soundFile, bool bOn, bool bBGM)
 		int soundId = CocosDenshion::SimpleAudioEngine::getInstance()->playEffect(filePath.c_str());
 		m_soundIdMap[std::string(soundFile)] = soundId;
 	}		
+}
+
+void SoundFactory::setMasterVolume(float vol)
+{
+	m_mastVolume = vol;
+	CocosDenshion::SimpleAudioEngine::getInstance()->setEffectsVolume(vol);
+	CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(vol);
 }
 
 void SoundFactory::stop(char* soundFile)

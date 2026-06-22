@@ -13,6 +13,8 @@ using namespace cocos2d;
 #define MAX_PLAY_LEVEL	10
 #define MAX_LIMIT_LEVEL_FOR_LITE 4
 
+#define MASTER_VOLUME 1.0f			// 0.0~1.0
+
 #define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
@@ -167,9 +169,78 @@ static std::string getLocalGreeting()
 
 static RecordTime getRecordTime(int time)
 {
-	RecordTime res;	
+	RecordTime res;
 	res.min = time / (1000 * 60);
 	res.sec = (time % (1000 * 60)) / 1000;
 	res.ms = ((time % (1000 * 60)) % 1000) / 10;
 	return res;
+}
+
+// 쇼핑카트 벡터 아이콘: 바구니(좌) + 역-L 손잡이(우) + 바퀴 2개
+// MainScene (Buy 버튼) 및 PlayScene (잠금 안내) 공용
+static void drawVecCartIcon(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
+{
+	float lw = sz * 0.10f;
+	if (lw < 2.0f) lw = 2.0f;
+	Color4F bg(0.08f, 0.19f, 0.19f, 1.0f);
+
+	float bx0 = cx - sz*0.42f, bx1 = cx + sz*0.18f;
+	float by0  = cy - sz*0.20f, by1 = cy + sz*0.10f;
+	node->drawSolidRect(Vec2(bx0,    by0), Vec2(bx0+lw, by1),    col);
+	node->drawSolidRect(Vec2(bx1-lw, by0), Vec2(bx1,    by1),    col);
+	node->drawSolidRect(Vec2(bx0,    by0), Vec2(bx1,  by0+lw),   col);
+	node->drawSolidRect(Vec2(bx0,  by1-lw), Vec2(bx1,    by1),   col);
+
+	float hvTop = cy + sz*0.40f;
+	node->drawSolidRect(Vec2(bx1-lw,  by1-lw), Vec2(bx1,          hvTop), col);
+	node->drawSolidRect(Vec2(bx1-lw, hvTop-lw), Vec2(cx+sz*0.50f,  hvTop), col);
+
+	float wr = lw * 1.3f, wy = by0 - wr*0.8f;
+	node->drawSolidCircle(Vec2(bx0+sz*0.12f, wy), wr,      0, 14, col);
+	node->drawSolidCircle(Vec2(bx1-sz*0.08f, wy), wr,      0, 14, col);
+	node->drawSolidCircle(Vec2(bx0+sz*0.12f, wy), wr*0.4f, 0, 10, bg);
+	node->drawSolidCircle(Vec2(bx1-sz*0.08f, wy), wr*0.4f, 0, 10, bg);
+}
+
+static Node* makeVecCartNode(float w, float h, float sz)
+{
+	auto node = Node::create();
+	node->setContentSize(Size(w, h));
+	node->setCascadeOpacityEnabled(true);
+	auto dn = DrawNode::create();
+	drawVecCartIcon(dn, w/2.f, h/2.f, sz, Color4F(80/255.f, 220/255.f, 180/255.f, 1.f));
+	node->addChild(dn);
+	return node;
+}
+
+// 🔒 자물쇠: 두께있는 반원 고리 + 직사각형 몸통 + 열쇠구멍 (MainScene/PlayScene 공용)
+static void drawVecLock(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
+{
+	Color4F bg(0.08f, 0.19f, 0.19f, 1.0f);
+
+	float archR  = sz * 0.26f;
+	float bw     = archR * 2.2f;
+	float bh     = sz * 0.42f;
+	float by0    = cy - sz * 0.34f;
+	float by1    = by0 + bh;
+	node->drawSolidRect(Vec2(cx-bw/2, by0), Vec2(cx+bw/2, by1), col);
+
+	float archIR = archR - sz * 0.11f;
+	const int N  = 12;
+	for (int i = 0; i < N; ++i) {
+		float a0 = (float)M_PI * i / N;
+		float a1 = (float)M_PI * (i + 1) / N;
+		Vec2 pts[4] = {
+			Vec2(cx + cosf(a0)*archIR, by1 + sinf(a0)*archIR),
+			Vec2(cx + cosf(a0)*archR,  by1 + sinf(a0)*archR),
+			Vec2(cx + cosf(a1)*archR,  by1 + sinf(a1)*archR),
+			Vec2(cx + cosf(a1)*archIR, by1 + sinf(a1)*archIR),
+		};
+		node->drawSolidPoly(pts, 4, col);
+	}
+
+	float kr  = sz * 0.10f;
+	float kcy = by0 + bh * 0.62f;
+	node->drawSolidCircle(Vec2(cx, kcy), kr, 0, 12, bg);
+	node->drawSolidRect(Vec2(cx-kr*0.55f, by0+bh*0.20f), Vec2(cx+kr*0.55f, kcy), bg);
 }

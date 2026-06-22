@@ -18,6 +18,29 @@ static const float BOTTOM_FONT_DEFAULT = 10.0f;
 static const int   TAG_GUIDE_ANIM      = 201;
 static const int   TAG_PODIUM_BASE     = 310; // 310~315: 시상대 동적 레이블
 
+// |◀ 리셋 아이콘: 수직선 + 왼쪽 삼각형 (처음으로 되돌리기)
+static void drawVecReset(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
+{
+	float barW = sz * 0.12f;
+	float barH = sz * 0.70f;
+	float triW = sz * 0.45f;
+	float triH = sz * 0.65f;
+	float gap  = sz * 0.10f;
+
+	float totalW = barW + gap + triW;
+	float leftX  = cx - totalW * 0.5f;
+
+	node->drawSolidRect(Vec2(leftX, cy - barH/2), Vec2(leftX + barW, cy + barH/2), col);
+
+	float triCx = leftX + barW + gap + triW * 0.5f;
+	Vec2 pts[3] = {
+		Vec2(triCx + triW*0.5f, cy + triH*0.5f),
+		Vec2(triCx - triW*0.5f, cy),
+		Vec2(triCx + triW*0.5f, cy - triH*0.5f),
+	};
+	node->drawSolidPoly(pts, 3, col);
+}
+
 
 
 void PlayScene::onExitTransitionDidStart()
@@ -203,20 +226,16 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 	
 	bool soundOpt = UserDataManager::Instance()->GetSoundOpt();
-	this->DrawMenu(soundOpt);
+	if (!m_isFirstPlay)
+		this->DrawMenu(soundOpt);
 	this->InitGame();
 	this->ResetGame();
 	this->DrawDiscus();
-	this->DrawInfoText();
-	if (m_labelLevel) m_labelLevel->setVisible(false);
-	this->startRankTicker(numOfDiscus);
-	if (m_countOfDiscus == 3)
-		this->startGuideAnimation();
-	else
-		this->startIdleAnimation();
+	this->EnterWaitingState();
 
 
-	if (m_countOfDiscus == 3)
+	// 최최 3Level 플레이 시, 화살표/규칙 안내 이미지 표시
+	if (m_isFirstPlay && m_countOfDiscus == 3)
 	{
 		Sprite* imgCount = NULL;
 		imgCount = Sprite::create("NewUI/arrow.png");
@@ -224,7 +243,6 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 		imgCount->setAnchorPoint(Vec2(0.5, 0.5));
 		imgCount->setPosition(Vec2(480 / 2, 220));
 		
-
 		Sprite* text = NULL;		
 		text = Sprite::create("NewUI/text_en.png");
 		text->setAnchorPoint(Vec2(0.5, 0.5));
@@ -237,8 +255,24 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	{
 		if (false == UserDataManager::Instance()->GetCart())
 		{
-			MenuItemImage* pLockMenu = MenuItemImage::create("NewUI/lock_icon.png", "NewUI/lock_icon_s.png", CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
-			Menu* pMenu = Menu::create(pLockMenu, NULL);
+			// 자물쇠 아이콘 + 8방향 검은 외곽선
+			auto lockNode = Node::create();
+			lockNode->setContentSize(Size(90.f, 90.f));
+			lockNode->setCascadeOpacityEnabled(true);
+			static const float lox[8] = { 1,-1, 0, 0, 1, 1,-1,-1 };
+			static const float loy[8] = { 0, 0, 1,-1, 1,-1, 1,-1 };
+			auto lockShadow = DrawNode::create();
+			// 3단계 그라데이션: 안→밖으로 alpha 감소 → 부드러운 글로우 테두리
+			static const struct { float d; float a; } rings[] = {{1.f,0.45f},{2.f,0.25f},{3.f,0.10f}};
+			for (auto& r : rings)
+				for (int i = 0; i < 8; ++i)
+					drawVecLock(lockShadow, 45.f + lox[i]*r.d, 45.f + loy[i]*r.d, 60.f, Color4F(0,0,0,r.a));
+			lockNode->addChild(lockShadow, 0);
+			auto lockMain = DrawNode::create();
+			drawVecLock(lockMain, 45.f, 45.f, 60.f, Color4F(80/255.f, 220/255.f, 180/255.f, 1.f));
+			lockNode->addChild(lockMain, 1);
+			auto cartMenuItem = MenuItemLabel::create(lockNode, CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
+			Menu* pMenu = Menu::create(cartMenuItem, NULL);
 			pMenu->setPosition(Vec2(105, 200));
 			this->addChild(pMenu, tagCart, tagCart);
 
@@ -263,43 +297,182 @@ PlayScene::~PlayScene()
 
 void	PlayScene::DrawMenu(bool SoundOpt)
 {
-	
 	this->removeChildByTag(1234, false);
-	
-	MenuItemImage* homeMenuItem = MenuItemImage::create("NewUI/btn_home_n.png", "NewUI/btn_home_s.png", CC_CALLBACK_1(PlayScene::callbackOnPushed_homeMenuItem, this));	
-	homeMenuItem->setScale(1.0f);
 
-	float scaleForSubUI = 0.7f;
-	MenuItemImage* resetMenuItem = MenuItemImage::create("NewUI/btn_refresh_n.png", "NewUI/btn_refresh_s.png", CC_CALLBACK_1(PlayScene::callbackOnPushed_resetMenuItem, this));
-	resetMenuItem->setScale(scaleForSubUI);
-	MenuItemImage* prevMenuItem = MenuItemImage::create("NewUI/btn_prev.png", "NewUI/btn_prev.png", CC_CALLBACK_1(PlayScene::callbackOnPushed_prevMenuItem, this));
-	prevMenuItem->setScale(scaleForSubUI);
-	MenuItemImage* nextMenuItem = MenuItemImage::create("NewUI/btn_next.png", "NewUI/btn_next.png", CC_CALLBACK_1(PlayScene::callbackOnPushed_nextMenuItem, this));
-	nextMenuItem->setScale(scaleForSubUI);
-	
-	
-	std::string iconName;
-	if( false == SoundOpt )
-	{
-		iconName = "NewUI/btn_speaker_off.png";		
-	}
-	else 
-	{
-		iconName = "NewUI/btn_speaker_on.png";
-	}
-	
+	// ─── LED/네온 좌측 컨트롤 도크 ───────────────────────────────────
+	// 정보 패널은 "도트 화면", 이 도크는 "키캡+프레임 컨트롤"로 차별화해 터치 UI임을 명확히 한다.
+	const Color3B MINT(80, 220, 180);     // 네온 민트 (HUD 공통색)
+	const Color4F MINT4(0.31f, 0.86f, 0.70f, 0.9f);
+	const float   DX = 24.0f;             // 도크 중심 X (게임 화면 가림 최소화)
+	const float   PANEL_W = 40.0f;        // 패널 폭 (축소)
+	const float   PANEL_CY = 177.0f;      // 패널 중심 Y
+	const float   PANEL_H = 190.0f;       // 패널 높이
+	const float   KW = 32.0f;             // 키캡 공통 폭 (좌우 정렬 통일)
+
+	// 아이콘/스테퍼 Y 위치 (위→아래, 8px 균일 간격)
+	const float Y_HOME    = 254.0f;
+	const float Y_RESET   = 216.0f;
+	const float Y_STEPPER = 158.0f;   // ▲/숫자/▼ 통합 키캡 중심
+	const float Y_NEXT    = 178.0f;   // ▲
+	const float Y_NUM     = 158.0f;   // 현재 디스크 수
+	const float Y_PREV    = 138.0f;   // ▼
+	const float Y_SPEAKER = 100.0f;
+
+	// 컨테이너: 배경/키캡/도트/메뉴/숫자를 한 덩어리로 (tag 1234 일괄 교체)
+	auto dock = Node::create();
+	dock->setPosition(Vec2::ZERO);
+	this->addChild(dock, 1234, 1234);
+
+	// 배경 패널 + 네온 외곽 프레임 (테두리 없는 정보 패널과 구분)
+	auto bg = DrawNode::create();
+	setupLedBackground(bg, PANEL_W, PANEL_H, 4.0f);
+	bg->drawRect(Vec2(-PANEL_W/2 + 1, -PANEL_H/2 - 3), Vec2(PANEL_W/2 - 1, PANEL_H/2 + 3), MINT4);
+	bg->setPosition(Vec2(DX, PANEL_CY));
+	dock->addChild(bg, 0);
+
+	// 버튼 키캡: 공통 폭·균일 간격 + 베벨(상단/좌측 하이라이트, 하단/우측 그림자)로 입체감
+	auto cells = DrawNode::create();
+	cells->setPosition(Vec2(DX, PANEL_CY));
+	auto keycap = [&](float cy, float h) {
+		float x0 = -KW/2, x1 = KW/2;
+		float y0 = cy - PANEL_CY - h/2, y1 = cy - PANEL_CY + h/2;
+		float c = (KW < h ? KW : h) * 0.10f; if (c < 2.0f) c = 2.0f;  // 챔퍼
+		Color4F shadow(0.0f, 0.0f, 0.0f, 0.5f);
+		Color4F hi(0.5f, 1.0f, 0.85f, 0.5f);
+		Color4F border(0.31f, 0.86f, 0.70f, 0.55f);
+		const float k = 0.293f;
+		Vec2 poly[12] = {
+			Vec2(x0+c,   y0),        Vec2(x1-c,   y0),
+			Vec2(x1-c*k, y0+c*k),   Vec2(x1,     y0+c),
+			Vec2(x1,     y1-c),      Vec2(x1-c*k, y1-c*k),
+			Vec2(x1-c,   y1),        Vec2(x0+c,   y1),
+			Vec2(x0+c*k, y1-c*k),   Vec2(x0,     y1-c),
+			Vec2(x0,     y0+c),      Vec2(x0+c*k, y0+c*k),
+		};
+		cells->drawSolidPoly(poly, 12, Color4F(0.08f, 0.19f, 0.19f, 1.0f));  // 베이스
+		cells->drawSolidRect(Vec2(x0+c, y0),   Vec2(x1-c, y0+2), shadow);    // 하단 그림자
+		cells->drawSolidRect(Vec2(x1-2, y0+c), Vec2(x1,   y1-c), shadow);    // 우측 그림자
+		cells->drawSolidRect(Vec2(x0+c, y1-2), Vec2(x1-c, y1),   hi);        // 상단 하이라이트
+		cells->drawSolidRect(Vec2(x0,   y0+c), Vec2(x0+2, y1-c), hi);        // 좌측 하이라이트
+		Vec2 tl[3] = { Vec2(x0,   y1-c), Vec2(x0+c, y1),   Vec2(x0+2, y1-2) };
+		Vec2 br[3] = { Vec2(x1-c, y0),   Vec2(x1,   y0+c), Vec2(x1-2, y0+2) };
+		cells->drawSolidPoly(tl, 3, hi);
+		cells->drawSolidPoly(br, 3, shadow);
+		cells->drawPoly(poly, 12, true, border);                               // 12점 라운드 외곽선
+	};
+	keycap(Y_HOME,    30.0f);
+	keycap(Y_RESET,   30.0f);
+	keycap(Y_STEPPER, 70.0f);   // ▲/숫자/▼ 통합 스테퍼
+	keycap(Y_SPEAKER, 30.0f);
+	dock->addChild(cells, 1);
+
+	// 아주 옅은 도트 (정보 패널보다 성기고 흐리게 — 톤만 살짝)
+	auto dots = DrawNode::create();
+	dots->setPosition(Vec2(DX, PANEL_CY));
+	for (float dy = -PANEL_H/2 + 1.5f; dy < PANEL_H/2; dy += 3.0f)
+		for (float dx = -PANEL_W/2 + 1.5f; dx < PANEL_W/2; dx += 3.0f)
+			dots->drawDot(Vec2(dx, dy), 0.5f, Color4F(0.35f, 0.40f, 0.38f, 0.20f));
+	dock->addChild(dots, 2);
+
+	// 검은 외곽선 텍스트: 시스템 폰트는 enableOutline이 무시되므로 8방향 복제로 외곽선 합성
+	// (아이콘 PNG의 검은 테두리와 무게감 통일). contentSize 지정 → MenuItemLabel 터치영역 확보.
+	// thickness: 외곽선 픽셀 두께(링 수). 아이콘 PNG 테두리와 톤 맞추려면 2 권장.
+	auto makeOutlined = [](const std::string& s, float fs, Color3B col, int thickness) -> Node* {
+		auto base = Label::createWithSystemFont(s, "Arial", fs);
+		Size sz = base->getContentSize();
+		auto n = Node::create();
+		n->setContentSize(sz);
+		n->setCascadeOpacityEnabled(true);
+		n->setCascadeColorEnabled(true);
+		Vec2 c(sz.width * 0.5f, sz.height * 0.5f);
+		static const float ox[8] = { 1, -1,  0,  0,  1,  1, -1, -1 };
+		static const float oy[8] = { 0,  0,  1, -1,  1, -1,  1, -1 };
+		for (int d = 1; d <= thickness; ++d)
+			for (int i = 0; i < 8; ++i) {
+				auto o = Label::createWithSystemFont(s, "Arial", fs);
+				o->setColor(Color3B::BLACK);
+				o->setAnchorPoint(Vec2(0.5f, 0.5f));
+				o->setPosition(c + Vec2(ox[i] * d, oy[i] * d));
+				n->addChild(o, 0);
+			}
+		auto t = Label::createWithSystemFont(s, "Arial", fs);
+		t->setColor(col);
+		t->setAnchorPoint(Vec2(0.5f, 0.5f));
+		t->setPosition(c);
+		n->addChild(t, 1);
+		return n;
+	};
+
+	// 이미지 아이콘: 흰색 PNG를 민트로 틴트 (× 곱연산 → 네온 글로우 통일)
+	auto tintMint = [&](MenuItemImage* item) {
+		item->setCascadeColorEnabled(true);
+		item->setColor(MINT);
+	};
+
+	MenuItemImage* homeMenuItem = MenuItemImage::create("NewUI/btn_home_n.png", "NewUI/btn_home_s.png", CC_CALLBACK_1(PlayScene::callbackOnPushed_homeMenuItem, this));
+	homeMenuItem->setScale(0.72f);
+	homeMenuItem->setPosition(Vec2(DX, Y_HOME));
+	tintMint(homeMenuItem);
+
+	auto resetNode = Node::create();
+	resetNode->setContentSize(Size(KW, 30.f));
+	resetNode->setCascadeOpacityEnabled(true);
+	// 8방향 검은 그림자 (makeOutlined 와 동일 방식)
+	static const float ox[8] = { 1,-1, 0, 0, 1, 1,-1,-1 };
+	static const float oy[8] = { 0, 0, 1,-1, 1,-1, 1,-1 };
+	auto shadowDn = DrawNode::create();
+	for (int i = 0; i < 8; ++i)
+		drawVecReset(shadowDn, KW/2 + ox[i]*2.0f, 15.f + oy[i]*2.0f, 20.f, Color4F(0,0,0,0.75f));
+	resetNode->addChild(shadowDn, 0);
+	auto mainDn = DrawNode::create();
+	drawVecReset(mainDn, KW/2, 15.f, 20.f, Color4F(80/255.f, 220/255.f, 180/255.f, 1.f));
+	resetNode->addChild(mainDn, 1);
+	auto resetMenuItem = MenuItemLabel::create(resetNode, CC_CALLBACK_1(PlayScene::callbackOnPushed_resetMenuItem, this));
+	resetMenuItem->setPosition(Vec2(DX, Y_RESET));
+
+	// ▲▼ 디스크 스테퍼: 외곽선 텍스트(두께 2로 아이콘 톤 맞춤) + MenuItemLabel(내장 zoom), 한계치 dim
+	bool canInc = (m_countOfDiscus < MAX_PLAY_LEVEL);
+	bool canDec = (m_countOfDiscus > 3);
+
+	Node* nextNode = makeOutlined("\xE2\x96\xB2", 20.0f, MINT, 2); // ▲
+	nextNode->setOpacity(canInc ? 255 : 90);
+	auto nextMenuItem = MenuItemLabel::create(nextNode, CC_CALLBACK_1(PlayScene::callbackOnPushed_nextMenuItem, this));
+	nextMenuItem->setPosition(Vec2(DX, Y_NEXT));
+
+	Node* prevNode = makeOutlined("\xE2\x96\xBC", 20.0f, MINT, 2); // ▼
+	prevNode->setOpacity(canDec ? 255 : 90);
+	auto prevMenuItem = MenuItemLabel::create(prevNode, CC_CALLBACK_1(PlayScene::callbackOnPushed_prevMenuItem, this));
+	prevMenuItem->setPosition(Vec2(DX, Y_PREV));
+
+	std::string iconName = SoundOpt ? "NewUI/btn_speaker_on.png" : "NewUI/btn_speaker_off.png";
 	MenuItemImage* speakerMenuItem = MenuItemImage::create(iconName, iconName, CC_CALLBACK_1(PlayScene::callbackOnPushed_speakerMenuItem, this));
-	speakerMenuItem->setScale(0.7f);
-	
-	
-	Menu* mainMenuTop = Menu::create(homeMenuItem, resetMenuItem, nextMenuItem, prevMenuItem, speakerMenuItem, NULL) ;	
-	mainMenuTop->alignItemsVerticallyWithPadding(12);
-	mainMenuTop->setPosition(Vec2(20, 200));
-	this->addChild(mainMenuTop, 1234, 1234);
+	speakerMenuItem->setScale(0.66f);   // 가로로 넓은 아이콘이라 0.66
+	speakerMenuItem->setPosition(Vec2(DX, Y_SPEAKER));
+	tintMint(speakerMenuItem);
+
+	// 메뉴 항목은 모두 절대 위치 지정 (자동 정렬 미사용)
+	Menu* dockMenu = Menu::create(homeMenuItem, resetMenuItem, nextMenuItem, prevMenuItem, speakerMenuItem, NULL);
+	dockMenu->setPosition(Vec2::ZERO);
+	dock->addChild(dockMenu, 3);
+
+	// 디스크 수 = 정보 영역(비클릭): 버튼과 구분되게 외곽선 없이, 밝기 낮추고, 도트를 더 얹어 "표시 readout" 느낌
+	// 숫자 뒤 도트 패치 — 도크 기본 도트보다 촘촘(gap 2)·진하게(alpha 0.45)
+	auto numDots = DrawNode::create();
+	numDots->setPosition(Vec2(DX, Y_NUM));
+	for (float dy = -9.0f; dy <= 9.0f; dy += 2.0f)
+		for (float dx = -KW/2 + 2.0f; dx <= KW/2 - 2.0f; dx += 2.0f)
+			numDots->drawDot(Vec2(dx, dy), 0.5f, Color4F(0.35f, 0.45f, 0.42f, 0.45f));
+	dock->addChild(numDots, 3);
+
+	const Color3B NUM_DIM(58, 158, 130);   // 민트를 어둡게 (정보 톤)
+	auto numLabel = Label::createWithSystemFont(StringUtils::format("%d", m_countOfDiscus), "Arial", 17);
+	numLabel->setColor(NUM_DIM);
+	numLabel->setPosition(Vec2(DX, Y_NUM));
+	dock->addChild(numLabel, 4);
 }
 
 void	PlayScene::InitGame()
-{	
+{
 	this->removeChildByTag(tagPopup, false);
 	m_isIng = NONE ;
 	
@@ -308,6 +481,25 @@ void	PlayScene::InitGame()
 	m_countDown=3;
 	m_labelTime->setString("00:00.00");
 
+}
+
+
+// 게임 대기(NONE) 상태의 정보바/하단 패널 연출을 씬 진입 시와 동일하게 복원한다.
+// 씬 최초 진입과 결과 팝업 닫은 직후(재플레이 대기) 양쪽에서 공유한다.
+void	PlayScene::EnterWaitingState()
+{
+	// 결과 HUD 잔류(깜빡임 티커) 및 PLAY 전용 표시(타이머/구분선/레벨) 정리
+	stopRankTicker();
+	if (m_labelTime)  m_labelTime->setVisible(false);
+	if (m_hudSep)     m_hudSep->setVisible(false);
+	if (m_labelLevel) m_labelLevel->setVisible(false);
+
+	this->DrawInfoText();
+	this->startRankTicker(m_countOfDiscus);
+	if (m_countOfDiscus == 3)
+		this->startGuideAnimation();
+	else
+		this->startIdleAnimation();
 }
 
 
@@ -326,7 +518,6 @@ void PlayScene::Start()
 	// GO! 패널 잠깐 표시 후 응원 연출 시작
 	scheduleOnce([this](float){ startCheerAnimation(); }, 0.7f, "cheer_start");
 
-	SoundFactory::Instance()->play("FX0070", 0.4) ;
 	bool bSoundOpt = UserDataManager::Instance()->GetSoundOpt();
 	if( true == bSoundOpt )
 	{
@@ -377,6 +568,10 @@ void PlayScene::Finished()
 	int bestRecord = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	bool isNewRecord = (bestRecord == 0 || bestRecord > m_mastTime);
 	showHudResult(isNewRecord, rt);
+	if (isNewRecord)
+		SoundFactory::Instance()->play("efs_new_record");
+	else
+		SoundFactory::Instance()->play("efs_clean");
 
 	DelayTime* delay = DelayTime::create(2.0);
 	std::function<void()> func = std::bind(&PlayScene::MessagePopup, this);
@@ -388,7 +583,7 @@ void PlayScene::Finished()
 void PlayScene::MessagePopup()
 {
 	m_popupShownTime = getMilliCount();
-	SoundFactory::Instance()->play("drop_coin");
+	SoundFactory::Instance()->play("efs_click");
 
 	if (m_mastTime < 100) m_mastTime = 100;
 	RecordTime recordTime = getRecordTime(m_mastTime);
@@ -488,7 +683,6 @@ void PlayScene::DrawTime()
 	m_labelTime->setString(strTime);
 	if (elapsedTime < 0) 
 	{
-		SoundFactory::Instance()->play("FX0066", 0.3);		
 		MainScene* mainScene = MainScene::createScene();
 		Director::getInstance()->replaceScene(TransitionFade::create(0.2, mainScene));
 	}	
@@ -546,7 +740,6 @@ void  PlayScene::DrawDiscus()
 	if (true == this->CheckSuccess())
 	{
 		this->Finished();
-		SoundFactory::Instance()->play("levelup");
 	}	
 }
 
@@ -561,6 +754,7 @@ void PlayScene::DrawInfoText ()
 		m_labelLevel->setColor(Color3B(255, 215, 80));
 		m_labelLevel->setPosition(Vec2(120, RESOURCE_HEIGHT - 13));
 		this->addChild(m_labelLevel, tagInfoText, tagInfoText);
+		m_labelLevel->setVisible(false);
 	}
 	else
 	{
@@ -598,14 +792,14 @@ void PlayScene::CountDown()
 
 		this->runAction(Sequence::create(readyDelay, countDown, NULL));
 		this->runAction(Sequence::create(readyDelay, delayStart, callFunc_start, NULL));
-		SoundFactory::Instance()->play("FX0145");
+		SoundFactory::Instance()->play("efs_start_countdown");
 	}
 	else
 	{
 		if( m_countDown == 0 )
 		{
 			// GO! → A·B·C 동시 표시
-			SoundFactory::Instance()->play("go");
+			SoundFactory::Instance()->play("efs_go");
 			for (int i = 0; i < 3; ++i) stopBottomPanel(i);
 			setBottomPanel(0, "GO!",  Color3B( 80, 220, 180), 20.0f);
 			setBottomPanel(1, "GO!",  Color3B( 80, 220, 180), 20.0f);
@@ -617,7 +811,7 @@ void PlayScene::CountDown()
 		else
 		{
 			// 3 → Panel A(red), 2 → Panel B(orange), 1 → Panel C(gold)
-			SoundFactory::Instance()->play("count_sec");
+			SoundFactory::Instance()->play("efs_count_sec");
 			struct { int pole; Color3B color; } const info[] = {
 				{ 0, Color3B(  0,   0,   0) },   // [0] unused
 				{ 2, Color3B(255, 215,   0) },   // [1] "1" → Panel C, gold
@@ -705,13 +899,11 @@ void PlayScene::SelectPole(int poleID, bool bIsAble)
 		{
 			if (m_selectionMark)   m_selectionMark->setPosition(Vec2(arrPosOfPole[poleID].x, 110));
 			if (m_deselectionMark) m_deselectionMark->setPosition(Vec2(500,500));
-			SoundFactory::Instance()->play("select");
 		}
 		else
 		{
 			if (m_deselectionMark) m_deselectionMark->setPosition(Vec2(arrPosOfPole[poleID].x, 110));
 			if (m_selectionMark)   m_selectionMark->setPosition(Vec2(500,500));
-			SoundFactory::Instance()->play("deselect") ;
 		}
 	}
 	else
@@ -764,7 +956,7 @@ void PlayScene::callbackOnPushed_homeMenuItem(Ref* pSender)
 	CMKStoreManager::Instance()->SetDelegate(NULL);
 #endif //LITE_VER
 
-	SoundFactory::Instance()->play("FX0066", 0.3) ;
+	SoundFactory::Instance()->play("efs_click");
 
 	MainScene* mainScene = MainScene::createScene();
 	auto director = Director::getInstance();
@@ -784,7 +976,7 @@ void PlayScene::callbackOnPushed_resetMenuItem(Ref* pSender)
 	this->ResetGame();
 	this->DrawDiscus();
 	this->DrawInfoText();
-	SoundFactory::Instance()->play("FX0070", 0.4) ;
+	SoundFactory::Instance()->play("efs_click");
 }
 
 void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)
@@ -798,7 +990,7 @@ void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)
 	if( m_countOfDiscus > 3)
 	{
 		m_isTransitioning = true;
-		SoundFactory::Instance()->play("FX0070", 0.4) ;
+		SoundFactory::Instance()->play("efs_click");
 		m_countOfDiscus = m_countOfDiscus-1;
 		PlayScene* playScene = PlayScene::createScene(m_countOfDiscus) ;
 		auto director = Director::getInstance();
@@ -806,7 +998,7 @@ void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)
 	}
 	else
 	{
-		SoundFactory::Instance()->play("Cancel", 0.4);
+		SoundFactory::Instance()->play("efs_cancel_select", 0.4);
 	}
 }
 
@@ -821,7 +1013,7 @@ void PlayScene::callbackOnPushed_nextMenuItem(Ref* sender)
 	if( m_countOfDiscus < MAX_PLAY_LEVEL )
 	{
 		m_isTransitioning = true;
-		SoundFactory::Instance()->play("FX0070", 0.4);
+		SoundFactory::Instance()->play("efs_click");
 		m_countOfDiscus = m_countOfDiscus+1;
 
 		PlayScene* playScene = PlayScene::createScene(m_countOfDiscus);
@@ -830,14 +1022,14 @@ void PlayScene::callbackOnPushed_nextMenuItem(Ref* sender)
 	}
 	else
 	{
-		SoundFactory::Instance()->play("Cancel", 0.4);
+		SoundFactory::Instance()->play("efs_cancel_select", 0.4);
 	}
 }
 
 
 void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 {
-	SoundFactory::Instance()->play("FX0070", 0.4);	
+	SoundFactory::Instance()->play("efs_click");
 	if( false == UserDataManager::Instance()->GetSoundOpt())
 	{		
 		UserDataManager::Instance()->SetSoundOpt(true);
@@ -862,16 +1054,16 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 
 
 void PlayScene::callbackLockBtn(Ref* sender)
-{	
+{
 #ifdef LITE_VER
 	if (true == isProgress) { return;  }
 	isProgress = true;
-	
+
 	CMKStoreManager::Instance()->ToggleIndicator(true);
 	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
 #endif //LITE_VER
 
-	SoundFactory::Instance()->play("FX0070", 0.4);
+	SoundFactory::Instance()->play("efs_click");
 }
 
 
@@ -892,7 +1084,6 @@ void PlayScene::productPurchased(std::string productId)
 
 	if (productId == kProductIdTotal)
 	{
-		SoundFactory::Instance()->play("drop_coin");
 		UserDataManager::Instance()->SetCart(true);
 		UserDataManager::Instance()->SaveUserData();
 
@@ -931,7 +1122,7 @@ void PlayScene::restorePreviousTransactions(int count)
 
 
 	CMKStoreManager::Instance()->ToggleIndicator(false);
-	SoundFactory::Instance()->play("FX0070", 0.4);
+	SoundFactory::Instance()->play("efs_click");
 
 	Sprite* pMSGBG = Sprite::create("NewUI/text_empty.png");
 	std::string strMsg = "Restored all levels you bought.";
