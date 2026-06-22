@@ -311,6 +311,12 @@ bool MainScene::init()
 		return false;
 	}
 
+	static bool s_preloaded = false;
+	if (!s_preloaded) {
+		SoundFactory::Instance()->preloadAll();
+		s_preloaded = true;
+	}
+
 	static bool s_introBgmPlayed = false;
 	if (!s_introBgmPlayed) {
 		SoundFactory::Instance()->play("bgm_intro", true, true, false);

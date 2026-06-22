@@ -19,7 +19,9 @@ public:
 
 	void play(char* soundFile, bool bPuase = false, bool bBGM = false, bool bLoop = true);
 	void stop(char* soundFile);
+	void fadeOutBGM(float duration = 1.0f);
 	void setMasterVolume(float vol);
+	void preloadAll();
 
 
 };

@@ -46,6 +46,50 @@ void SoundFactory::setMasterVolume(float vol)
 	CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(vol);
 }
 
+void SoundFactory::fadeOutBGM(float duration)
+{
+	auto engine   = CocosDenshion::SimpleAudioEngine::getInstance();
+	float startVol = engine->getBackgroundMusicVolume();
+	const int STEPS = 20;
+	float interval  = duration / STEPS;
+	float volStep   = startVol / STEPS;
+	float mastVol   = m_mastVolume;
+
+	auto curVol   = std::make_shared<float>(startVol);
+	auto remaining = std::make_shared<int>(STEPS);
+
+	auto scheduler = cocos2d::Director::getInstance()->getScheduler();
+	scheduler->unschedule("bgm_fadeout", (void*)this);
+	scheduler->schedule(
+		[=](float) mutable {
+			*curVol = std::max(0.0f, *curVol - volStep);
+			engine->setBackgroundMusicVolume(*curVol);
+			(*remaining)--;
+			if (*remaining <= 0) {
+				engine->stopBackgroundMusic(true);
+				engine->setBackgroundMusicVolume(mastVol);
+			}
+		},
+		(void*)this, interval, (unsigned int)(STEPS - 1), 0.0f, false, "bgm_fadeout"
+	);
+}
+
+void SoundFactory::preloadAll()
+{
+	const char* effects[] = {
+		"efs_click", "efs_turn_playScene", "efs_start_countdown",
+		"efs_count_sec", "efs_go", "efs_move_disc_ok",
+		"efs_cancel_select", "efs_select_disc", "efs_clean", "efs_new_record"
+	};
+	for (auto name : effects)
+	{
+		std::string path = StringUtils::format("Sound/%s.wav", name);
+		CocosDenshion::SimpleAudioEngine::getInstance()->preloadEffect(path.c_str());
+	}
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_intro.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_play.wav");
+}
+
 void SoundFactory::stop(char* soundFile)
 {
 	if (m_strBGMfile == soundFile)

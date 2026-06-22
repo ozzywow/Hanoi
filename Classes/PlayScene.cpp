@@ -288,7 +288,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 PlayScene::~PlayScene()
 {
-	SoundFactory::Instance()->stop("BGM2");
+	SoundFactory::Instance()->stop("bgm_play");
 	m_pole.clear();
 	m_arrDiscurs.clear();	
 }
@@ -521,11 +521,11 @@ void PlayScene::Start()
 	bool bSoundOpt = UserDataManager::Instance()->GetSoundOpt();
 	if( true == bSoundOpt )
 	{
-		SoundFactory::Instance()->play("BGM2", true, true);		
+		SoundFactory::Instance()->play("bgm_play", true, true);		
 	}
 	else 
 	{
-		SoundFactory::Instance()->play("BGM2", false, true);		
+		SoundFactory::Instance()->play("bgm_play", false, true);		
 	}
 	
 	
@@ -557,7 +557,7 @@ void PlayScene::Finished()
 	clearBottomPanels();
 	this->stopAction(m_actionTimeRun);
 	int elapsedTime = getMilliCount() - m_dateTime;
-	SoundFactory::Instance()->stop("BGM2");
+	SoundFactory::Instance()->fadeOutBGM(1.0f);
 
 	m_mastTime = elapsedTime;
 	RecordTime rt = getRecordTime(m_mastTime);
@@ -1036,7 +1036,7 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 		this->DrawMenu(true);
 		if (m_isIng == PLAY)
 		{
-			SoundFactory::Instance()->play("BGM2", true, true);
+			SoundFactory::Instance()->play("bgm_play", true, true);
 		}
 	}
 	else 
@@ -1045,7 +1045,7 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 		this->DrawMenu(false);
 		if (m_isIng == PLAY)
 		{
-			SoundFactory::Instance()->play("BGM2", false, true);
+			SoundFactory::Instance()->play("bgm_play", false, true);
 		}		
 	}
 	
