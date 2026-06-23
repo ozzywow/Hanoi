@@ -45,7 +45,6 @@ public:
 	void drawOnlineRank(int level, bool retryOnEmpty = true);
 	void showNameInputDialog();
 	void showSettingsMenu();
-	void showPremiumBadge();
 
 	int m_rankLevel = 3;
 	int m_rankGeneration = 0;          // 연속 탭 시 오래된 콜백 무시용
@@ -57,6 +56,29 @@ public:
 	void tickTopStep();
 	void startBotTicker();
 	void tickBotStep();
+
+	// BGM Player
+	int       m_bgmIndex       = 0;    // 현재 재생 중인 트랙 인덱스 (0-3)
+	int       m_bgmSelection   = 0;    // 사용자 선택: 0=Random, 1-4=특정 트랙
+	bool      m_bgmPlaying     = false;
+	Node*     m_speakerLNode   = nullptr;
+	Node*     m_speakerRNode   = nullptr;
+	DrawNode* m_playBtnIcon    = nullptr;
+	Label*    m_bgmTitleLabel  = nullptr;
+	std::string m_topTickerBaseText;
+
+	void drawBgmPlayer();
+	void bgmPlay(int index);
+	void bgmPlaySelection();
+	void bgmTogglePlayPause();
+	void bgmNext();
+	void bgmPrev();
+	void bgmUpdatePlayBtn();
+	void bgmUpdatePlaylistLed();
+	void bgmStartSpeakerAnim();
+	void bgmStopSpeakerAnim();
+	void startBgmTicker(const std::string& title);
+	void stopBgmTicker();
 
 	cocos2d::DrawNode*   m_startPixels      = nullptr;  // START 픽셀아트 본체 (색상 순환 시 재드로우)
 	int                  m_startColorIdx    = 0;

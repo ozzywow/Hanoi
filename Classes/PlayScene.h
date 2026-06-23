@@ -56,6 +56,25 @@ public:
 	bool m_isFirstPlay = false;
 	int  m_popupShownTime = 0;
 	bool m_isTransitioning = false;
+	std::string m_bgmName;
+
+	// RPM meter
+	int    m_rpmTouchCount = 0;
+	int    m_rpmStartTime  = 0;
+	float  m_bgmCurrentVol = 0.0f;
+	float  m_rpmSmoothed   = 0.0f;
+	Label* m_labelRPM      = nullptr;
+	bool   m_rpmBlinking   = false;
+	int    m_finalRPM      = 0;
+
+	// Equalizer
+	DrawNode* m_eqNode       = nullptr;
+	float     m_eqH[3][6]    = {};
+	float     m_eqPeak[3][6] = {};
+
+	void startEqualizerAnimation();
+	void stopEqualizerAnimation();
+	void _updateEqualizer(float dt);
 
 	static PlayScene* createScene(int numOfDiscus, bool isFirstPlay = false)
 	{

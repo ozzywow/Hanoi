@@ -87,7 +87,59 @@ void SoundFactory::preloadAll()
 		CocosDenshion::SimpleAudioEngine::getInstance()->preloadEffect(path.c_str());
 	}
 	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_intro.wav");
-	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_play.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_space.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_universe.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_cosmos.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_nova.wav");
+}
+
+void SoundFactory::switchBGM(const char* soundFile, bool loop)
+{
+	auto engine = CocosDenshion::SimpleAudioEngine::getInstance();
+	engine->stopBackgroundMusic(false);
+	m_strBGMfile = soundFile;
+	std::string filePath = StringUtils::format("Sound/%s.wav", soundFile);
+	engine->playBackgroundMusic(filePath.c_str(), loop);
+	engine->setBackgroundMusicVolume(m_mastVolume);
+}
+
+void SoundFactory::crossfadeToTrack(const char* soundFile, float fadeDuration)
+{
+	auto engine = CocosDenshion::SimpleAudioEngine::getInstance();
+	if (!engine->isBackgroundMusicPlaying()) {
+		switchBGM(soundFile);
+		return;
+	}
+	float startVol = engine->getBackgroundMusicVolume();
+	float mastVol  = m_mastVolume;
+	std::string nextFile = StringUtils::format("Sound/%s.wav", soundFile);
+	std::string nextName = soundFile;
+	const int STEPS = 12;
+	float interval = fadeDuration / STEPS;
+	auto curVol    = std::make_shared<float>(startVol);
+	auto remaining = std::make_shared<int>(STEPS);
+	auto scheduler = cocos2d::Director::getInstance()->getScheduler();
+	scheduler->unschedule("bgm_crossfade", (void*)this);
+	scheduler->schedule(
+		[=](float) mutable {
+			*curVol -= startVol / STEPS;
+			if (*curVol < 0) *curVol = 0;
+			engine->setBackgroundMusicVolume(*curVol);
+			(*remaining)--;
+			if (*remaining <= 0) {
+				engine->stopBackgroundMusic(false);
+				m_strBGMfile = nextName;
+				engine->playBackgroundMusic(nextFile.c_str(), true);
+				engine->setBackgroundMusicVolume(mastVol);
+			}
+		},
+		(void*)this, interval, (unsigned int)(STEPS - 1), 0.0f, false, "bgm_crossfade"
+	);
+}
+
+bool SoundFactory::isBGMPlaying() const
+{
+	return CocosDenshion::SimpleAudioEngine::getInstance()->isBackgroundMusicPlaying();
 }
 
 void SoundFactory::stop(char* soundFile)
