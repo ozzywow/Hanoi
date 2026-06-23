@@ -41,7 +41,7 @@
 
 static NSString *ownServer = nil;
 
-static __weak id<MKStoreKitDelegate> _delegate;
+static __unsafe_unretained id<MKStoreKitDelegate> _delegate;
 static MKStoreManager* _sharedStoreManager;
 
 
