@@ -36,6 +36,8 @@ set(GAME_RES_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/Resources")
 if(APPLE)
     cocos_mark_multi_resources(common_res_files RES_TO "Resources"
                                FOLDERS ${GAME_RES_FOLDER})
+    # Exclude Info.plist — handled by INFOPLIST_FILE, not bundle resources
+    list(FILTER common_res_files EXCLUDE REGEX "Info\\.plist$")
 endif()
 
 # ------------------------------------------------------------
@@ -111,11 +113,12 @@ elseif(APPLE)
         )
         set(APP_UI_RES
             proj.ios_mac/ios/LaunchScreen.storyboard
+            proj.ios_mac/ios/Images.xcassets
         )
         list(APPEND GAME_SOURCE
             proj.ios_mac/ios/main.m
-            Classes/HanoiAppDelegate.m
-            Classes/RootViewController.m
+            Classes/HanoiAppDelegate.mm
+            Classes/RootViewController.mm
             Classes/MKDelegateCPP.mm
             Classes/MKStoreManager.mm
             Classes/MKStoreManager_mm.mm
@@ -165,6 +168,27 @@ if(APPLE)
         set_xcode_property(${APP_NAME} INFOPLIST_FILE
             "${CMAKE_CURRENT_SOURCE_DIR}/proj.ios_mac/ios/Info.plist")
         set_xcode_property(${APP_NAME} ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
+        set_xcode_property(${APP_NAME} DEVELOPMENT_TEAM "GFX32EJL53")
+        set_xcode_property(${APP_NAME} CODE_SIGN_STYLE "Automatic")
+        # Automatic signing handles certificate selection (Development/Distribution)
+        # Do NOT set CODE_SIGN_IDENTITY manually — conflicts with Automatic signing
+        set_xcode_property(${APP_NAME} PRODUCT_BUNDLE_IDENTIFIER "com.ozzywow.TowerOfHanoiOlympic")
+        set_xcode_property(${APP_NAME} IPHONEOS_DEPLOYMENT_TARGET "15.6")
+        set_xcode_property(${APP_NAME} TARGETED_DEVICE_FAMILY "1,2")
+        set_xcode_property(${APP_NAME} SUPPORTS_MACCATALYST "NO")
+        set_xcode_property(${APP_NAME} SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD "NO")
+        set_xcode_property(${APP_NAME} INFOPLIST_KEY_UILaunchStoryboardName "LaunchScreen")
+        set_xcode_property(${APP_NAME} INFOPLIST_KEY_CFBundleDisplayName "Tower of Hanoi")
+        set_xcode_property(${APP_NAME} INFOPLIST_KEY_LSApplicationCategoryType "public.app-category.puzzle-games")
+        # Ensure proper iOS App Archive (not Generic Xcode Archive)
+        set_xcode_property(${APP_NAME} SKIP_INSTALL "NO")
+        set_xcode_property(${APP_NAME} INSTALL_PATH "$(LOCAL_APPS_DIR)")
+        # dSYM for crash symbolication
+        set_property(TARGET ${APP_NAME} PROPERTY
+            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym")
+        find_library(STOREKIT_LIBRARY StoreKit)
+        find_library(GAMEKIT_LIBRARY GameKit)
+        target_link_libraries(${APP_NAME} ${STOREKIT_LIBRARY} ${GAMEKIT_LIBRARY})
     endif()
 elseif(WINDOWS)
     cocos_copy_target_dll(${APP_NAME})
@@ -184,6 +208,11 @@ if(MACOSX)
     set_target_properties(${APP_NAME} PROPERTIES
         XCODE_GENERATE_SCHEME YES
         XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+elseif(IOS)
+    # Generate scheme so Run action uses Debug config (not Archive)
+    set_target_properties(${APP_NAME} PROPERTIES
+        XCODE_GENERATE_SCHEME YES
     )
 endif()
 
