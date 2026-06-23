@@ -86,6 +86,22 @@ def save(filename, samples):
     dur = len(samples) / SR
     print(f"  {filename:20s}  {dur:.2f}s")
 
+def sub_thump(dur_s, amp=0.28):
+    """베이스 타격감 보강: 250Hz→120Hz 피치스윕, 70ms — 드럼 아닌 타격감"""
+    note_n    = int(SR * 0.070)
+    silence_n = max(0, int(SR * dur_s) - note_n)
+    k = 10.5  # 주파수 감쇠 상수: 250*exp(-k*0.07)≈120Hz
+    phase = 0.0
+    out = []
+    for i in range(note_n):
+        t    = i / SR
+        freq = max(120.0, 250.0 * math.exp(-k * t))
+        phase += 2 * math.pi * freq / SR
+        ei   = i / note_n
+        env  = (ei / 0.05) if ei < 0.05 else math.exp(-(ei - 0.05) * 8.0)
+        out.append(amp * math.sin(phase) * env)
+    return out + [0.0] * silence_n
+
 
 def gen_bgm2():
     BPM = 124
@@ -98,6 +114,10 @@ def gen_bgm2():
 
     def sq_bass(note, dur, amp=0.22):
         return adsr(sine(NOTE[note], dur, amp), a=0.08, d=0.08, s=0.70, r=0.20)
+
+    def sq_bass_oct(note, dur, amp=0.16):
+        """옥타브 위 베이스 — 핸드폰 스피커 보강 (freq×2)"""
+        return adsr(sine(NOTE[note] * 2, dur, amp), a=0.04, d=0.06, s=0.65, r=0.12)
 
     def tri(note, dur):
         return adsr(triangle(NOTE[note], dur, amp=0.40), a=0.004, d=0.01, s=0.8, r=0.04)
@@ -145,6 +165,7 @@ def gen_bgm2():
     ]
     bass_parts = [sq_bass(n, h) for n in bass_roots]
     bass = concat(*bass_parts)
+    bass_oct = concat(*[sq_bass_oct(n, h) for n in bass_roots])
 
     # ── 아르페지오 삼각파: 16 patterns, 각 pattern = 16분음표 16개 (1마디) ──
     arp_patterns = [
@@ -164,11 +185,17 @@ def gen_bgm2():
             arp_parts.append(tri(note, s))
     arp = concat(*arp_parts)
 
-    max_len = max(len(bass), len(arp))
+    # 베이스 루트 24개 × 반음표(h=2q) = 48비트 → thump 1회/비트
+    thump_seq = concat(*[sub_thump(q) for _ in range(48)])
+    max_len = max(len(bass), len(bass_oct), len(arp), len(thump_seq))
     def pad(t): return t + [0.0] * (max_len - len(t))
-    mixed = mix(pad(bass), pad(arp))
+    b, bo, a, th = pad(bass), pad(bass_oct), pad(arp), pad(thump_seq)
+    raw = [b[i]*0.43 + bo[i]*0.27 + a[i]*0.17 + th[i]*0.13 for i in range(max_len)]
+    peak = max(abs(v) for v in raw) if raw else 1.0
+    scale = 1.035 / peak if peak > 0 else 1.0  # +15% 음량
+    mixed = [v * scale for v in raw]
     looped = mixed * 4
-    save('bgm_play.wav', looped)
+    save('bgm_universe.wav', looped)
     print(f"  {'(x4 loop)':20s}  {len(looped)/SR:.1f}s  → 게임에서 무한루프")
 
 

@@ -45,7 +45,8 @@ static void drawVecReset(DrawNode* node, float cx, float cy, float sz, const Col
 
 void PlayScene::onExitTransitionDidStart()
 {
-	stopIdleAnimation();    // 패널 텍스트 잔류 방지: 가이드/아이들 중단 + clearBottomPanels
+	stopIdleAnimation();
+	stopEqualizerAnimation();
 	this->stopAllActions();
 	stopRankTicker();
 	if (m_aliveFlag) *m_aliveFlag = false;
@@ -140,24 +141,31 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 	// 구분선 (PLAY 상태에서만 표시)
 	m_hudSep = Label::createWithSystemFont("|", "Arial", 14);
-	m_hudSep->setColor(Color3B(40, 80, 80));
+	m_hudSep->setColor(Color3B::WHITE);
 	m_hudSep->setPosition(Vec2(240, RESOURCE_HEIGHT - 13));
 	m_hudSep->setVisible(false);
-	this->addChild(m_hudSep, tagInfoText, 0);
+	this->addChild(m_hudSep, 4, 0);
 
 	// 타이머 (PLAY 상태에서만 표시)
 	m_labelTime = Label::createWithSystemFont("00:00.00", "Arial", 13);
-	m_labelTime->setColor(Color3B(80, 220, 180));
+	m_labelTime->setColor(Color3B::WHITE);
 	m_labelTime->setPosition(Vec2(362, RESOURCE_HEIGHT - 13));
 	m_labelTime->setVisible(false);
-	this->addChild(m_labelTime, tagInfoText, tagInfoText);
+	this->addChild(m_labelTime, 4, tagInfoText);
+
+	// RPM 레이블 (PLAY 상태에서만 표시)
+	m_labelRPM = Label::createWithSystemFont("RPM 0", "Arial", 11);
+	m_labelRPM->setColor(Color3B(80, 220, 180));
+	m_labelRPM->setPosition(Vec2(190, RESOURCE_HEIGHT - 13));
+	m_labelRPM->setVisible(false);
+	this->addChild(m_labelRPM, 4);
 
 	// 티커 레이블 (NONE: 랭킹 슬라이딩, COMPLATE: 결과 깜빡임)
 	m_hudTickerLabel = Label::createWithSystemFont("", "Arial", 11);
 	m_hudTickerLabel->setAnchorPoint(Vec2(0, 0.5f));
-	m_hudTickerLabel->setColor(Color3B(80, 220, 180));
+	m_hudTickerLabel->setColor(Color3B::WHITE);
 	m_hudTickerLabel->setPosition(Vec2(RESOURCE_WIDTH + 5, RESOURCE_HEIGHT - 13));
-	this->addChild(m_hudTickerLabel, tagInfoText);
+	this->addChild(m_hudTickerLabel, 4);
 
 	{
 		auto dimDots = DrawNode::create();
@@ -288,7 +296,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 
 PlayScene::~PlayScene()
 {
-	SoundFactory::Instance()->stop("bgm_play");
+	SoundFactory::Instance()->stop(const_cast<char*>(m_bgmName.c_str()));
 	m_pole.clear();
 	m_arrDiscurs.clear();	
 }
@@ -444,14 +452,14 @@ void	PlayScene::DrawMenu(bool SoundOpt)
 	auto prevMenuItem = MenuItemLabel::create(prevNode, CC_CALLBACK_1(PlayScene::callbackOnPushed_prevMenuItem, this));
 	prevMenuItem->setPosition(Vec2(DX, Y_PREV));
 
-	std::string iconName = SoundOpt ? "NewUI/btn_speaker_on.png" : "NewUI/btn_speaker_off.png";
-	MenuItemImage* speakerMenuItem = MenuItemImage::create(iconName, iconName, CC_CALLBACK_1(PlayScene::callbackOnPushed_speakerMenuItem, this));
-	speakerMenuItem->setScale(0.66f);   // 가로로 넓은 아이콘이라 0.66
+	// BGM 텍스트: ON=풀 민트, OFF=딤드(opacity 70)
+	Node* noteNode = makeOutlined("BGM", 11.0f, MINT, 2);
+	noteNode->setOpacity(SoundOpt ? 255 : 70);
+	auto speakerMenuItem = MenuItemLabel::create(noteNode, CC_CALLBACK_1(PlayScene::callbackOnPushed_speakerMenuItem, this));
 	speakerMenuItem->setPosition(Vec2(DX, Y_SPEAKER));
-	tintMint(speakerMenuItem);
 
 	// 메뉴 항목은 모두 절대 위치 지정 (자동 정렬 미사용)
-	Menu* dockMenu = Menu::create(homeMenuItem, resetMenuItem, nextMenuItem, prevMenuItem, speakerMenuItem, NULL);
+	Menu* dockMenu = Menu::create(homeMenuItem, resetMenuItem, nextMenuItem, prevMenuItem, (MenuItem*)speakerMenuItem, NULL);
 	dockMenu->setPosition(Vec2::ZERO);
 	dock->addChild(dockMenu, 3);
 
@@ -488,11 +496,15 @@ void	PlayScene::InitGame()
 // 씬 최초 진입과 결과 팝업 닫은 직후(재플레이 대기) 양쪽에서 공유한다.
 void	PlayScene::EnterWaitingState()
 {
-	// 결과 HUD 잔류(깜빡임 티커) 및 PLAY 전용 표시(타이머/구분선/레벨) 정리
+	// 결과 HUD 잔류(깜빡임 티커) 및 PLAY 전용 표시(타이머/구분선/레벨/RPM) 정리
 	stopRankTicker();
 	if (m_labelTime)  m_labelTime->setVisible(false);
 	if (m_hudSep)     m_hudSep->setVisible(false);
 	if (m_labelLevel) m_labelLevel->setVisible(false);
+	if (m_labelRPM) { m_labelRPM->stopAllActions(); m_labelRPM->setOpacity(255); m_labelRPM->setVisible(false); }
+	m_rpmStartTime = 0;
+	m_rpmBlinking  = false;
+	m_rpmSmoothed  = 0.0f;
 
 	this->DrawInfoText();
 	this->startRankTicker(m_countOfDiscus);
@@ -515,22 +527,40 @@ void PlayScene::Start()
 	if (m_labelLevel) m_labelLevel->setVisible(true);
 	if (m_hudSep)  m_hudSep->setVisible(true);
 	if (m_labelTime) m_labelTime->setVisible(true);
-	// GO! 패널 잠깐 표시 후 응원 연출 시작
-	scheduleOnce([this](float){ startCheerAnimation(); }, 0.7f, "cheer_start");
+	// GO! 패널 잠깐 표시 후 이퀄라이저 연출 시작
+	scheduleOnce([this](float){ startEqualizerAnimation(); }, 0.7f, "cheer_start");
 
+	// MainScene BGM 선택값 읽어 트랙 결정
+	// bgm_selection: 0=Random, 1=Space, 2=Universe, 3=Cosmos, 4=Nova
+	// s_bgmTracks 순서와 동일: index 0=Space, 1=Universe, 2=Cosmos, 3=Nova
+	static const char* BGM_LIST[] = {"bgm_space", "bgm_universe", "bgm_cosmos", "bgm_nova"};
+	{
+		auto ud  = UserDefault::getInstance();
+		int sel  = ud->getIntegerForKey("bgm_selection", 0);
+		if (sel == 0) {
+			// Random: 매 판마다 랜덤 트랙
+			m_bgmName = BGM_LIST[rand() % 4];
+		} else {
+			// 특정 트랙 고정 재생
+			m_bgmName = BGM_LIST[(sel - 1) % 4];
+		}
+	}
 	bool bSoundOpt = UserDataManager::Instance()->GetSoundOpt();
-	if( true == bSoundOpt )
-	{
-		SoundFactory::Instance()->play("bgm_play", true, true);		
-	}
-	else 
-	{
-		SoundFactory::Instance()->play("bgm_play", false, true);		
-	}
-	
-	
-	
+	// switchBGM: 이전 BGM(MainScene 카세트 등) 무조건 교체
+	SoundFactory::Instance()->switchBGM(m_bgmName.c_str());
+	if (!bSoundOpt)
+		CocosDenshion::SimpleAudioEngine::getInstance()->pauseBackgroundMusic();
+
+	// RPM 초기화 — BGM은 RPM이 오르면서 페이드인
+	m_rpmTouchCount = 0;
+	m_rpmSmoothed   = 0.0f;
+	m_bgmCurrentVol = 0.0f;
+	if (bSoundOpt)
+		CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(0.0f);
+	if (m_labelRPM) { m_labelRPM->setString("RPM 0"); m_labelRPM->setVisible(true); }
+
 	m_dateTime = getMilliCount();
+	m_rpmStartTime = m_dateTime;
 	
 	
 	
@@ -552,10 +582,23 @@ void PlayScene::Finished()
 {
 	m_isIng = COMPLATE;
 	m_popupShownTime = 0;
-	unschedule("cheer_anim");
+	stopEqualizerAnimation();
 	unschedule("cheer_start");
 	clearBottomPanels();
 	this->stopAction(m_actionTimeRun);
+	// 최종 RPM 저장 (리셋 전)
+	if (m_rpmStartTime > 0) {
+		float elapsedMs = std::max(2000.0f, (float)(getMilliCount() - m_rpmStartTime));
+		float rpm = (float)m_rpmTouchCount / (elapsedMs / 60000.0f);
+		m_finalRPM = (int)std::min(rpm, 999.0f);
+	}
+	m_rpmStartTime = 0;
+	m_rpmBlinking  = false;
+	m_rpmSmoothed  = 0.0f;
+	if (m_labelRPM) { m_labelRPM->stopAllActions(); m_labelRPM->setOpacity(255); m_labelRPM->setVisible(false); }
+	// BGM 볼륨을 mastVolume으로 복원 후 페이드아웃
+	CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(
+		SoundFactory::Instance()->m_mastVolume);
 	int elapsedTime = getMilliCount() - m_dateTime;
 	SoundFactory::Instance()->fadeOutBGM(1.0f);
 
@@ -608,7 +651,7 @@ void PlayScene::MessagePopup()
 	overlay->runAction(FadeTo::create(0.25f, 160));
 
 	// 팝업 박스
-	const float PW = 280, PH = 150;
+	const float PW = 280, PH = 185;
 	auto popupBox = LayerColor::create(Color4B(10, 15, 50, 230), PW, PH);
 	popupBox->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
 	popupBox->setScale(0.7f);
@@ -624,33 +667,47 @@ void PlayScene::MessagePopup()
 	Color3B titleColor = isNewRecord ? Color3B(255, 215, 0) : Color3B(100, 220, 255);
 	auto titleLabel = Label::createWithSystemFont(titleStr, "Arial", 22);
 	titleLabel->setColor(titleColor);
-	titleLabel->setPosition(Vec2(PW / 2, PH - 30));
+	titleLabel->setPosition(Vec2(PW / 2, PH - 28));
 	popupBox->addChild(titleLabel);
 
 	// 구분선
 	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(20, PH - 50), Vec2(PW - 20, PH - 50), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
+	divider->drawLine(Vec2(20, PH - 52), Vec2(PW - 20, PH - 52), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
 	popupBox->addChild(divider);
-
-	// 기록 시간
-	std::string timeStr = StringUtils::format("%02d:%02d.%02d", recordTime.min, recordTime.sec, recordTime.ms);
-	auto timeLabel = Label::createWithSystemFont(timeStr, "Arial", 26);
-	timeLabel->setColor(Color3B::WHITE);
-	timeLabel->setPosition(Vec2(PW / 2, PH - 82));
-	popupBox->addChild(timeLabel);
 
 	// 레벨 정보
 	auto levelLabel = Label::createWithSystemFont(
 		StringUtils::format("LEVEL %d", m_countOfDiscus), "Arial", 11);
 	levelLabel->setColor(Color3B(160, 160, 160));
-	levelLabel->setPosition(Vec2(PW / 2, PH - 108));
+	levelLabel->setPosition(Vec2(PW / 2, PH - 78));
 	popupBox->addChild(levelLabel);
+
+	// 기록 시간
+	std::string timeStr = StringUtils::format("%02d:%02d.%02d", recordTime.min, recordTime.sec, recordTime.ms);
+	auto timeLabel = Label::createWithSystemFont(timeStr, "Arial", 26);
+	timeLabel->setColor(Color3B::WHITE);
+	timeLabel->setPosition(Vec2(PW / 2, PH - 110));
+	popupBox->addChild(timeLabel);
+
+	// 최종 RPM — 수치에 따라 색상 구분
+	{
+		Color3B rpmCol;
+		if      (m_finalRPM >= 100) rpmCol = Color3B( 80, 220,  80);
+		else if (m_finalRPM >   50) rpmCol = Color3B(255, 215,   0);
+		else                        rpmCol = Color3B(255,  80,  80);
+
+		auto rpmResultLabel = Label::createWithSystemFont(
+			StringUtils::format("AVG RPM  %d", m_finalRPM), "Arial", 11);
+		rpmResultLabel->setColor(rpmCol);
+		rpmResultLabel->setPosition(Vec2(PW / 2, PH - 143));
+		popupBox->addChild(rpmResultLabel);
+	}
 
 	// 힌트 (깜빡임)
 	std::string hintStr = m_isFirstPlay ? "TAP TO CONTINUE" : "TAP TO PLAY AGAIN";
 	auto hintLabel = Label::createWithSystemFont(hintStr, "Arial", 11);
 	hintLabel->setColor(Color3B(200, 200, 100));
-	hintLabel->setPosition(Vec2(PW / 2, 18));
+	hintLabel->setPosition(Vec2(PW / 2, 20));
 	popupBox->addChild(hintLabel);
 	hintLabel->runAction(RepeatForever::create(
 		Sequence::create(FadeOut::create(0.7f), FadeIn::create(0.7f), nullptr)
@@ -672,20 +729,89 @@ void PlayScene::MessagePopup()
 
 
 void PlayScene::DrawTime()
-{	
+{
 	int elapsedTime = getMilliCount() - m_dateTime;
 	RecordTime recordTime = getRecordTime(elapsedTime);
 	int minutes = recordTime.min;
 	int seconds = recordTime.sec;
 	int ms = recordTime.ms;
-	
+
 	std::string strTime = StringUtils::format("%02d:%02d.%02d", minutes, seconds, ms) ;
 	m_labelTime->setString(strTime);
-	if (elapsedTime < 0) 
+	if (elapsedTime < 0)
 	{
 		MainScene* mainScene = MainScene::createScene();
 		Director::getInstance()->replaceScene(TransitionFade::create(0.2, mainScene));
-	}	
+	}
+
+	// RPM 실시간 계산 및 BGM 볼륨 조정
+	if (m_rpmStartTime > 0 && m_labelRPM)
+	{
+		float elapsedMs = std::max(2000.0f, (float)(getMilliCount() - m_rpmStartTime));
+		float rawRpm = (float)m_rpmTouchCount / (elapsedMs / 60000.0f);
+		rawRpm = std::min(rawRpm, 200.0f);
+		// EMA 스무딩(α=0.12): 핸드폰 빠른 초기 탭으로 인한 200 급등 방지
+		// 비대칭 EMA: 상승은 느리게(α=0.12), 하락 중 200→100 구간은 가속
+		float alpha = 0.12f;
+		if (m_rpmSmoothed > rawRpm && m_rpmSmoothed > 100.f) {
+			float excess = (m_rpmSmoothed - 100.f) / 100.f;  // 0..1
+			alpha = 0.12f + 0.28f * excess;  // 최대 0.40 (RPM 200 근처)
+		}
+		m_rpmSmoothed = m_rpmSmoothed * (1.f - alpha) + rawRpm * alpha;
+		float rpm = m_rpmSmoothed;
+
+		m_labelRPM->setString(StringUtils::format("RPM %d", (int)rpm));
+
+		// RPM 구간별 컬러 그라데이션: 빨강(≤50) → 금색(75) → 녹색(≥100)
+		{
+			auto lerp3B = [](Color3B a, Color3B b, float t) -> Color3B {
+				t = std::max(0.0f, std::min(1.0f, t));
+				return Color3B(
+					(uint8_t)(a.r + (b.r - a.r) * t),
+					(uint8_t)(a.g + (b.g - a.g) * t),
+					(uint8_t)(a.b + (b.b - a.b) * t));
+			};
+			const Color3B RED  (255,  60,  60);
+			const Color3B GOLD (255, 215,   0);
+			const Color3B GREEN( 80, 220,  80);
+			Color3B rpmColor;
+			if      (rpm <= 50.0f)  rpmColor = RED;
+			else if (rpm >= 100.0f) rpmColor = GREEN;
+			else if (rpm <= 75.0f)  rpmColor = lerp3B(RED,  GOLD,  (rpm - 50.0f) / 25.0f);
+			else                    rpmColor = lerp3B(GOLD, GREEN,  (rpm - 75.0f) / 25.0f);
+			m_labelRPM->setColor(rpmColor);
+
+			// 50 이하: 깜빡임 시작 / 초과: 깜빡임 중지 (상태 변경 시에만)
+			if (rpm <= 50.0f && !m_rpmBlinking) {
+				m_rpmBlinking = true;
+				m_labelRPM->stopAllActions();
+				m_labelRPM->runAction(RepeatForever::create(
+					Sequence::create(FadeOut::create(0.3f), FadeIn::create(0.3f), nullptr)));
+			} else if (rpm > 50.0f && m_rpmBlinking) {
+				m_rpmBlinking = false;
+				m_labelRPM->stopAllActions();
+				m_labelRPM->setOpacity(255);
+			}
+		}
+
+		// 목표 볼륨: RPM<=50→0, RPM>=100→1, 중간→선형보간
+		float targetVol = 0.0f;
+		if (rpm >= 100.0f)      targetVol = 1.0f;
+		else if (rpm > 50.0f)  targetVol = (rpm - 50.0f) / 50.0f;
+
+		// 페이드 (0.02/tick ≈ 0.2/초)
+		const float FADE_STEP = 0.02f;
+		if (m_bgmCurrentVol < targetVol)
+			m_bgmCurrentVol = std::min(targetVol, m_bgmCurrentVol + FADE_STEP);
+		else if (m_bgmCurrentVol > targetVol)
+			m_bgmCurrentVol = std::max(targetVol, m_bgmCurrentVol - FADE_STEP);
+
+		if (UserDataManager::Instance()->GetSoundOpt())
+		{
+			float finalVol = m_bgmCurrentVol * SoundFactory::Instance()->m_mastVolume;
+			CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(finalVol);
+		}
+	}
 }
 
 
@@ -751,9 +877,9 @@ void PlayScene::DrawInfoText ()
 	if (NULL == m_labelLevel)
 	{
 		m_labelLevel = Label::createWithSystemFont(strLevelInfo, "Arial", 13);
-		m_labelLevel->setColor(Color3B(255, 215, 80));
+		m_labelLevel->setColor(Color3B::WHITE);
 		m_labelLevel->setPosition(Vec2(120, RESOURCE_HEIGHT - 13));
-		this->addChild(m_labelLevel, tagInfoText, tagInfoText);
+		this->addChild(m_labelLevel, 4, tagInfoText);
 		m_labelLevel->setVisible(false);
 	}
 	else
@@ -893,6 +1019,9 @@ bool PlayScene::AttachDiscusToPole(Discus* pDiscus, int poleID)
 
 void PlayScene::SelectPole(int poleID, bool bIsAble)
 {
+	if (m_isIng == PLAY && poleID > -1)
+		++m_rpmTouchCount;
+
 	if( poleID > -1 && poleID < 3)
 	{
 		if( bIsAble )
@@ -1036,17 +1165,21 @@ void PlayScene::callbackOnPushed_speakerMenuItem(Ref* sender)
 		this->DrawMenu(true);
 		if (m_isIng == PLAY)
 		{
-			SoundFactory::Instance()->play("bgm_play", true, true);
+			SoundFactory::Instance()->play(const_cast<char*>(m_bgmName.c_str()), true, true);
+			CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(
+				m_bgmCurrentVol * SoundFactory::Instance()->m_mastVolume);
+			startEqualizerAnimation();
 		}
 	}
-	else 
+	else
 	{
 		UserDataManager::Instance()->SetSoundOpt(false);
 		this->DrawMenu(false);
 		if (m_isIng == PLAY)
 		{
-			SoundFactory::Instance()->play("bgm_play", false, true);
-		}		
+			SoundFactory::Instance()->play(const_cast<char*>(m_bgmName.c_str()), false, true);
+			stopEqualizerAnimation();
+		}
 	}
 	
 }
@@ -1475,6 +1608,7 @@ void PlayScene::stopIdleAnimation()
     unschedule("marquee_next");
     unschedule("cheer_anim");
     unschedule("cheer_start");
+    unschedule("eq_update");
     this->stopActionByTag(TAG_GUIDE_ANIM);
     clearBottomPanels();
 }
@@ -1789,6 +1923,116 @@ void PlayScene::startGuideAnimation()
     repeatAction->setTag(TAG_GUIDE_ANIM);
     this->runAction(repeatAction);
 }
+
+// ── 이퀄라이저 ──────────────────────────────────────────────────────
+
+void PlayScene::startEqualizerAnimation()
+{
+    clearBottomPanels();
+    memset(m_eqH,    0, sizeof(m_eqH));
+    memset(m_eqPeak, 0, sizeof(m_eqPeak));
+
+    if (!m_eqNode) {
+        m_eqNode = DrawNode::create();
+        m_eqNode->setPosition(Vec2::ZERO);
+        this->addChild(m_eqNode, 4);  // LED dot overlay(z=3) 위
+    }
+    schedule([this](float dt){ _updateEqualizer(dt); }, 0.05f, "eq_update");
+}
+
+void PlayScene::stopEqualizerAnimation()
+{
+    unschedule("eq_update");
+    if (m_eqNode) {
+        m_eqNode->removeFromParent();
+        m_eqNode = nullptr;
+    }
+    memset(m_eqH,    0, sizeof(m_eqH));
+    memset(m_eqPeak, 0, sizeof(m_eqPeak));
+}
+
+void PlayScene::_updateEqualizer(float dt)
+{
+    if (!m_eqNode || !m_eqNode->getParent()) return;
+    m_eqNode->clear();
+
+    static const int   BARS     = 6;
+    static const float BAR_BOT  = 5.0f;   // 패널 하단 여백
+    static const float BAR_MAXH = 42.0f;  // 최대 막대 높이
+    static const float DECAY    = 95.0f;  // 막대 낙하 속도 px/s
+    static const float PK_DECAY = 28.0f;  // peak 낙하 속도 px/s
+
+    const float DIV1 = (arrPosOfPole[0].x + arrPosOfPole[1].x) * 0.5f;
+    const float DIV2 = (arrPosOfPole[1].x + arrPosOfPole[2].x) * 0.5f;
+    const float sectX[3] = { 2.0f, DIV1 + 2.0f, DIV2 + 2.0f };
+    const float sectW[3] = { DIV1 - 4.0f, DIV2 - DIV1 - 4.0f, RESOURCE_WIDTH - DIV2 - 4.0f };
+
+    float maxH = BAR_MAXH * m_bgmCurrentVol;
+
+    for (int s = 0; s < 3; ++s) {
+        float barW = sectW[s] / (BARS * 2 - 1);  // bar 폭 = gap 폭
+        float x0   = sectX[s];
+
+        for (int i = 0; i < BARS; ++i) {
+            // 낙하
+            m_eqH[s][i] = std::max(0.0f, m_eqH[s][i] - DECAY * dt);
+
+            // 볼륨 비례 랜덤 kick (50% 확률)
+            if (rand() % 2 == 0) {
+                float kick = ((float)(rand() % 1000) / 1000.0f) * maxH;
+                if (kick > m_eqH[s][i]) m_eqH[s][i] = kick;
+            }
+
+            // peak: 막대가 올라가면 갱신, 아니면 천천히 낙하
+            if (m_eqH[s][i] >= m_eqPeak[s][i])
+                m_eqPeak[s][i] = m_eqH[s][i];
+            else
+                m_eqPeak[s][i] = std::max(0.0f, m_eqPeak[s][i] - PK_DECAY * dt);
+
+            float h  = m_eqH[s][i];
+            float pk = m_eqPeak[s][i];
+            float x  = x0 + i * barW * 2.0f;
+            float w  = barW * 0.82f;
+
+            // 막대 색: 18개 전체를 하나의 레드→퍼플 연속 그라데이션
+            if (h > 0.5f) {
+                static const Color4F STOPS[6] = {
+                    Color4F(1.00f, 0.22f, 0.22f, 1.0f),  // 레드
+                    Color4F(1.00f, 0.55f, 0.05f, 1.0f),  // 오렌지
+                    Color4F(1.00f, 0.92f, 0.05f, 1.0f),  // 옐로우
+                    Color4F(0.15f, 1.00f, 0.40f, 1.0f),  // 그린
+                    Color4F(0.10f, 0.82f, 1.00f, 1.0f),  // 시안
+                    Color4F(0.78f, 0.18f, 1.00f, 1.0f),  // 퍼플
+                };
+                // 전체 18막대 기준 위치(0→1)로 인접 stop 보간
+                float gt  = (float)(s * BARS + i) / (3 * BARS - 1);
+                float pos = gt * 5.0f;
+                int   ci  = std::min((int)pos, 4);
+                float ct  = pos - (float)ci;
+                Color4F n(
+                    STOPS[ci].r + (STOPS[ci+1].r - STOPS[ci].r) * ct,
+                    STOPS[ci].g + (STOPS[ci+1].g - STOPS[ci].g) * ct,
+                    STOPS[ci].b + (STOPS[ci+1].b - STOPS[ci].b) * ct,
+                    1.0f);
+                float t   = h / BAR_MAXH;
+                float dim = 0.22f + t * 0.78f;
+                float a   = 0.45f + t * 0.55f;
+                m_eqNode->drawSolidRect(Vec2(x, BAR_BOT), Vec2(x + w, BAR_BOT + h),
+                    Color4F(n.r * dim, n.g * dim, n.b * dim, a));
+            }
+
+            // peak 흰 선 (색 대비 극대화)
+            if (pk > 2.0f) {
+                float py = BAR_BOT + pk;
+                m_eqNode->drawSolidRect(
+                    Vec2(x, py - 1.0f), Vec2(x + w, py + 1.0f),
+                    Color4F(1.0f, 1.0f, 1.0f, 0.95f));
+            }
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
 
 void PlayScene::showHudResult(bool isNewRecord, const RecordTime& rt)
 {

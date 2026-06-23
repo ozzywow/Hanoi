@@ -20,6 +20,9 @@ public:
 	void play(char* soundFile, bool bPuase = false, bool bBGM = false, bool bLoop = true);
 	void stop(char* soundFile);
 	void fadeOutBGM(float duration = 1.0f);
+	void switchBGM(const char* soundFile, bool loop = true);
+	void crossfadeToTrack(const char* soundFile, float fadeDuration = 0.3f);
+	bool isBGMPlaying() const;
 	void setMasterVolume(float vol);
 	void preloadAll();
 
