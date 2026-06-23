@@ -23,10 +23,10 @@ static AppDelegate s_sharedApplication;
 
     // Use the created CCEAGLView as the root view controller's view
     UIView *eaglView = (__bridge UIView*)glviewImpl->getEAGLView();
-    self.viewController = [[RootViewController alloc] init];
-    self.viewController.view = eaglView;
+    viewController = [[RootViewController alloc] init];
+    viewController.view = eaglView;
 
-    [self.window setRootViewController:self.viewController];
+    [self.window setRootViewController:viewController];
     [self.window makeKeyAndVisible];
 
     [MKStoreManager sharedManager];
