@@ -24,11 +24,24 @@ void UserDataManager::LoadUserData()
 	m_soundOption = UserDefault::getInstance()->getBoolForKey("soundOption", true);
 	m_cart = UserDefault::getInstance()->getBoolForKey("cart", false);
 
+	m_recordTimestamp = UserDefault::getInstance()->getDoubleForKey("recordTimestamp", 0.0);
+
 	for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
 	{
 		std::string key = StringUtils::format("level_%d", level);
 		int record = UserDefault::getInstance()->getIntegerForKey(key.c_str(), 0);
 		m_arrRecord[level] = record;
+	}
+
+	// 12h 경과 시 기록 초기화
+	if (m_recordTimestamp > 0.0)
+	{
+		double now = static_cast<double>(::time(nullptr));
+		if (now - m_recordTimestamp >= kRecordExpirySec)
+		{
+			for (auto& kv : m_arrRecord) kv.second = 0;
+			m_recordTimestamp = 0.0;
+		}
 	}
 }
 
@@ -39,6 +52,7 @@ void UserDataManager::SaveUserData()
 	UserDefault::getInstance()->setIntegerForKey("level", m_level);
 	UserDefault::getInstance()->setBoolForKey("soundOption", m_soundOption);
 	UserDefault::getInstance()->setBoolForKey("cart", m_cart);
+	UserDefault::getInstance()->setDoubleForKey("recordTimestamp", m_recordTimestamp);
 
 	for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
 	{

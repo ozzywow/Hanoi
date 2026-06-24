@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "cocos2d.h"
 #include "Singleton.h"
@@ -6,6 +6,7 @@
 #include <vector>
 #include <functional>
 #include <map>
+#include <set>
 #include <ctime>
 
 struct LeaderboardEntry {
@@ -30,9 +31,12 @@ public:
     void resetStats();
     void updateDisplayName(const std::string& name, std::function<void(bool)> callback = nullptr);
 
-    // 리더보드 조회
+    // 리더보드 조회 — submitScore 진행 중인 레벨은 완료 후 자동 서빙
     void fetchLeaderboard(int level, int maxCount,
                           std::function<void(const std::vector<LeaderboardEntry>&)> callback);
+
+    // 해당 레벨 캐시를 즉시 무효화
+    void invalidateCache(int level);
 
     bool isLoggedIn() const { return !m_sessionTicket.empty(); }
     const std::string& getPlayFabId() const { return m_playFabId; }
@@ -43,6 +47,8 @@ public:
     static constexpr double CACHE_TTL_HOURS = 1.0;
 
 private:
+    using FetchCallback = std::function<void(const std::vector<LeaderboardEntry>&)>;
+
     std::string m_sessionTicket;
     std::string m_playFabId;
 
@@ -50,7 +56,17 @@ private:
         std::vector<LeaderboardEntry> entries;
         std::time_t cachedAt;
     };
-    std::map<int, CacheEntry> m_leaderboardCache;
+    std::map<int, CacheEntry>              m_leaderboardCache;
+
+    // submitScore가 in-flight인 레벨 추적
+    std::set<int>                          m_pendingSubmitLevels;
+    // submitScore 완료 후 실행할 fetchLeaderboard 콜백
+    std::map<int, std::vector<FetchCallback>> m_deferredFetches;
+
+    // submitScore 내부 구현 (로그인 완료 후 호출)
+    void doSubmitScore(int level, int scoreMs, std::function<void(bool)> callback);
+    // submit 완료 후 pending 해제 + deferred 콜백 처리
+    void releasePendingSubmit(int level, bool ok);
 
     void httpPost(const std::string& url,
                   const std::string& jsonBody,
