@@ -144,21 +144,33 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
 
 void LeaderboardManager::submitScore(int level, int scoreMs, std::function<void(bool)> callback)
 {
-    if (!isLoggedIn()) {
-        login([this, level, scoreMs, callback](bool ok) {
-            if (ok) submitScore(level, scoreMs, callback);
-            else if (callback) callback(false);
-        });
-        return;
-    }
-
-    // Skip if scoreMs is worse than the stored best (best was already saved before this call)
+    // 점수가 더 나쁘면 제출 스킵 (pending 마킹 전에 처리)
     int best = UserDataManager::Instance()->GetBestRecord(level);
     if (best > 0 && scoreMs > best) {
         if (callback) callback(true);
         return;
     }
 
+    // fetchLeaderboard 가 이 레벨로 오면 submit 완료 후까지 defer
+    m_pendingSubmitLevels.insert(level);
+
+    if (!isLoggedIn()) {
+        login([this, level, scoreMs, callback](bool ok) {
+            if (ok) {
+                doSubmitScore(level, scoreMs, callback);
+            } else {
+                releasePendingSubmit(level, false);
+                if (callback) callback(false);
+            }
+        });
+        return;
+    }
+
+    doSubmitScore(level, scoreMs, callback);
+}
+
+void LeaderboardManager::doSubmitScore(int level, int scoreMs, std::function<void(bool)> callback)
+{
     std::string body = StringUtils::format(
         "{\"Statistics\":[{\"StatisticName\":\"%s\",\"Value\":%d}]}",
         statName(level).c_str(), scoreMs
@@ -168,13 +180,32 @@ void LeaderboardManager::submitScore(int level, int scoreMs, std::function<void(
         [this, level, scoreMs, callback](bool ok, const std::string& resp) {
             log("PlayFab submitScore L%d %dms: %s | %s",
                 level, scoreMs, ok ? "OK" : "FAIL", resp.c_str());
-            if (ok) {
-                // 내 기록이 갱신됐으므로 캐시 무효화 후 서버에서 재갱신
-                m_leaderboardCache.erase(level);
-                fetchLeaderboard(level, 10, nullptr);
-            }
+            releasePendingSubmit(level, ok);
             if (callback) callback(ok);
         });
+}
+
+void LeaderboardManager::releasePendingSubmit(int level, bool ok)
+{
+    m_pendingSubmitLevels.erase(level);
+    auto deferred = std::move(m_deferredFetches[level]);
+    m_deferredFetches.erase(level);
+
+    if (ok) {
+        m_leaderboardCache.erase(level);
+        if (!deferred.empty()) {
+            // deferred 콜백들을 한 번의 fresh fetch로 모두 서빙
+            auto cbList = std::make_shared<std::vector<FetchCallback>>(std::move(deferred));
+            fetchLeaderboard(level, 10, [cbList](const std::vector<LeaderboardEntry>& e) {
+                for (auto& cb : *cbList) if (cb) cb(e);
+            });
+        } else {
+            fetchLeaderboard(level, 10, nullptr);  // 백그라운드 캐시 워밍
+        }
+    } else {
+        // 제출 실패 시 deferred 콜백에 빈 결과 반환
+        for (auto& cb : deferred) if (cb) cb({});
+    }
 }
 
 void LeaderboardManager::updateDisplayName(const std::string& name, std::function<void(bool)> callback)
@@ -225,6 +256,11 @@ void LeaderboardManager::resetStats()
         });
 }
 
+void LeaderboardManager::invalidateCache(int level)
+{
+    m_leaderboardCache.erase(level);
+}
+
 void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
     std::function<void(const std::vector<LeaderboardEntry>&)> callback)
 {
@@ -233,6 +269,13 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             if (ok) fetchLeaderboard(level, maxCount, callback);
             else if (callback) callback({});
         });
+        return;
+    }
+
+    // submitScore가 in-flight 중이면 완료 후 fresh 데이터로 자동 서빙
+    if (m_pendingSubmitLevels.count(level)) {
+        log("LeaderboardManager: submit pending L%d, deferring fetch", level);
+        if (callback) m_deferredFetches[level].push_back(callback);
         return;
     }
 
