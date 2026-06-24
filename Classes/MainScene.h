@@ -40,7 +40,6 @@ public:
 	void callbackLockBtn(Ref* sender);
 	void callbackRankPrev(Ref* pSender);
 	void callbackRankNext(Ref* pSender);
-	void callbackOnPushed_resetMenuItem(Ref* pSender);
 
 	void drawOnlineRank(int level, bool retryOnEmpty = true);
 	void showNameInputDialog();

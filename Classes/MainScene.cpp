@@ -1,16 +1,18 @@
 ﻿#include "stdafx.h"
 #include <algorithm>
+#include <sstream>
 #include "MainScene.h"
 #include "SoundFactory.h"
 #include "PlayScene.h"
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
 #include "ui/CocosGUI.h"
+#include "DrawUtils.h"
+#include "PixelFont.h"
 #ifdef LITE_VER
 #include "MKStoreManager_cpp.h"
 #endif //LITE_VER
 
-// 네온 민트 (PlayScene 도크 공통색) — 키캡/아이콘 틴트에 사용
 static const Color3B MINT_C(80, 220, 180);
 
 // BGM Player ─────────────────────────────────────────────────────────────────
@@ -34,275 +36,6 @@ static const char* s_selNames[]  = {
     "\xe2\x99\xaa THE NOVA",
 };
 static const int TAG_CASSETTE = 78;
-
-// PlayScene 도크와 동일한 베벨 키캡 (중심 cx,cy / 크기 w,h)
-// grayStyle=true → 회색 톤 (기어 등 보조 버튼용)
-static void drawKeycap(DrawNode* node, float cx, float cy, float w, float h, bool grayStyle = false)
-{
-	float x0 = cx - w / 2, x1 = cx + w / 2;
-	float y0 = cy - h / 2, y1 = cy + h / 2;
-	float c = (w < h ? w : h) * 0.10f; if (c < 2.0f) c = 2.0f;  // 챔퍼
-	Color4F base   = grayStyle ? Color4F(0.13f, 0.14f, 0.16f, 1.0f) : Color4F(0.08f, 0.19f, 0.19f, 1.0f);
-	Color4F hi     = grayStyle ? Color4F(0.65f, 0.65f, 0.65f, 0.4f) : Color4F(0.5f,  1.0f,  0.85f, 0.5f);
-	Color4F shadow = Color4F(0.0f, 0.0f, 0.0f, 0.5f);
-	Color4F border = grayStyle ? Color4F(0.42f, 0.46f, 0.50f, 0.60f) : Color4F(0.31f, 0.86f, 0.70f, 0.55f);
-	// 12점 폴리곤 (코너당 3점 — 45° 호 중간점 추가로 자연스러운 라운딩)
-	const float k = 0.293f;   // 1 - sin45° : 호 중간점 내측 오프셋 비율
-	Vec2 poly[12] = {
-		Vec2(x0+c,       y0),              // bottom-left
-		Vec2(x1-c,       y0),              // bottom-right
-		Vec2(x1-c*k,     y0+c*k),         // BR arc mid
-		Vec2(x1,         y0+c),            // right-bottom
-		Vec2(x1,         y1-c),            // right-top
-		Vec2(x1-c*k,     y1-c*k),         // TR arc mid
-		Vec2(x1-c,       y1),              // top-right
-		Vec2(x0+c,       y1),              // top-left
-		Vec2(x0+c*k,     y1-c*k),         // TL arc mid
-		Vec2(x0,         y1-c),            // left-top
-		Vec2(x0,         y0+c),            // left-bottom
-		Vec2(x0+c*k,     y0+c*k),         // BL arc mid
-	};
-	node->drawSolidPoly(poly, 12, base);
-	node->drawSolidRect(Vec2(x0+c, y0),   Vec2(x1-c, y0+2), shadow);  // 하단 그림자
-	node->drawSolidRect(Vec2(x1-2, y0+c), Vec2(x1,   y1-c), shadow);  // 우측 그림자
-	node->drawSolidRect(Vec2(x0+c, y1-2), Vec2(x1-c, y1),   hi);      // 상단 하이라이트
-	node->drawSolidRect(Vec2(x0,   y0+c), Vec2(x0+2, y1-c), hi);      // 좌측 하이라이트
-	// 코너 bevel 삼각형: 스트립이 끊기는 호(arc) 영역 보완
-	Vec2 tl[3] = { Vec2(x0,    y1-c), Vec2(x0+c, y1),    Vec2(x0+2, y1-2) };  // TL 하이라이트
-	Vec2 br[3] = { Vec2(x1-c,  y0),   Vec2(x1,   y0+c),  Vec2(x1-2, y0+2) };  // BR 그림자
-	node->drawSolidPoly(tl, 3, hi);
-	node->drawSolidPoly(br, 3, shadow);
-	node->drawPoly(poly, 12, true, border);                             // 12점 라운드 외곽선
-}
-
-// 5x7 픽셀 폰트 (셀아트 글자) — 7행 x 5열, '#'=픽셀 on. START에 필요한 글자만 정의.
-static const char* pixelGlyph(char c)
-{
-	switch (c) {
-	case 'S': return ".####" "#...." "#...." ".###." "....#" "....#" "####.";
-	case 'T': return "#####" "..#.." "..#.." "..#.." "..#.." "..#.." "..#..";
-	case 'A': return ".###." "#...#" "#...#" "#####" "#...#" "#...#" "#...#";
-	case 'R': return "####." "#...#" "#...#" "####." "#.#.." "#..#." "#...#";
-	default:  return nullptr;
-	}
-}
-
-static float pixelTextWidth(const std::string& s, float px)
-{
-	const float advance = 5 * px + px;          // 글자폭(5) + 간격(1)
-	return s.empty() ? 0 : (advance * s.size() - px);
-}
-
-// 픽셀 글자들을 주어진 DrawNode에 한 색으로 그림 (recolor 시 clear 후 재호출).
-static void drawPixelGlyphs(DrawNode* node, const std::string& s, float px,
-                            const Color4F& col, const Vec2& off)
-{
-	const int GW = 5, GH = 7;
-	const float advance = GW * px + px;
-	const float cell = px - 0.6f;               // 셀 사이 미세 간격 → LED 도트 느낌
-	float x0 = 0;
-	for (char ch : s) {
-		const char* g = pixelGlyph(ch);
-		if (g) {
-			for (int row = 0; row < GH; ++row)
-				for (int c2 = 0; c2 < GW; ++c2) {
-					if (g[row * GW + c2] != '#') continue;
-					float bx = x0 + c2 * px;
-					float by = (GH - 1 - row) * px;   // 행0이 위 → y 뒤집기
-					node->drawSolidRect(Vec2(bx, by) + off, Vec2(bx + cell, by + cell) + off, col);
-				}
-		}
-		x0 += advance;
-	}
-}
-
-// HSV(h 0..1 순환, s,v 0..1) → RGB. 그라데이션/스파클 연출용.
-static Color4F hsv2rgb(float h, float s, float v)
-{
-	h = h - floorf(h);
-	float i = floorf(h * 6.0f);
-	float f = h * 6.0f - i;
-	float p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-	float r = v, g = v, b = v;
-	switch (((int)i) % 6) {
-	case 0: r = v; g = t; b = p; break;
-	case 1: r = q; g = v; b = p; break;
-	case 2: r = p; g = v; b = t; break;
-	case 3: r = p; g = q; b = v; break;
-	case 4: r = t; g = p; b = v; break;
-	case 5: r = v; g = p; b = q; break;
-	}
-	return Color4F(r, g, b, 1.0f);
-}
-
-// 픽셀별 색 콜백 버전. fn(gx, gy, normX) → Color4F. gx,gy=전체 픽셀 격자 인덱스, normX=가로 진행도 0..1.
-static void drawPixelGlyphsFn(DrawNode* node, const std::string& s, float px, const Vec2& off,
-                              const std::function<Color4F(int gx, int gy, float normX)>& fn)
-{
-	const int GW = 5, GH = 7;
-	const float advance = GW * px + px;
-	const float cell = px - 0.6f;
-	const int nLetters = (int)s.size();
-	const float totalCols = nLetters > 0 ? (nLetters * (GW + 1) - 1) : 1;
-	float x0 = 0;
-	int letterIdx = 0;
-	for (char ch : s) {
-		const char* g = pixelGlyph(ch);
-		if (g) {
-			for (int row = 0; row < GH; ++row)
-				for (int c2 = 0; c2 < GW; ++c2) {
-					if (g[row * GW + c2] != '#') continue;
-					float bx = x0 + c2 * px;
-					float by = (GH - 1 - row) * px;
-					int gx = letterIdx * (GW + 1) + c2;
-					int gy = GH - 1 - row;
-					float normX = gx / totalCols;
-					node->drawSolidRect(Vec2(bx, by) + off, Vec2(bx + cell, by + cell) + off, fn(gx, gy, normX));
-				}
-		}
-		x0 += advance;
-		letterIdx++;
-	}
-}
-
-// 셀아트 픽셀 텍스트 노드 (LED 도트 톤). 검은 드롭섀도(고정) + 본체(outMain로 반환 → 색상 순환).
-// contentSize 지정 → MenuItemLabel 터치영역 확보.
-static Node* makePixelText(const std::string& s, float px, Color3B col, DrawNode** outMain = nullptr)
-{
-	auto node = Node::create();
-	node->setContentSize(Size(pixelTextWidth(s, px), 7 * px));
-	node->setCascadeOpacityEnabled(true);
-
-	auto shadow = DrawNode::create();
-	auto main   = DrawNode::create();
-	node->addChild(shadow, 0);
-	node->addChild(main, 1);
-
-	drawPixelGlyphs(shadow, s, px, Color4F(0, 0, 0, 0.6f), Vec2(1.5f, -1.5f));
-	drawPixelGlyphs(main, s, px, Color4F(col.r / 255.f, col.g / 255.f, col.b / 255.f, 1.0f), Vec2::ZERO);
-
-	if (outMain) *outMain = main;
-	return node;
-}
-
-// 벡터 아이콘 헬퍼 — DrawNode에 민트 기하 도형으로 아이콘을 그림.
-// cx,cy = 아이콘 중심 (node 로컬 좌표). 각 함수가 node에 직접 그림.
-
-// ⚙ 기어: 외곽 원 + 8개 돌기 + 중앙 구멍
-static void drawVecGear(DrawNode* node, float cx, float cy, float r, const Color4F& col)
-{
-	// 외곽 원
-	node->drawCircle(Vec2(cx, cy), r, 0, 40, false, col);
-	// 8방향 직사각형 돌기
-	const int TEETH = 8;
-	const float toothW = r * 0.38f, toothH = r * 0.42f;
-	for (int i = 0; i < TEETH; ++i) {
-		float angle = (float)i / TEETH * M_PI * 2.f;
-		float ca = cosf(angle), sa = sinf(angle);
-		// 돌기 중심 (원 외곽에서 toothH/2 만큼 더 나감)
-		float tx = cx + (r + toothH * 0.35f) * ca;
-		float ty = cy + (r + toothH * 0.35f) * sa;
-		// 4개 꼭짓점 (로컬 ±w/2, ±h/2 → 회전)
-		float hw = toothW / 2.f, hh = toothH / 2.f;
-		Vec2 pts[4] = {
-			Vec2(tx + (-hw * ca - (-hh) * sa), ty + (-hw * sa + (-hh) * ca)),
-			Vec2(tx + ( hw * ca - (-hh) * sa), ty + ( hw * sa + (-hh) * ca)),
-			Vec2(tx + ( hw * ca -   hh  * sa), ty + ( hw * sa +   hh  * ca)),
-			Vec2(tx + (-hw * ca -   hh  * sa), ty + (-hw * sa +   hh  * ca)),
-		};
-		node->drawSolidPoly(pts, 4, col);
-	}
-	// 채워진 외곽 원 (돌기 안쪽 채움)
-	node->drawSolidCircle(Vec2(cx, cy), r, 0, 32, col);
-	// 중앙 구멍 (배경색으로 덮어 뚫린 것처럼)
-	node->drawSolidCircle(Vec2(cx, cy), r * 0.38f, 0, 20,
-		Color4F(0.08f, 0.19f, 0.19f, 1.0f));
-}
-
-// drawVecCartIcon → common_define.h 로 이동 (PlayScene 공용)
-
-// ↻ 원형 화살표 Restore (시안 A)
-// 15°에서 시계방향 285° 호, 끝(90°/12시)에서 오른쪽 가리키는 화살촉
-static void drawVecRestore_CircArrow(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
-{
-	float archR  = sz * 0.40f;
-	float archIR = archR * 0.72f;
-	const int N  = 20;
-
-	float startA = M_PI * 15.f / 180.f;
-	float sweepA = M_PI * 285.f / 180.f;
-
-	for (int i = 0; i < N; ++i) {
-		float a0 = startA - sweepA *  i      / N;
-		float a1 = startA - sweepA * (i + 1) / N;
-		Vec2 pts[4] = {
-			{cx + cosf(a0)*archIR, cy + sinf(a0)*archIR},
-			{cx + cosf(a0)*archR,  cy + sinf(a0)*archR },
-			{cx + cosf(a1)*archR,  cy + sinf(a1)*archR },
-			{cx + cosf(a1)*archIR, cy + sinf(a1)*archIR},
-		};
-		node->drawSolidPoly(pts, 4, col);
-	}
-
-	// 화살촉: 90°(12시) 위치, 시계방향 접선 → 오른쪽
-	float midR = (archR + archIR) * 0.5f;
-	float asz  = sz * 0.21f;
-	Vec2  tip  = {cx + 0.f, cy + midR};    // cos(90°)=0, sin(90°)=1
-	Vec2  fwd  = {1.f, 0.f};               // sin(90°)=1, -cos(90°)=0
-	Vec2  perp = {0.f, 1.f};               // cos(90°)=0,  sin(90°)=1
-
-	Vec2 arrowPts[3] = {
-		{tip.x + fwd.x*asz,                          tip.y + fwd.y*asz},
-		{tip.x - fwd.x*asz*0.3f + perp.x*asz*0.75f, tip.y - fwd.y*asz*0.3f + perp.y*asz*0.75f},
-		{tip.x - fwd.x*asz*0.3f - perp.x*asz*0.75f, tip.y - fwd.y*asz*0.3f - perp.y*asz*0.75f},
-	};
-	node->drawSolidPoly(arrowPts, 3, col);
-}
-
-// 벡터 아이콘 Node 생성 — w×h contentSize로 터치영역 확보, 아이콘은 중앙에 그림
-static Node* makeVecIcon(float w, float h,
-                         const std::function<void(DrawNode*, float cx, float cy)>& drawFn)
-{
-	auto node = Node::create();
-	node->setContentSize(Size(w, h));
-	node->setCascadeOpacityEnabled(true);
-	auto dn = DrawNode::create();
-	drawFn(dn, w / 2.f, h / 2.f);
-	node->addChild(dn);
-	return node;
-}
-
-// 채워진 삼각형 화살표 (solid triangle)
-static void drawVecTriangle(DrawNode* node, float cx, float cy, float sz, bool leftward, const Color4F& col)
-{
-	float hw = sz * 0.45f, hh = sz * 0.38f;
-	Vec2 pts[3];
-	if (leftward) {
-		pts[0] = Vec2(cx + hw, cy + hh);
-		pts[1] = Vec2(cx - hw, cy);
-		pts[2] = Vec2(cx + hw, cy - hh);
-	} else {
-		pts[0] = Vec2(cx - hw, cy + hh);
-		pts[1] = Vec2(cx + hw, cy);
-		pts[2] = Vec2(cx - hw, cy - hh);
-	}
-	node->drawSolidPoly(pts, 3, col);
-}
-
-// 이중 삼각형 키캡 (랭킹보드 ◀◀ ▶▶ 버튼)
-static Node* makeVecNavKeycap(float w, float h, bool leftward, bool enabled)
-{
-	auto node = Node::create();
-	node->setContentSize(Size(w, h));
-	auto dn = DrawNode::create();
-	drawKeycap(dn, w / 2.f, h / 2.f, w, h);
-	Color4F col = enabled
-		? Color4F(80 / 255.f, 220 / 255.f, 180 / 255.f, 1.f)
-		: Color4F(0.28f, 0.28f, 0.28f, 0.55f);
-	drawVecTriangle(dn, w / 2.f, h / 2.f, h * 0.52f, leftward, col);
-	node->addChild(dn);
-	return node;
-}
 
 // START 색상 순환 팔레트 (톤다운: 순색 회피). 흰→녹→파→빨→앰버→퍼플.
 static const Color3B START_PALETTE[] = {
@@ -358,7 +91,7 @@ bool MainScene::init()
 	
 
 	// ── START: 와이드 네온 키캡 + 외곽선 LED 텍스트 (메인 CTA) ──
-	const Vec2  START_POS(75, 150);
+	const Vec2  START_POS(75, 160);
 	const float SK_W = 132, SK_H = 46;
 
 	auto startKeycap = DrawNode::create();
@@ -547,11 +280,24 @@ bool MainScene::init()
 	SoundFactory::Instance()->play("efs_click");
 	this->drawOnlineRank(level);
 
-	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 재갱신
+	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
 	if (UserDataManager::Instance()->m_justRegistered) {
 		UserDataManager::Instance()->m_justRegistered = false;
 		int lv = level;
-		scheduleOnce([this, lv](float) { drawOnlineRank(lv); }, 2.0f, "refreshRank");
+		scheduleOnce([this, lv](float) {
+			LeaderboardManager::Instance()->invalidateCache(lv);
+			drawOnlineRank(lv);
+		}, 2.0f, "refreshRank");
+	}
+
+	// 신기록 갱신 직후 — PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
+	if (UserDataManager::Instance()->m_justGotNewRecord) {
+		UserDataManager::Instance()->m_justGotNewRecord = false;
+		int lv = level;
+		scheduleOnce([this, lv](float) {
+			LeaderboardManager::Instance()->invalidateCache(lv);
+			drawOnlineRank(lv);
+		}, 2.0f, "refreshNewRecord");
 	}
 
 	startTopTicker();
@@ -573,87 +319,6 @@ void MainScene::onExitTransitionDidStart()
 }
 
 
-void MainScene::callbackOnPushed_resetMenuItem(Ref* pSender)
-{
-	const int CONFIRM_TAG = 198;
-	if (this->getChildByTag(CONFIRM_TAG)) return;
-
-	const float DW = 220, DH = 110;
-
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(CONFIRM_TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.2f, 160));
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr
-	));
-
-	auto titleLabel = Label::createWithSystemFont("RESET ALL?", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 100, 80));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(titleLabel);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	dlg->addChild(divider);
-
-	auto msg = Label::createWithSystemFont("Reset all records?", "Arial", 12);
-	msg->setColor(Color3B(200, 200, 200));
-	msg->setPosition(Vec2(DW / 2, DH - 65));
-	dlg->addChild(msg);
-
-	auto doReset = [this]() {
-		auto* ud = UserDataManager::Instance();
-		ud->ResetRecords();
-		std::string empty;
-		ud->SetUserName(empty);
-		ud->SaveUserData();
-		LeaderboardManager::Instance()->resetStats();
-
-		if (m_rankBG)
-		{
-			m_rankBG->removeAllChildren();
-			for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
-			{
-				int record = ud->GetBestRecord(level);
-				RecordTime rt = getRecordTime(record);
-				std::string str = StringUtils::format("%02d                                         %02d:%02d.%02d",
-					level, rt.min, rt.sec, rt.ms);
-				Label* lbl = Label::createWithSystemFont(str, "Arial", 14);
-				lbl->setAnchorPoint(Vec2(0, 0));
-				lbl->setPosition(Vec2(40, (level * 22) - 20));
-				m_rankBG->addChild(lbl);
-			}
-		}
-		showNameInputDialog();
-	};
-
-	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
-	okLabel->setColor(Color3B(255, 80, 80));
-	auto okBtn = MenuItemLabel::create(okLabel, [this, doReset](Ref*) {
-		this->removeChildByTag(198);
-		doReset();
-	});
-	okBtn->setPosition(Vec2(DW * 0.3f, 22));
-
-	auto cancelLabel = Label::createWithSystemFont("Cancel", "Arial", 14);
-	cancelLabel->setColor(Color3B(180, 180, 180));
-	auto cancelBtn = MenuItemLabel::create(cancelLabel, [this](Ref*) {
-		this->removeChildByTag(198);
-	});
-	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
-
-	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
-	menu->setPosition(Vec2::ZERO);
-	dlg->addChild(menu);
-}
 
 void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 {
@@ -1135,11 +800,46 @@ void MainScene::showNextNameplateText()
 	));
 }
 
+static std::vector<std::string>& getRandomNamePool() {
+	static std::vector<std::string> pool;
+	if (pool.empty()) {
+		std::string content = FileUtils::getInstance()->getStringFromFile("random_names.txt");
+		std::istringstream ss(content);
+		std::string line;
+		while (std::getline(ss, line)) {
+			while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
+				line.pop_back();
+			if (!line.empty())
+				pool.push_back(line);
+		}
+		if (pool.empty()) {
+			pool = {"NOVA","ACE","BLAZE","ECHO","PIXEL","SWIFT","STORM","VORTEX","FLASH","NEXUS"};
+		}
+	}
+	return pool;
+}
+
+// 이름 입력 EditBox 델리게이트 — 엔터를 빈칸으로 누르면 랜덤 이름 자동 입력
+class NameInputDelegate : public Ref, public cocos2d::ui::EditBoxDelegate {
+public:
+	cocos2d::ui::EditBox* box = nullptr;
+	void editBoxEditingDidBegin(cocos2d::ui::EditBox*) override {}
+	void editBoxEditingDidEndWithAction(cocos2d::ui::EditBox*, EditBoxEndAction) override {}
+	void editBoxTextChanged(cocos2d::ui::EditBox*, const std::string&) override {}
+	void editBoxReturn(cocos2d::ui::EditBox*) override {
+		if (box && strlen(box->getText()) < 3) {
+			auto& pool = getRandomNamePool();
+			box->setText(pool[rand() % pool.size()].c_str());
+		}
+	}
+};
+static Ref* s_nameDelegate = nullptr;
+
 void MainScene::showNameInputDialog()
 {
 	SoundFactory::Instance()->play("efs_click");
 	const int DIALOG_TAG = 199;
-	const float DW = 250, DH = 110;
+	const float DW = 250, DH = 130;
 
 	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
 	backdrop->setTag(DIALOG_TAG);
@@ -1156,7 +856,7 @@ void MainScene::showNameInputDialog()
 		nullptr
 	));
 
-	auto titleLabel = Label::createWithSystemFont("SET YOUR NAME", "Arial", 14);
+	auto titleLabel = Label::createWithSystemFont("SET YOUR NAME FOR RANKING", "Arial", 14);
 	titleLabel->setColor(Color3B(255, 215, 0));
 	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
 	dlg->addChild(titleLabel);
@@ -1185,7 +885,19 @@ void MainScene::showNameInputDialog()
 	editBox->setPosition(Vec2(10, DH - 70));
 	dlg->addChild(editBox);
 
-	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 14);
+	// 엔터→랜덤이름 델리게이트
+	if (s_nameDelegate) { s_nameDelegate->release(); s_nameDelegate = nullptr; }
+	auto nd = new NameInputDelegate();
+	nd->box = editBox;
+	s_nameDelegate = nd;  // ref count=1, static이 소유
+	editBox->setDelegate(nd);
+
+	// 다이얼로그 애니메이션 후 키보드 자동 표시
+	dlg->scheduleOnce([editBox](float) {
+		editBox->openKeyboard();
+	}, 0.35f, "autoKb");
+
+	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 15);
 	okLabel->setColor(Color3B(100, 100, 100));
 	auto okBtn = MenuItemLabel::create(okLabel, [editBox](Ref*) {
 		std::string name = editBox->getText();
@@ -1233,11 +945,7 @@ void MainScene::showSettingsMenu()
 	if (this->getChildByTag(TAG)) return;
 	SoundFactory::Instance()->play("efs_click");
 
-	bool hasPurchased = true;
-#ifdef LITE_VER
-	hasPurchased = UserDataManager::Instance()->GetCart();
-#endif
-	const float DW = 200, DH = hasPurchased ? 130.f : 155.f;
+	const float DW = 240, DH = 130.f;
 
 	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
 	backdrop->setTag(TAG);
@@ -1258,8 +966,8 @@ void MainScene::showSettingsMenu()
 	outline->drawRect(Vec2(0, 0),   Vec2(DW, DH),          Color4F(0.80f, 0.90f, 1.0f, 1.0f));
 	dlg->addChild(outline);
 
-	auto titleLabel = Label::createWithSystemFont("SETTINGS", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 215, 0));
+	auto titleLabel = Label::createWithSystemFont("RESET ALL?", "Arial", 15);
+	titleLabel->setColor(Color3B(255, 100, 80));
 	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
 	dlg->addChild(titleLabel);
 
@@ -1267,42 +975,58 @@ void MainScene::showSettingsMenu()
 	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
 	dlg->addChild(divider);
 
-	// RESET 항목 (확인 다이얼로그로 연결)
-	auto resetLbl = Label::createWithSystemFont("RESET  ALL  RECORDS", "Arial", 13);
-	resetLbl->setColor(Color3B(255, 100, 80));
-	auto resetBtn = MenuItemLabel::create(resetLbl, [this, TAG](Ref* s) {
+	auto msg = Label::createWithSystemFont(
+		"This will reset your name\nand clear your ranking.",
+		"Arial", 12);
+	msg->setColor(Color3B(210, 210, 210));
+	msg->setAlignment(TextHAlignment::CENTER);
+	msg->setPosition(Vec2(DW / 2, DH - 70));
+	dlg->addChild(msg);
+
+	auto doReset = [this]() {
+		auto* ud = UserDataManager::Instance();
+		ud->ResetRecords();
+		std::string empty;
+		ud->SetUserName(empty);
+		ud->SaveUserData();
+		LeaderboardManager::Instance()->resetStats();
+
+		if (m_rankBG)
+		{
+			m_rankBG->removeAllChildren();
+			for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
+			{
+				int record = ud->GetBestRecord(level);
+				RecordTime rt = getRecordTime(record);
+				std::string str = StringUtils::format("%02d                                         %02d:%02d.%02d",
+					level, rt.min, rt.sec, rt.ms);
+				Label* lbl = Label::createWithSystemFont(str, "Arial", 14);
+				lbl->setAnchorPoint(Vec2(0, 0));
+				lbl->setPosition(Vec2(40, (level * 22) - 20));
+				m_rankBG->addChild(lbl);
+			}
+		}
+		showNameInputDialog();
+	};
+
+	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
+	okLabel->setColor(Color3B(255, 80, 80));
+	auto okBtn = MenuItemLabel::create(okLabel, [this, TAG, doReset](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
-		this->callbackOnPushed_resetMenuItem(s);
+		doReset();
 	});
-	resetBtn->setPosition(Vec2(DW / 2, DH - 62));
+	okBtn->setPosition(Vec2(DW * 0.3f, 22));
 
-	auto closeLbl = Label::createWithSystemFont("CLOSE", "Arial", 13);
-	closeLbl->setColor(Color3B(180, 180, 180));
-	auto closeBtn = MenuItemLabel::create(closeLbl, [this, TAG](Ref*) {
+	auto cancelLabel = Label::createWithSystemFont("Cancel", "Arial", 14);
+	cancelLabel->setColor(Color3B(180, 180, 180));
+	auto cancelBtn = MenuItemLabel::create(cancelLabel, [this, TAG](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
 	});
-	closeBtn->setPosition(Vec2(DW / 2, 22));
+	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
 
-#ifdef LITE_VER
-	if (!hasPurchased) {
-		auto restoreLbl = Label::createWithSystemFont("RESTORE PURCHASE", "Arial", 12);
-		restoreLbl->setColor(Color3B(80, 220, 180));
-		auto restoreBtn = MenuItemLabel::create(restoreLbl, [this, TAG](Ref* s) {
-			SoundFactory::Instance()->play("efs_click");
-			this->removeChildByTag(TAG);
-			this->callbackLockBtn(s);
-		});
-		restoreBtn->setPosition(Vec2(DW / 2, DH - 85));
-		auto menu = Menu::create(resetBtn, restoreBtn, closeBtn, nullptr);
-		menu->setPosition(Vec2::ZERO);
-		dlg->addChild(menu);
-		return;
-	}
-#endif
-
-	auto menu = Menu::create(resetBtn, closeBtn, nullptr);
+	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
 	dlg->addChild(menu);
 }
@@ -1487,139 +1211,6 @@ void MainScene::tickBotStep()
 		nullptr));
 }
 
-// ── BGM Player 벡터 드로우 헬퍼 ──────────────────────────────────────────────
-
-// 카세트 본체 (스피커 제외, 본체+덱창+상단 노브)
-static void drawCassetteBody(DrawNode* dn, float cx, float cy, float w, float h, bool on)
-{
-	const Color4F bodyC = on ? Color4F(0.11f,0.13f,0.16f,1.f) : Color4F(0.22f,0.22f,0.25f,0.65f);
-	const Color4F rimC  = on ? Color4F(0.30f,0.35f,0.40f,0.50f) : Color4F(0.40f,0.40f,0.40f,0.35f);
-	const Color4F knobC = on ? Color4F(80/255.f,220/255.f,180/255.f,0.70f) : Color4F(0.5f,0.5f,0.5f,0.4f);
-	const Color4F deckF = on ? Color4F(0.25f,0.28f,0.32f,1.f) : Color4F(0.32f,0.32f,0.34f,0.7f);
-	const Color4F deckB = on ? Color4F(0.04f,0.04f,0.06f,1.f) : Color4F(0.14f,0.14f,0.16f,0.7f);
-	const Color4F reelC = on ? Color4F(0.20f,0.55f,0.45f,0.70f) : Color4F(0.28f,0.28f,0.28f,0.5f);
-	const Color4F hubC  = on ? Color4F(0.04f,0.04f,0.06f,1.f)   : Color4F(0.12f,0.12f,0.14f,0.8f);
-	const Color4F tapeC = on ? Color4F(0.40f,0.75f,0.65f,0.40f)  : Color4F(0.30f,0.30f,0.30f,0.3f);
-
-	float x0 = cx-w/2, x1 = cx+w/2, y0 = cy-h/2, y1 = cy+h/2;
-	const float rr = 5.f, k = 0.293f;
-	Vec2 body[12] = {
-		{x0+rr, y0}, {x1-rr, y0}, {x1-rr*k, y0+rr*k}, {x1, y0+rr},
-		{x1, y1-rr}, {x1-rr*k, y1-rr*k}, {x1-rr, y1}, {x0+rr, y1},
-		{x0+rr*k, y1-rr*k}, {x0, y1-rr}, {x0, y0+rr}, {x0+rr*k, y0+rr*k},
-	};
-	dn->drawSolidPoly(body, 12, bodyC);
-	dn->drawPoly(body, 12, true, rimC);
-
-	// 3D 베벨: 상단/좌측 하이라이트, 하단/우측 그림자
-	const Color4F hiC = on ? Color4F(0.34f,0.40f,0.48f,0.60f) : Color4F(0.42f,0.42f,0.44f,0.40f);
-	const Color4F shC = on ? Color4F(0.01f,0.01f,0.03f,0.90f) : Color4F(0.04f,0.04f,0.05f,0.65f);
-	dn->drawSolidRect(Vec2(x0+rr, y1-2), Vec2(x1-rr, y1),   hiC);  // 상단
-	dn->drawSolidRect(Vec2(x0,    y0+rr), Vec2(x0+2, y1-rr), hiC);  // 좌측
-	dn->drawSolidRect(Vec2(x0+rr, y0),   Vec2(x1-rr, y0+2), shC);  // 하단
-	dn->drawSolidRect(Vec2(x1-2,  y0+rr), Vec2(x1,   y1-rr), shC);  // 우측
-	// 상단 중앙 은은한 반사광
-	const Color4F glowC = on ? Color4F(0.28f,0.35f,0.42f,0.28f) : Color4F(0.30f,0.30f,0.32f,0.15f);
-	float sH = h * 0.17f;
-	dn->drawSolidRect(Vec2(cx-28, y1-sH*2.2f), Vec2(cx+28, y1-sH*0.6f), glowC);
-
-	// 상단 스트립
-	dn->drawSolidRect(Vec2(x0+rr, y1-sH), Vec2(x1-rr, y1),
-		on ? Color4F(0.17f,0.20f,0.24f,1.f) : Color4F(0.28f,0.28f,0.30f,0.7f));
-	// 노브 3개
-	float kY = y1 - sH/2;
-	dn->drawSolidCircle(Vec2(cx-24,kY), 2.2f, 0, 8, knobC);
-	dn->drawSolidCircle(Vec2(cx,   kY), 2.2f, 0, 8, knobC);
-	dn->drawSolidCircle(Vec2(cx+24,kY), 2.2f, 0, 8, knobC);
-
-	// 중앙 카세트 덱 창 (약간 작게: h가 줄어들었으므로)
-	float dkW=28, dkH=16, dkY=cy-1;
-	dn->drawSolidRect(Vec2(cx-dkW/2-2,dkY-dkH/2-2), Vec2(cx+dkW/2+2,dkY+dkH/2+2), deckF);
-	// 덱 창 하이라이트/그림자 (창문 입체감)
-	dn->drawSolidRect(Vec2(cx-dkW/2-2,dkY-dkH/2-2), Vec2(cx+dkW/2+2,dkY-dkH/2-1),
-		Color4F(0.0f,0.0f,0.0f,0.8f));
-	dn->drawSolidRect(Vec2(cx-dkW/2-2,dkY+dkH/2+1), Vec2(cx+dkW/2+2,dkY+dkH/2+2),
-		Color4F(0.35f,0.40f,0.45f,0.5f));
-	dn->drawSolidRect(Vec2(cx-dkW/2,  dkY-dkH/2),   Vec2(cx+dkW/2,  dkY+dkH/2),   deckB);
-	// 릴 × 2
-	const float rR = 4.5f;
-	dn->drawSolidCircle(Vec2(cx-6, dkY+1), rR,       0, 12, reelC);
-	dn->drawSolidCircle(Vec2(cx+6, dkY+1), rR,       0, 12, reelC);
-	dn->drawSolidCircle(Vec2(cx-6, dkY+1), rR*0.42f, 0,  8, hubC);
-	dn->drawSolidCircle(Vec2(cx+6, dkY+1), rR*0.42f, 0,  8, hubC);
-	// 테이프 라인
-	dn->drawLine(Vec2(cx-6-rR, dkY+1), Vec2(cx-dkW/2+2, dkY-dkH/2+2), tapeC);
-	dn->drawLine(Vec2(cx+6+rR, dkY+1), Vec2(cx+dkW/2-2, dkY-dkH/2+2), tapeC);
-	dn->drawLine(Vec2(cx-dkW/2+2,dkY-dkH/2+2), Vec2(cx+dkW/2-2,dkY-dkH/2+2), tapeC);
-}
-
-// 스피커 그릴 (중심 0,0 기준 — 별도 Node로 진동 애니메이션)
-static void drawSpeakerGrille(DrawNode* dn, float r, bool on)
-{
-	const Color4F bg    = on ? Color4F(0.05f,0.06f,0.09f,1.f) : Color4F(0.15f,0.15f,0.17f,0.65f);
-	const Color4F rim   = on ? Color4F(0.35f,0.45f,0.50f,0.55f) : Color4F(0.40f,0.40f,0.40f,0.35f);
-	const Color4F ring  = on ? Color4F(80/255.f,220/255.f,180/255.f,0.40f) : Color4F(0.40f,0.40f,0.40f,0.28f);
-	const Color4F inner = Color4F(0.0f,0.0f,0.0f,0.30f);
-	const Color4F coneH = on ? Color4F(80/255.f,220/255.f,180/255.f,0.10f) : Color4F(0.35f,0.35f,0.35f,0.07f);
-	const Color4F cap   = on ? Color4F(80/255.f,220/255.f,180/255.f,0.80f) : Color4F(0.55f,0.55f,0.55f,0.5f);
-
-	// 배경 + 외곽 테두리 (3D 들어간 느낌)
-	dn->drawSolidCircle(Vec2::ZERO, r,     0, 32, bg);
-	dn->drawCircle(Vec2::ZERO,      r,     0, 32, false, rim);   // 외곽 밝은 림
-	dn->drawCircle(Vec2::ZERO,  r-1.5f,   0, 32, false, inner); // 안쪽 어두운 그림자 (움푹 느낌)
-	// 동심원 링 (스피커 콘)
-	dn->drawCircle(Vec2::ZERO, r*0.75f,   0, 28, false, ring);
-	dn->drawCircle(Vec2::ZERO, r*0.52f,   0, 22, false, ring);
-	dn->drawCircle(Vec2::ZERO, r*0.30f,   0, 16, false, ring);
-	// 콘 중앙 하이라이트 (약간 돌출 느낌)
-	dn->drawSolidCircle(Vec2::ZERO, r*0.38f, 0, 20, coneH);
-	// 캡 (중앙 원형 볼록)
-	dn->drawSolidCircle(Vec2::ZERO, r*0.12f, 0, 10, cap);
-	dn->drawCircle(Vec2::ZERO,      r*0.12f, 0, 10, false, inner);
-}
-
-// ⏮ Prev 아이콘 |◀◀ (좌측 바 + 이중 좌향 삼각형)
-static void drawIconPrev(DrawNode* dn, float cx, float cy, float sz, const Color4F& col)
-{
-	const float H=sz*0.40f, TW=sz*0.22f, BW=sz*0.08f, GAP=sz*0.04f;
-	float x = cx - sz*0.36f;
-	dn->drawSolidRect(Vec2(x, cy-H), Vec2(x+BW*2, cy+H), col);
-	x += BW*2 + GAP;
-	// 좌향 삼각형: base(넓은쪽)=오른쪽, tip=왼쪽
-	Vec2 t1[3]={{x+TW,cy+H},{x,cy},{x+TW,cy-H}}; dn->drawSolidPoly(t1,3,col);
-	x += TW + GAP;
-	Vec2 t2[3]={{x+TW,cy+H},{x,cy},{x+TW,cy-H}}; dn->drawSolidPoly(t2,3,col);
-}
-
-// ⏭ Next 아이콘 ▶▶| (이중 우향 삼각형 + 우측 바)
-static void drawIconNext(DrawNode* dn, float cx, float cy, float sz, const Color4F& col)
-{
-	const float H=sz*0.40f, TW=sz*0.22f, BW=sz*0.08f, GAP=sz*0.04f;
-	float x = cx - sz*0.36f;
-	// 우향 삼각형: base=왼쪽, tip=오른쪽
-	Vec2 t1[3]={{x,cy+H},{x+TW,cy},{x,cy-H}}; dn->drawSolidPoly(t1,3,col);
-	x += TW + GAP;
-	Vec2 t2[3]={{x,cy+H},{x+TW,cy},{x,cy-H}}; dn->drawSolidPoly(t2,3,col);
-	x += TW + GAP;
-	dn->drawSolidRect(Vec2(x, cy-H), Vec2(x+BW*2, cy+H), col);
-}
-
-// ▶ Play 아이콘
-static void drawIconPlay(DrawNode* dn, float cx, float cy, float sz, const Color4F& col)
-{
-	Vec2 t[3]={{cx-sz*0.35f,cy+sz*0.42f},{cx+sz*0.45f,cy},{cx-sz*0.35f,cy-sz*0.42f}};
-	dn->drawSolidPoly(t, 3, col);
-}
-
-// ⏸ Pause 아이콘
-static void drawIconPause(DrawNode* dn, float cx, float cy, float sz, const Color4F& col)
-{
-	float bw=sz*0.18f, bh=sz*0.42f, gap=sz*0.12f;
-	dn->drawSolidRect(Vec2(cx-gap-bw,cy-bh), Vec2(cx-gap,   cy+bh), col);
-	dn->drawSolidRect(Vec2(cx+gap,   cy-bh), Vec2(cx+gap+bw,cy+bh), col);
-}
-
-
 // ── BGM Player 메서드 ─────────────────────────────────────────────────────────
 
 void MainScene::drawBgmPlayer()
@@ -1638,16 +1229,17 @@ void MainScene::drawBgmPlayer()
 	root->setPosition(Vec2::ZERO);
 	this->addChild(root, tagInfoText, TAG_CASSETTE);
 
-	// 레이아웃 (아래→위) — 카세트·LED·컨트롤러 공백 없이 밀착
-	// IAP_Y=32  : h=15 → y=24.5..39.5  (위아래 7.5px gap, ticker top=17)
-	// CTL board : 47..67  (BTN_H=14 +3pad → 67=LED bottom에 flush)
-	// LED panel : 67.5..78.5  (H=11, top≈cassette bottom에 flush)
-	// Cassette  : 78..122 (H=44, top=122, gap↑5 → START bottom=127)
-	const float CX=75, CY=100, CW=128, CH=44;
+	// 공백A = 공백B = 공백C = 9px (네임플레이트↔START↔카세트↔IAP 균일 간격)
+	// IAP_Y=38  : h=22 → y=27..49  (gap↑9 controls, gap↓10 ticker)
+	// CTL board : 58..78  (BTN_H=14 +3pad → top=78=LED bottom flush)
+	// LED panel : 78.5..89.5  (H=11, top≈cassette bottom flush)
+	// Cassette  : 89..133 (H=44, top=133, gap↑9 → START bottom=142, START top=188)
+	// START     : 142..188 (SK_H=46, center=165, gap↑9 → NP bottom=197)
+	const float CX=75, CY=111, CW=128, CH=44;
 	const float SPK_R=17.f, SPK_LX=CX-37, SPK_RX=CX+37;
-	const float LED_CY=73, LED_W=CW, LED_H=11;     // 카세트 바로 아래 flush
-	const float CTL_Y=57, BTN_W=22, BTN_H=14;      // LED 바로 아래 flush
-	const float IAP_Y=32, IBTN_W=50, IBTN_H=15;
+	const float LED_CY=84, LED_W=CW, LED_H=11;     // 카세트 바로 아래 flush
+	const float CTL_Y=68, BTN_W=22, BTN_H=14;      // LED 바로 아래 flush
+	const float IAP_Y=38, IBTN_W=50, IBTN_H=22;    // 아이콘 키캡
 	const float IBTN_LX=CX-27, IBTN_RX=CX+27;
 	const Color4F iconCol(80/255.f,220/255.f,180/255.f,1.f);
 
@@ -1701,7 +1293,8 @@ void MainScene::drawBgmPlayer()
 
 	// 5. 컨트롤러 버튼 3개: PREV / PLAY / NEXT
 	float ic = BTN_H * 0.62f;
-	float btnXs[3] = { CX - BTN_W - 2.f, CX, CX + BTN_W + 2.f };
+	// 좌측 끝 / 중앙 / 우측 끝 — 보드 폭(CW=128) 기준, 3px 내측 여백
+	float btnXs[3] = { CX - CW/2 + BTN_W/2 + 3.f, CX, CX + CW/2 - BTN_W/2 - 3.f };
 
 	auto makeCtlBtn = [&](const std::function<void(DrawNode*,float,float)>& iconFn,
 	                      DrawNode** outDn) -> Node*
@@ -1732,9 +1325,10 @@ void MainScene::drawBgmPlayer()
 	ctlMenu->setPosition(Vec2::ZERO);
 	root->addChild(ctlMenu, 3);
 
-	// 6. Buy / Restore 키캡 버튼 (LITE_VER, 컨트롤러 아래)
+	// 6. Buy / Restore 키캡 아이콘 버튼 (LITE_VER, 컨트롤러 아래)
 #ifdef LITE_VER
 	{
+		const Color4F iapCol(80/255.f, 220/255.f, 180/255.f, 1.f);
 		bool hasPurchased = UserDataManager::Instance()->GetCart();
 		if (hasPurchased) {
 			auto badgeLbl = Label::createWithSystemFont("\xe2\x9c\x93 UNLOCKED", "Arial", 10);
@@ -1743,28 +1337,25 @@ void MainScene::drawBgmPlayer()
 			badgeLbl->setPosition(Vec2(CX, IAP_Y));
 			root->addChild(badgeLbl, 3);
 		} else {
-			// drawKeycap 스타일 버튼
-			auto makeIapKeycap = [&](const char* text, Color3B textColor) -> Node*
-			{
-				auto n  = Node::create(); n->setContentSize(Size(IBTN_W, IBTN_H));
-				auto dn = DrawNode::create();
-				drawKeycap(dn, IBTN_W/2, IBTN_H/2, IBTN_W, IBTN_H);
-				n->addChild(dn);
-				auto lbl = Label::createWithSystemFont(text, "Arial", 9);
-				lbl->setColor(textColor);
-				lbl->setAnchorPoint(Vec2(0.5f, 0.5f));
-				lbl->setPosition(Vec2(IBTN_W/2, IBTN_H/2));
-				n->addChild(lbl, 1);
-				return n;
-			};
+			// 공유 키캡 배경
+			auto caps = DrawNode::create();
+			drawKeycap(caps, IBTN_LX, IAP_Y, IBTN_W, IBTN_H);
+			drawKeycap(caps, IBTN_RX, IAP_Y, IBTN_W, IBTN_H);
+			root->addChild(caps, 2);
 
-			auto buyNode = makeIapKeycap("BUY", Color3B(255, 215, 0));
-			auto buyBtn  = MenuItemLabel::create(buyNode,
+			// Buy 버튼: 자물쇠 아이콘 (drawVecLock)
+			Node* buyIcon = makeVecIcon(IBTN_W, IBTN_H, [iapCol](DrawNode* dn, float cx, float cy){
+				drawVecLock(dn, cx, cy, 14.f, iapCol);
+			});
+			auto buyBtn = MenuItemLabel::create(buyIcon,
 				CC_CALLBACK_1(MainScene::callbackOnPushed_buyMenuItem, this));
 			buyBtn->setPosition(Vec2(IBTN_LX, IAP_Y));
 
-			auto restoreNode = makeIapKeycap("RESTORE", Color3B(160, 160, 160));
-			auto restoreBtn  = MenuItemLabel::create(restoreNode, [this](Ref* s){
+			// Restore 버튼: 원형 화살표 (drawVecRestore_CircArrow)
+			Node* restoreIcon = makeVecIcon(IBTN_W, IBTN_H, [iapCol](DrawNode* dn, float cx, float cy){
+				drawVecRestore_CircArrow(dn, cx, cy, 12.f, iapCol);
+			});
+			auto restoreBtn = MenuItemLabel::create(restoreIcon, [this](Ref* s){
 				this->callbackLockBtn(s);
 			});
 			restoreBtn->setPosition(Vec2(IBTN_RX, IAP_Y));
@@ -1807,22 +1398,16 @@ void MainScene::bgmTogglePlayPause()
 	SoundFactory::Instance()->play("efs_click");
 	if (m_bgmPlaying) {
 		m_bgmPlaying = false;
-		CocosDenshion::SimpleAudioEngine::getInstance()->pauseBackgroundMusic();
+		SoundFactory::Instance()->fadeOutBGM(0.5f);
 		bgmStopSpeakerAnim();
 		stopBgmTicker();
+		bgmUpdatePlayBtn();
 	} else {
-		auto engine = CocosDenshion::SimpleAudioEngine::getInstance();
-		if (SoundFactory::Instance()->m_strBGMfile == s_bgmTracks[m_bgmIndex].file) {
-			m_bgmPlaying = true;
-			engine->resumeBackgroundMusic();
-			bgmStartSpeakerAnim();
-			startBgmTicker(s_bgmTracks[m_bgmIndex].title);
-		} else {
-			bgmPlaySelection();
-			return;
-		}
+		// fade-out 진행 중일 경우 취소 후 새 트랙 시작
+		Director::getInstance()->getScheduler()->unschedule(
+			"bgm_fadeout", (void*)SoundFactory::Instance());
+		bgmPlaySelection();
 	}
-	bgmUpdatePlayBtn();
 }
 
 void MainScene::bgmNext()
