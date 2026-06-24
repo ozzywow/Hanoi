@@ -6,6 +6,7 @@
 #include "MainScene.h"
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
+#include "DrawUtils.h"
 #ifdef LITE_VER
 #include "MKStoreManager_cpp.h"
 #endif
@@ -16,30 +17,7 @@ static Point arrPosOfPole[3];
 static const float BOTTOM_PANEL_Y      = 28.0f;
 static const float BOTTOM_FONT_DEFAULT = 10.0f;
 static const int   TAG_GUIDE_ANIM      = 201;
-static const int   TAG_PODIUM_BASE     = 310; // 310~315: 시상대 동적 레이블
-
-// |◀ 리셋 아이콘: 수직선 + 왼쪽 삼각형 (처음으로 되돌리기)
-static void drawVecReset(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
-{
-	float barW = sz * 0.12f;
-	float barH = sz * 0.70f;
-	float triW = sz * 0.45f;
-	float triH = sz * 0.65f;
-	float gap  = sz * 0.10f;
-
-	float totalW = barW + gap + triW;
-	float leftX  = cx - totalW * 0.5f;
-
-	node->drawSolidRect(Vec2(leftX, cy - barH/2), Vec2(leftX + barW, cy + barH/2), col);
-
-	float triCx = leftX + barW + gap + triW * 0.5f;
-	Vec2 pts[3] = {
-		Vec2(triCx + triW*0.5f, cy + triH*0.5f),
-		Vec2(triCx - triW*0.5f, cy),
-		Vec2(triCx + triW*0.5f, cy - triH*0.5f),
-	};
-	node->drawSolidPoly(pts, 3, col);
-}
+static const int   TAG_PODIUM_BASE     = 310;
 
 
 
@@ -338,40 +316,12 @@ void	PlayScene::DrawMenu(bool SoundOpt)
 	bg->setPosition(Vec2(DX, PANEL_CY));
 	dock->addChild(bg, 0);
 
-	// 버튼 키캡: 공통 폭·균일 간격 + 베벨(상단/좌측 하이라이트, 하단/우측 그림자)로 입체감
 	auto cells = DrawNode::create();
 	cells->setPosition(Vec2(DX, PANEL_CY));
-	auto keycap = [&](float cy, float h) {
-		float x0 = -KW/2, x1 = KW/2;
-		float y0 = cy - PANEL_CY - h/2, y1 = cy - PANEL_CY + h/2;
-		float c = (KW < h ? KW : h) * 0.10f; if (c < 2.0f) c = 2.0f;  // 챔퍼
-		Color4F shadow(0.0f, 0.0f, 0.0f, 0.5f);
-		Color4F hi(0.5f, 1.0f, 0.85f, 0.5f);
-		Color4F border(0.31f, 0.86f, 0.70f, 0.55f);
-		const float k = 0.293f;
-		Vec2 poly[12] = {
-			Vec2(x0+c,   y0),        Vec2(x1-c,   y0),
-			Vec2(x1-c*k, y0+c*k),   Vec2(x1,     y0+c),
-			Vec2(x1,     y1-c),      Vec2(x1-c*k, y1-c*k),
-			Vec2(x1-c,   y1),        Vec2(x0+c,   y1),
-			Vec2(x0+c*k, y1-c*k),   Vec2(x0,     y1-c),
-			Vec2(x0,     y0+c),      Vec2(x0+c*k, y0+c*k),
-		};
-		cells->drawSolidPoly(poly, 12, Color4F(0.08f, 0.19f, 0.19f, 1.0f));  // 베이스
-		cells->drawSolidRect(Vec2(x0+c, y0),   Vec2(x1-c, y0+2), shadow);    // 하단 그림자
-		cells->drawSolidRect(Vec2(x1-2, y0+c), Vec2(x1,   y1-c), shadow);    // 우측 그림자
-		cells->drawSolidRect(Vec2(x0+c, y1-2), Vec2(x1-c, y1),   hi);        // 상단 하이라이트
-		cells->drawSolidRect(Vec2(x0,   y0+c), Vec2(x0+2, y1-c), hi);        // 좌측 하이라이트
-		Vec2 tl[3] = { Vec2(x0,   y1-c), Vec2(x0+c, y1),   Vec2(x0+2, y1-2) };
-		Vec2 br[3] = { Vec2(x1-c, y0),   Vec2(x1,   y0+c), Vec2(x1-2, y0+2) };
-		cells->drawSolidPoly(tl, 3, hi);
-		cells->drawSolidPoly(br, 3, shadow);
-		cells->drawPoly(poly, 12, true, border);                               // 12점 라운드 외곽선
-	};
-	keycap(Y_HOME,    30.0f);
-	keycap(Y_RESET,   30.0f);
-	keycap(Y_STEPPER, 70.0f);   // ▲/숫자/▼ 통합 스테퍼
-	keycap(Y_SPEAKER, 30.0f);
+	drawKeycap(cells, 0, Y_HOME    - PANEL_CY, KW, 30.0f);
+	drawKeycap(cells, 0, Y_RESET   - PANEL_CY, KW, 30.0f);
+	drawKeycap(cells, 0, Y_STEPPER - PANEL_CY, KW, 70.0f);
+	drawKeycap(cells, 0, Y_SPEAKER - PANEL_CY, KW, 30.0f);
 	dock->addChild(cells, 1);
 
 	// 아주 옅은 도트 (정보 패널보다 성기고 흐리게 — 톤만 살짝)
@@ -750,13 +700,8 @@ void PlayScene::DrawTime()
 		float elapsedMs = std::max(2000.0f, (float)(getMilliCount() - m_rpmStartTime));
 		float rawRpm = (float)m_rpmTouchCount / (elapsedMs / 60000.0f);
 		rawRpm = std::min(rawRpm, 200.0f);
-		// EMA 스무딩(α=0.12): 핸드폰 빠른 초기 탭으로 인한 200 급등 방지
-		// 비대칭 EMA: 상승은 느리게(α=0.12), 하락 중 200→100 구간은 가속
-		float alpha = 0.12f;
-		if (m_rpmSmoothed > rawRpm && m_rpmSmoothed > 100.f) {
-			float excess = (m_rpmSmoothed - 100.f) / 100.f;  // 0..1
-			alpha = 0.12f + 0.28f * excess;  // 최대 0.40 (RPM 200 근처)
-		}
+		// 비대칭 EMA: 상승 α=0.05(천천히), 하락 α=0.10(2배 빠름)
+		float alpha = (rawRpm > m_rpmSmoothed) ? 0.05f : 0.10f;
 		m_rpmSmoothed = m_rpmSmoothed * (1.f - alpha) + rawRpm * alpha;
 		float rpm = m_rpmSmoothed;
 
