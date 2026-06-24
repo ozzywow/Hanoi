@@ -44,7 +44,8 @@ endif()
 set(GAME_HEADER
     Classes/AppDelegate.h
     Classes/Discus.h
-    Classes/HelloWorldScene.h
+    Classes/DrawUtils.h
+    Classes/PixelFont.h
     Classes/MainScene.h
     Classes/PlayScene.h
     Classes/PlaySceneTouchHandlerLayer.h
@@ -68,7 +69,8 @@ set(GAME_HEADER
 set(GAME_SOURCE
     Classes/AppDelegate.cpp
     Classes/Discus.cpp
-    Classes/HelloWorldScene.cpp
+    Classes/DrawUtils.cpp
+    Classes/PixelFont.cpp
     Classes/MainScene.cpp
     Classes/PlayScene.cpp
     Classes/PlaySceneTouchHandlerLayer.cpp

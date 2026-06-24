@@ -87,10 +87,18 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 		if (shownTime == 0 || (getMilliCount() - shownTime) < 2000)
 			return true;
 		SoundFactory::Instance()->play("efs_click");
-		m_pPlayScene->InitGame();
-		m_pPlayScene->ResetGame();
-		m_pPlayScene->DrawDiscus();
-		m_pPlayScene->EnterWaitingState();
+		int nextLevel = m_pPlayScene->m_countOfDiscus;
+		if (nextLevel < MAX_PLAY_LEVEL) nextLevel++;
+		if (nextLevel != m_pPlayScene->m_countOfDiscus) {
+			PlayScene* nextScene = PlayScene::createScene(nextLevel);
+			Director::getInstance()->replaceScene(TransitionFade::create(0.2f, nextScene));
+		} else {
+			// 최대 레벨 — 같은 레벨 재플레이
+			m_pPlayScene->InitGame();
+			m_pPlayScene->ResetGame();
+			m_pPlayScene->DrawDiscus();
+			m_pPlayScene->EnterWaitingState();
+		}
 		return true;
 	}
 			
