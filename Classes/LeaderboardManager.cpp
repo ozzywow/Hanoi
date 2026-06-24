@@ -200,7 +200,12 @@ void LeaderboardManager::releasePendingSubmit(int level, bool ok)
                 for (auto& cb : *cbList) if (cb) cb(e);
             });
         } else {
-            fetchLeaderboard(level, 10, nullptr);  // 백그라운드 캐시 워밍
+            // PlayFab 전파 지연 보상 — 2초 후 백그라운드 캐시 워밍
+            // (즉시 fetch 시 submit 전 데이터가 캐시에 저장돼 TTL 만료까지 구 데이터 서빙)
+            Director::getInstance()->getScheduler()->schedule(
+                [this, level](float) { fetchLeaderboard(level, 10, nullptr); },
+                (void*)this, 0.0f, 0, 2.0f, false,
+                "lbm_warm_" + std::to_string(level));
         }
     } else {
         // 제출 실패 시 deferred 콜백에 빈 결과 반환
