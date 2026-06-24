@@ -368,6 +368,16 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
 
                 entries.push_back(e);
             }
+            // 내 항목의 displayName이 "Player"이면 로컬 저장 이름으로 교체
+            // (updateDisplayName과 fetchLeaderboard의 타이밍 차이로 간헐적으로 발생)
+            std::string localName = UserDataManager::Instance()->GetUserName();
+            if (!localName.empty()) {
+                for (auto& e : entries) {
+                    if (e.playFabId == m_playFabId && e.displayName == "Player")
+                        e.displayName = localName;
+                }
+            }
+
             // 타임어택: 시간이 짧을수록 상위 랭크
             std::sort(entries.begin(), entries.end(), [](const LeaderboardEntry& a, const LeaderboardEntry& b) {
                 return a.scoreMs < b.scoreMs;
