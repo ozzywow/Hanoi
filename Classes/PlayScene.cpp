@@ -589,8 +589,10 @@ void PlayScene::MessagePopup()
 		if (m_countOfDiscus <= MAX_PLAY_LEVEL)
 			UserDataManager::Instance()->SetLevel(m_countOfDiscus);
 		UserDataManager::Instance()->SaveUserData();
-		if (!m_isFirstPlay)
+		if (!m_isFirstPlay) {
 			LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
+			UserDataManager::Instance()->m_justGotNewRecord = true;
+		}
 		isNewRecord = true;
 	}
 

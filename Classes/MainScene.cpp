@@ -280,11 +280,24 @@ bool MainScene::init()
 	SoundFactory::Instance()->play("efs_click");
 	this->drawOnlineRank(level);
 
-	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 재갱신
+	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
 	if (UserDataManager::Instance()->m_justRegistered) {
 		UserDataManager::Instance()->m_justRegistered = false;
 		int lv = level;
-		scheduleOnce([this, lv](float) { drawOnlineRank(lv); }, 2.0f, "refreshRank");
+		scheduleOnce([this, lv](float) {
+			LeaderboardManager::Instance()->invalidateCache(lv);
+			drawOnlineRank(lv);
+		}, 2.0f, "refreshRank");
+	}
+
+	// 신기록 갱신 직후 — PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
+	if (UserDataManager::Instance()->m_justGotNewRecord) {
+		UserDataManager::Instance()->m_justGotNewRecord = false;
+		int lv = level;
+		scheduleOnce([this, lv](float) {
+			LeaderboardManager::Instance()->invalidateCache(lv);
+			drawOnlineRank(lv);
+		}, 2.0f, "refreshNewRecord");
 	}
 
 	startTopTicker();
@@ -306,87 +319,6 @@ void MainScene::onExitTransitionDidStart()
 }
 
 
-void MainScene::callbackOnPushed_resetMenuItem(Ref* pSender)
-{
-	const int CONFIRM_TAG = 198;
-	if (this->getChildByTag(CONFIRM_TAG)) return;
-
-	const float DW = 220, DH = 110;
-
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(CONFIRM_TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.2f, 160));
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr
-	));
-
-	auto titleLabel = Label::createWithSystemFont("RESET ALL?", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 100, 80));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(titleLabel);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	dlg->addChild(divider);
-
-	auto msg = Label::createWithSystemFont("Reset all records?", "Arial", 12);
-	msg->setColor(Color3B(200, 200, 200));
-	msg->setPosition(Vec2(DW / 2, DH - 65));
-	dlg->addChild(msg);
-
-	auto doReset = [this]() {
-		auto* ud = UserDataManager::Instance();
-		ud->ResetRecords();
-		std::string empty;
-		ud->SetUserName(empty);
-		ud->SaveUserData();
-		LeaderboardManager::Instance()->resetStats();
-
-		if (m_rankBG)
-		{
-			m_rankBG->removeAllChildren();
-			for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
-			{
-				int record = ud->GetBestRecord(level);
-				RecordTime rt = getRecordTime(record);
-				std::string str = StringUtils::format("%02d                                         %02d:%02d.%02d",
-					level, rt.min, rt.sec, rt.ms);
-				Label* lbl = Label::createWithSystemFont(str, "Arial", 14);
-				lbl->setAnchorPoint(Vec2(0, 0));
-				lbl->setPosition(Vec2(40, (level * 22) - 20));
-				m_rankBG->addChild(lbl);
-			}
-		}
-		showNameInputDialog();
-	};
-
-	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
-	okLabel->setColor(Color3B(255, 80, 80));
-	auto okBtn = MenuItemLabel::create(okLabel, [this, doReset](Ref*) {
-		this->removeChildByTag(198);
-		doReset();
-	});
-	okBtn->setPosition(Vec2(DW * 0.3f, 22));
-
-	auto cancelLabel = Label::createWithSystemFont("Cancel", "Arial", 14);
-	cancelLabel->setColor(Color3B(180, 180, 180));
-	auto cancelBtn = MenuItemLabel::create(cancelLabel, [this](Ref*) {
-		this->removeChildByTag(198);
-	});
-	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
-
-	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
-	menu->setPosition(Vec2::ZERO);
-	dlg->addChild(menu);
-}
 
 void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 {
@@ -962,7 +894,7 @@ void MainScene::showNameInputDialog()
 
 	// 다이얼로그 애니메이션 후 키보드 자동 표시
 	dlg->scheduleOnce([editBox](float) {
-		editBox->setFocused(true);
+		editBox->openKeyboard();
 	}, 0.35f, "autoKb");
 
 	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 15);
@@ -1013,11 +945,7 @@ void MainScene::showSettingsMenu()
 	if (this->getChildByTag(TAG)) return;
 	SoundFactory::Instance()->play("efs_click");
 
-	bool hasPurchased = true;
-#ifdef LITE_VER
-	hasPurchased = UserDataManager::Instance()->GetCart();
-#endif
-	const float DW = 200, DH = hasPurchased ? 130.f : 155.f;
+	const float DW = 240, DH = 130.f;
 
 	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
 	backdrop->setTag(TAG);
@@ -1038,8 +966,8 @@ void MainScene::showSettingsMenu()
 	outline->drawRect(Vec2(0, 0),   Vec2(DW, DH),          Color4F(0.80f, 0.90f, 1.0f, 1.0f));
 	dlg->addChild(outline);
 
-	auto titleLabel = Label::createWithSystemFont("SETTINGS", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 215, 0));
+	auto titleLabel = Label::createWithSystemFont("RESET ALL?", "Arial", 15);
+	titleLabel->setColor(Color3B(255, 100, 80));
 	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
 	dlg->addChild(titleLabel);
 
@@ -1047,42 +975,58 @@ void MainScene::showSettingsMenu()
 	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
 	dlg->addChild(divider);
 
-	// RESET 항목 (확인 다이얼로그로 연결)
-	auto resetLbl = Label::createWithSystemFont("Reset name and ranking", "Arial", 13);
-	resetLbl->setColor(Color3B(255, 100, 80));
-	auto resetBtn = MenuItemLabel::create(resetLbl, [this, TAG](Ref* s) {
+	auto msg = Label::createWithSystemFont(
+		"This will reset your name\nand clear your ranking.",
+		"Arial", 12);
+	msg->setColor(Color3B(210, 210, 210));
+	msg->setAlignment(TextHAlignment::CENTER);
+	msg->setPosition(Vec2(DW / 2, DH - 70));
+	dlg->addChild(msg);
+
+	auto doReset = [this]() {
+		auto* ud = UserDataManager::Instance();
+		ud->ResetRecords();
+		std::string empty;
+		ud->SetUserName(empty);
+		ud->SaveUserData();
+		LeaderboardManager::Instance()->resetStats();
+
+		if (m_rankBG)
+		{
+			m_rankBG->removeAllChildren();
+			for (int level = 3; level <= MAX_PLAY_LEVEL; ++level)
+			{
+				int record = ud->GetBestRecord(level);
+				RecordTime rt = getRecordTime(record);
+				std::string str = StringUtils::format("%02d                                         %02d:%02d.%02d",
+					level, rt.min, rt.sec, rt.ms);
+				Label* lbl = Label::createWithSystemFont(str, "Arial", 14);
+				lbl->setAnchorPoint(Vec2(0, 0));
+				lbl->setPosition(Vec2(40, (level * 22) - 20));
+				m_rankBG->addChild(lbl);
+			}
+		}
+		showNameInputDialog();
+	};
+
+	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
+	okLabel->setColor(Color3B(255, 80, 80));
+	auto okBtn = MenuItemLabel::create(okLabel, [this, TAG, doReset](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
-		this->callbackOnPushed_resetMenuItem(s);
+		doReset();
 	});
-	resetBtn->setPosition(Vec2(DW / 2, DH - 62));
+	okBtn->setPosition(Vec2(DW * 0.3f, 22));
 
-	auto closeLbl = Label::createWithSystemFont("CLOSE", "Arial", 13);
-	closeLbl->setColor(Color3B(180, 180, 180));
-	auto closeBtn = MenuItemLabel::create(closeLbl, [this, TAG](Ref*) {
+	auto cancelLabel = Label::createWithSystemFont("Cancel", "Arial", 14);
+	cancelLabel->setColor(Color3B(180, 180, 180));
+	auto cancelBtn = MenuItemLabel::create(cancelLabel, [this, TAG](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
 	});
-	closeBtn->setPosition(Vec2(DW / 2, 22));
+	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
 
-#ifdef LITE_VER
-	if (!hasPurchased) {
-		auto restoreLbl = Label::createWithSystemFont("RESTORE PURCHASE", "Arial", 12);
-		restoreLbl->setColor(Color3B(80, 220, 180));
-		auto restoreBtn = MenuItemLabel::create(restoreLbl, [this, TAG](Ref* s) {
-			SoundFactory::Instance()->play("efs_click");
-			this->removeChildByTag(TAG);
-			this->callbackLockBtn(s);
-		});
-		restoreBtn->setPosition(Vec2(DW / 2, DH - 85));
-		auto menu = Menu::create(resetBtn, restoreBtn, closeBtn, nullptr);
-		menu->setPosition(Vec2::ZERO);
-		dlg->addChild(menu);
-		return;
-	}
-#endif
-
-	auto menu = Menu::create(resetBtn, closeBtn, nullptr);
+	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
 	dlg->addChild(menu);
 }

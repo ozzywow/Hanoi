@@ -62,3 +62,4 @@ proj.android/gradle/wrapper/gradle-wrapper.properties
 
 # Java heap dumps (auto-generated, never commit)
 *.hprof
+proj.android/app/release/HanoiOlympic-release.aab
