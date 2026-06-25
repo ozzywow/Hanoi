@@ -200,7 +200,12 @@ void LeaderboardManager::releasePendingSubmit(int level, bool ok)
                 for (auto& cb : *cbList) if (cb) cb(e);
             });
         } else {
-            fetchLeaderboard(level, 10, nullptr);  // 백그라운드 캐시 워밍
+            // PlayFab 전파 지연 보상 — 2초 후 백그라운드 캐시 워밍
+            // (즉시 fetch 시 submit 전 데이터가 캐시에 저장돼 TTL 만료까지 구 데이터 서빙)
+            Director::getInstance()->getScheduler()->schedule(
+                [this, level](float) { fetchLeaderboard(level, 10, nullptr); },
+                (void*)this, 0.0f, 0, 2.0f, false,
+                "lbm_warm_" + std::to_string(level));
         }
     } else {
         // 제출 실패 시 deferred 콜백에 빈 결과 반환
@@ -350,6 +355,15 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
                     e.displayName = lb[i]["Profile"]["DisplayName"].GetString();
                 } else {
                     e.displayName = "Player";
+                }
+
+                // PlayFab 전파 지연으로 자신의 displayName이 아직 미반영된 경우
+                // 로컬 저장 이름으로 대체 (네임플레이트와 동일하게 표시)
+                if (e.playFabId == m_playFabId &&
+                    (e.displayName.empty() || e.displayName == "Player")) {
+                    std::string localName = UserDataManager::Instance()->GetUserName();
+                    if (!localName.empty())
+                        e.displayName = localName;
                 }
 
                 // Profile.Locations[0].CountryCode 추출 (IP 기반 PlayFab 자동 감지)
