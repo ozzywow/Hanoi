@@ -169,8 +169,11 @@ static MKStoreManager* _sharedStoreManager;
 	
 	isProductsAvailable = YES;
 	
-	if([_delegate respondsToSelector:@selector(productFetchComplete)])
-		[_delegate productFetchComplete];	
+	if([_delegate respondsToSelector:@selector(productFetchComplete)]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[_delegate productFetchComplete];
+		});
+	}
 }
 
 
@@ -277,8 +280,13 @@ static MKStoreManager* _sharedStoreManager;
 
 -(void) enableContentForThisSession: (NSString*) productIdentifier
 {
-	if([_delegate respondsToSelector:@selector(productPurchased:)])
-		[_delegate productPurchased:productIdentifier];
+	if([_delegate respondsToSelector:@selector(productPurchased:)]) {
+		NSString *pid = [productIdentifier copy];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[_delegate productPurchased:pid];
+			[pid release];
+		});
+	}
 }
 
 							 
@@ -314,40 +322,52 @@ static MKStoreManager* _sharedStoreManager;
 
 	[[NSUserDefaults standardUserDefaults] synchronize];
 
-	if([_delegate respondsToSelector:@selector(productPurchased:)])
-		[_delegate productPurchased:productIdentifier];	
+	if([_delegate respondsToSelector:@selector(productPurchased:)]) {
+		NSString *pid = [productIdentifier copy];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[_delegate productPurchased:pid];
+			[pid release];
+		});
+	}
 }
 
 - (void) transactionCanceled: (SKPaymentTransaction *)transaction
 {
-    //PointManager::Instance()->ToggleIndicator(false);
-    //[[PointManager sharedPoint] ToggleIndicator:false] ;
-
 #ifndef NDEBUG
 	NSLog(@"User cancelled transaction: %@", [transaction description]);
 #endif
-	
-	if([_delegate respondsToSelector:@selector(transactionCanceled)])
-		[_delegate transactionCanceled];
+
+	if([_delegate respondsToSelector:@selector(transactionCanceled)]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[_delegate transactionCanceled];
+		});
+	}
 }
 
 - (void) failedTransaction: (SKPaymentTransaction *)transaction
 {
-	UIAlertView *alert = [[UIAlertView alloc] initWithTitle:[transaction.error localizedFailureReason] 
-													message:[transaction.error localizedRecoverySuggestion]
-												   delegate:self 
-										  cancelButtonTitle:NSLocalizedString(@"Dismiss", @"")
-										  otherButtonTitles: nil];
-	[alert show];
-	[alert release];
+	NSString *title = [transaction.error localizedFailureReason];
+	NSString *message = [transaction.error localizedRecoverySuggestion];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		UIAlertView *alert = [[UIAlertView alloc] initWithTitle:title
+														message:message
+													   delegate:self
+											  cancelButtonTitle:NSLocalizedString(@"Dismiss", @"")
+											  otherButtonTitles: nil];
+		[alert show];
+		[alert release];
+	});
 }
 
 
 
 - (void) cbRetored:(int)count
 {
-	if([_delegate respondsToSelector:@selector(restorePreviousTransactions:)])
-        [_delegate restorePreviousTransactions:count];
+	if([_delegate respondsToSelector:@selector(restorePreviousTransactions:)]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[_delegate restorePreviousTransactions:count];
+		});
+	}
 }
 
 
