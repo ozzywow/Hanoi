@@ -335,6 +335,7 @@ void MainScene::callbackOnPushed_startMenuItem(Ref* pSender)
 	}
 
 	int level = m_rankLevel;
+	SoundFactory::Instance()->fadeOutBGM(0.5f);
 	SoundFactory::Instance()->play("efs_turn_playScene");
 	PlayScene* playScene = PlayScene::createScene(level);
 	Director::getInstance()->replaceScene(TransitionFade::create(0.3, playScene));

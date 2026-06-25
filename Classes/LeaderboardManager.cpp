@@ -357,6 +357,15 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
                     e.displayName = "Player";
                 }
 
+                // PlayFab 전파 지연으로 자신의 displayName이 아직 미반영된 경우
+                // 로컬 저장 이름으로 대체 (네임플레이트와 동일하게 표시)
+                if (e.playFabId == m_playFabId &&
+                    (e.displayName.empty() || e.displayName == "Player")) {
+                    std::string localName = UserDataManager::Instance()->GetUserName();
+                    if (!localName.empty())
+                        e.displayName = localName;
+                }
+
                 // Profile.Locations[0].CountryCode 추출 (IP 기반 PlayFab 자동 감지)
                 if (lb[i].HasMember("Profile") && lb[i]["Profile"].IsObject()) {
                     const auto& profile = lb[i]["Profile"];

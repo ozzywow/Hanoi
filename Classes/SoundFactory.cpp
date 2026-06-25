@@ -59,7 +59,8 @@ void SoundFactory::fadeOutBGM(float duration)
 	auto remaining = std::make_shared<int>(STEPS);
 
 	auto scheduler = cocos2d::Director::getInstance()->getScheduler();
-	scheduler->unschedule("bgm_fadeout", (void*)this);
+	scheduler->unschedule("bgm_fadeout",    (void*)this);
+	scheduler->unschedule("bgm_crossfade",  (void*)this);
 	scheduler->schedule(
 		[=](float) mutable {
 			*curVol = std::max(0.0f, *curVol - volStep);
@@ -95,6 +96,9 @@ void SoundFactory::preloadAll()
 
 void SoundFactory::switchBGM(const char* soundFile, bool loop)
 {
+	auto scheduler = cocos2d::Director::getInstance()->getScheduler();
+	scheduler->unschedule("bgm_fadeout",   (void*)this);
+	scheduler->unschedule("bgm_crossfade", (void*)this);
 	auto engine = CocosDenshion::SimpleAudioEngine::getInstance();
 	engine->stopBackgroundMusic(false);
 	m_strBGMfile = soundFile;
