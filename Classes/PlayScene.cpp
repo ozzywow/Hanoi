@@ -117,12 +117,20 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	ledBg->setPosition(LED_POS);
 	this->addChild(ledBg, 1, tagHudBg);
 
-	// 구분선 (PLAY 상태에서만 표시)
-	m_hudSep = Label::createWithSystemFont("|", "Arial", 14);
-	m_hudSep->setColor(Color3B::WHITE);
-	m_hudSep->setPosition(Vec2(240, RESOURCE_HEIGHT - 13));
-	m_hudSep->setVisible(false);
-	this->addChild(m_hudSep, 4, 0);
+	// 카운트다운 신호등 (InfoBar 중앙, COUNT_DOWN 상태에서만 표시)
+	{
+		const float dotY       = RESOURCE_HEIGHT - 13.0f;
+		const float dotCenterX = RESOURCE_WIDTH * 0.5f;
+		const float dotSpacing = 28.0f;
+		for (int i = 0; i < 3; ++i) {
+			auto dot = DrawNode::create();
+			dot->drawDot(Vec2::ZERO, 5.5f, Color4F(0.35f, 0.35f, 0.35f, 0.85f));
+			dot->setPosition(Vec2(dotCenterX + (i - 1) * dotSpacing, dotY));
+			dot->setVisible(false);
+			this->addChild(dot, 4);
+			m_trafficDot[i] = dot;
+		}
+	}
 
 	// 타이머 (PLAY 상태에서만 표시)
 	m_labelTime = Label::createWithSystemFont("00:00.00", "Arial", 13);
@@ -134,7 +142,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 	// RPM 레이블 (PLAY 상태에서만 표시)
 	m_labelRPM = Label::createWithSystemFont("RPM 0", "Arial", 11);
 	m_labelRPM->setColor(Color3B(80, 220, 180));
-	m_labelRPM->setPosition(Vec2(190, RESOURCE_HEIGHT - 13));
+	m_labelRPM->setPosition(Vec2(RESOURCE_WIDTH * 0.5f, RESOURCE_HEIGHT - 13));
 	m_labelRPM->setVisible(false);
 	this->addChild(m_labelRPM, 4);
 
@@ -446,11 +454,11 @@ void	PlayScene::InitGame()
 // 씬 최초 진입과 결과 팝업 닫은 직후(재플레이 대기) 양쪽에서 공유한다.
 void	PlayScene::EnterWaitingState()
 {
-	// 결과 HUD 잔류(깜빡임 티커) 및 PLAY 전용 표시(타이머/구분선/레벨/RPM) 정리
+	// 결과 HUD 잔류(깜빡임 티커) 및 PLAY 전용 표시(타이머/레벨/RPM/신호등) 정리
 	stopRankTicker();
 	if (m_labelTime)  m_labelTime->setVisible(false);
-	if (m_hudSep)     m_hudSep->setVisible(false);
 	if (m_labelLevel) m_labelLevel->setVisible(false);
+	for (int i = 0; i < 3; ++i) if (m_trafficDot[i]) m_trafficDot[i]->setVisible(false);
 	if (m_labelRPM) { m_labelRPM->stopAllActions(); m_labelRPM->setOpacity(255); m_labelRPM->setVisible(false); }
 	m_rpmStartTime = 0;
 	m_rpmBlinking  = false;
@@ -474,11 +482,31 @@ void PlayScene::Start()
 {
 	m_isIng = PLAY;
 	stopRankTicker();
-	if (m_labelLevel) m_labelLevel->setVisible(true);
-	if (m_hudSep)  m_hudSep->setVisible(true);
-	if (m_labelTime) m_labelTime->setVisible(true);
-	// GO! 패널 잠깐 표시 후 이퀄라이저 연출 시작
-	scheduleOnce([this](float){ startEqualizerAnimation(); }, 0.7f, "cheer_start");
+
+	// 신호등: 1초 유지 후 페이드아웃
+	for (int i = 0; i < 3; ++i) {
+		if (!m_trafficDot[i]) continue;
+		m_trafficDot[i]->stopAllActions();
+		auto dot = m_trafficDot[i];
+		dot->runAction(Sequence::create(
+			DelayTime::create(1.0f),
+			FadeOut::create(0.4f),
+			CallFunc::create([dot]{ dot->setVisible(false); dot->setOpacity(255); }),
+			nullptr));
+	}
+	// RPM: 1초 후 신호등 페이드와 동시에 페이드인
+	if (m_labelRPM) {
+		m_labelRPM->setString("RPM 0");
+		m_labelRPM->setOpacity(0);
+		m_labelRPM->setVisible(true);
+		m_labelRPM->runAction(Sequence::create(
+			DelayTime::create(1.0f),
+			FadeIn::create(0.4f),
+			nullptr));
+	}
+	// m_labelLevel, m_labelTime 는 카운트다운부터 이미 표시 중
+
+	scheduleOnce([this](float){ startEqualizerAnimation(); }, 1.5f, "cheer_start");
 
 	// MainScene BGM 선택값 읽어 트랙 결정
 	// bgm_selection: 0=Random, 1=Space, 2=Universe, 3=Cosmos, 4=Nova
@@ -507,8 +535,6 @@ void PlayScene::Start()
 	m_bgmCurrentVol = 0.0f;
 	if (bSoundOpt)
 		CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(0.0f);
-	if (m_labelRPM) { m_labelRPM->setString("RPM 0"); m_labelRPM->setVisible(true); }
-
 	m_dateTime = getMilliCount();
 	m_rpmStartTime = m_dateTime;
 	
@@ -555,9 +581,8 @@ void PlayScene::Finished()
 	m_mastTime = elapsedTime;
 	RecordTime rt = getRecordTime(m_mastTime);
 
-	// HUD: 타이머/구분선 숨기고 결과 텍스트 표시
+	// HUD: 타이머 숨기고 결과 텍스트 표시
 	if (m_labelTime) m_labelTime->setVisible(false);
-	if (m_hudSep)    m_hudSep->setVisible(false);
 	int bestRecord = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	bool isNewRecord = (bestRecord == 0 || bestRecord > m_mastTime);
 	showHudResult(isNewRecord, rt);
@@ -833,7 +858,15 @@ void PlayScene::DrawInfoText ()
 	{
 		m_labelLevel->setString(strLevelInfo);
 	}
-	
+
+}
+
+
+void PlayScene::setTrafficDot(int i, Color4F color)
+{
+	if (i < 0 || i >= 3 || !m_trafficDot[i]) return;
+	m_trafficDot[i]->clear();
+	m_trafficDot[i]->drawDot(Vec2::ZERO, 5.5f, color);
 }
 
 
@@ -844,9 +877,15 @@ void PlayScene::CountDown()
 	{
 		stopIdleAnimation();
 		stopRankTicker();
+		// 레벨·타이머 표시, 신호등 회색으로 초기화
 		if (m_labelLevel) m_labelLevel->setVisible(true);
-		if (m_hudSep)     m_hudSep->setVisible(true);
 		if (m_labelTime)  m_labelTime->setVisible(true);
+		for (int i = 0; i < 3; ++i) {
+			if (m_trafficDot[i]) {
+				setTrafficDot(i, Color4F(0.35f, 0.35f, 0.35f, 0.85f));
+				m_trafficDot[i]->setVisible(true);
+			}
+		}
 		m_isIng = COUNT_DOWN;
 
 		DelayTime* readyDelay = DelayTime::create(2.0f);
@@ -860,8 +899,8 @@ void PlayScene::CountDown()
 		std::function<void()> func_Start = std::bind(&PlayScene::Start, this);
 		CallFunc* callFunc_start = CallFunc::create(func_Start);
 
-		// GO! 0.5초 표시 후 Start 호출
-		DelayTime* delayStart = DelayTime::create(m_countDown + 0.5f);
+		// GO! 순간 Start 호출
+		DelayTime* delayStart = DelayTime::create((float)m_countDown);
 
 		this->runAction(Sequence::create(readyDelay, countDown, NULL));
 		this->runAction(Sequence::create(readyDelay, delayStart, callFunc_start, NULL));
@@ -871,8 +910,11 @@ void PlayScene::CountDown()
 	{
 		if( m_countDown == 0 )
 		{
-			// GO! → A·B·C 동시 표시
+			// GO! → 신호등 3개 파란색
 			SoundFactory::Instance()->play("efs_go");
+			for (int i = 0; i < 3; ++i)
+				setTrafficDot(i, Color4F(0.0f, 0.7f, 1.0f, 1.0f));
+			// 하단 패널 GO!
 			for (int i = 0; i < 3; ++i) stopBottomPanel(i);
 			setBottomPanel(0, "GO!",  Color3B( 80, 220, 180), 20.0f);
 			setBottomPanel(1, "GO!",  Color3B( 80, 220, 180), 20.0f);
@@ -883,8 +925,9 @@ void PlayScene::CountDown()
 		}
 		else
 		{
-			// 3 → Panel A(red), 2 → Panel B(orange), 1 → Panel C(gold)
+			// 3→좌, 2→중, 1→우 노랑 점등
 			SoundFactory::Instance()->play("efs_count_sec");
+			setTrafficDot(3 - m_countDown, Color4F(1.0f, 0.84f, 0.0f, 1.0f));
 			struct { int pole; Color3B color; } const info[] = {
 				{ 0, Color3B(  0,   0,   0) },   // [0] unused
 				{ 2, Color3B(255, 215,   0) },   // [1] "1" → Panel C, gold
@@ -1354,7 +1397,7 @@ void PlayScene::clearBottomPanels()
 }
 
 // 한 글자씩 타이핑되듯 등장 (UTF-8 멀티바이트/이모지 지원)
-void PlayScene::typingBottomPanel(int pole, const std::string& text, float charInterval, Color3B color, float fontSize)
+void PlayScene::typingBottomPanel(int pole, const std::string& text, float charInterval, cocos2d::Color3B color, float fontSize)
 {
     Label* const labels[] = { m_bottomLabelA, m_bottomLabelB, m_bottomLabelC };
     if (pole < 0 || pole > 2 || !labels[pole]) return;
@@ -1382,7 +1425,7 @@ void PlayScene::typingBottomPanel(int pole, const std::string& text, float charI
 }
 
 // 좌/우에서 미끄러져 들어오기
-void PlayScene::slideInBottomPanel(int pole, const std::string& text, bool fromLeft, Color3B color, float fontSize)
+void PlayScene::slideInBottomPanel(int pole, const std::string& text, bool fromLeft, cocos2d::Color3B color, float fontSize)
 {
     Label* const labels[] = { m_bottomLabelA, m_bottomLabelB, m_bottomLabelC };
     if (pole < 0 || pole > 2 || !labels[pole]) return;

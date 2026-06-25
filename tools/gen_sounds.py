@@ -256,10 +256,21 @@ def gen_levelup():
     save('levelup.wav', concat(*parts, chord))
 
 def gen_go():
-    """GO! 신호 - G4 → C5 팡파르"""
-    n1 = adsr(sine(NOTE['G4'], 0.10, 0.55), a=0.004, d=0.03, s=0.6, r=0.04)
-    n2 = adsr(sine(NOTE['C5'], 0.18, 0.72), a=0.004, d=0.05, s=0.5, r=0.07)
-    save('go.wav', concat(n1, silence(0.025), n2))
+    """GO! - 레이싱 스타트 고정음 삐---- (A4, 1.0s, 묵직한 하위 옥타브 추가)"""
+    f = NOTE['A4']   # 440 Hz
+    n = int(SR * 0.7)
+    # 메인 톤: 사인 + 약한 3배음
+    main = [math.sin(2*math.pi*f*i/SR) + 0.18*math.sin(2*math.pi*f*3*i/SR)
+            for i in range(n)]
+    main = adsr(main, a=0.006, d=0.0, s=1.0, r=0.01)
+    # 하위 옥타브 (220Hz): 묵직한 바디감
+    sub = [math.sin(2*math.pi*(f*0.5)*i/SR) for i in range(n)]
+    sub = adsr(sub, a=0.010, d=0.0, s=1.0, r=0.01)
+    # 하하위 옥타브 (110Hz): 한 옥타브 더 아래
+    sub2 = [math.sin(2*math.pi*(f*0.25)*i/SR) for i in range(n)]
+    sub2 = adsr(sub2, a=0.012, d=0.0, s=1.0, r=0.01)
+    mixed = mix(main, [v * 0.60 for v in sub], [v * 0.45 for v in sub2])
+    save('efs_go.wav', mixed)
 
 def gen_count_sec():
     """카운트다운 틱 - 날카로운 클릭"""

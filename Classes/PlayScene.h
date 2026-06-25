@@ -35,8 +35,8 @@ public:
 	Label*			m_labelMoveCount ;
 	Label*			m_labelLevel ;
 	Label*			m_labelTime;
-	Label*			m_hudSep         = nullptr;
 	Label*			m_hudTickerLabel = nullptr;
+	DrawNode*		m_trafficDot[3]  = {};
 	Label*			m_bottomLabelA   = nullptr;
 	Label*			m_bottomLabelB   = nullptr;
 	Label*			m_bottomLabelC   = nullptr;
@@ -120,6 +120,8 @@ public:
 	void callbackOnPushed_nextMenuItem(Ref* sender);
 	void callbackOnPushed_speakerMenuItem(Ref* sender);
 	void callbackLockBtn(Ref* sender);
+
+	void setTrafficDot(int i, Color4F color);
 
 	void startRankTicker(int level);
 	void stopRankTicker();
