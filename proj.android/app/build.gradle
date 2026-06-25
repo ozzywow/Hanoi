@@ -6,10 +6,10 @@ android {
     ndkVersion "30.0.14904198"
 
     defaultConfig {
-        applicationId "com.ozzywow.hanoi"
+        applicationId "com.ozzywow.hanoi"ㅎ
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 32
+        versionCode 36
         versionName "1.0"
 
         externalNativeBuild {
