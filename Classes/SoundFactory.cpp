@@ -92,6 +92,8 @@ void SoundFactory::preloadAll()
 	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_universe.wav");
 	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_cosmos.wav");
 	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_nova.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_moon.wav");
+	CocosDenshion::SimpleAudioEngine::getInstance()->preloadBackgroundMusic("Sound/bgm_earth.wav");
 }
 
 void SoundFactory::switchBGM(const char* soundFile, bool loop)

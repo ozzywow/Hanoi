@@ -509,18 +509,19 @@ void PlayScene::Start()
 	scheduleOnce([this](float){ startEqualizerAnimation(); }, 1.5f, "cheer_start");
 
 	// MainScene BGM 선택값 읽어 트랙 결정
-	// bgm_selection: 0=Random, 1=Space, 2=Universe, 3=Cosmos, 4=Nova
-	// s_bgmTracks 순서와 동일: index 0=Space, 1=Universe, 2=Cosmos, 3=Nova
-	static const char* BGM_LIST[] = {"bgm_space", "bgm_universe", "bgm_cosmos", "bgm_nova"};
+	// bgm_selection: 0=Random, 1=Space, 2=Universe, 3=Cosmos, 4=Nova, 5=Moon, 6=Earth
+	// s_bgmTracks(MainScene) 순서와 동일: index 0=Space, 1=Universe, 2=Cosmos, 3=Nova, 4=Moon, 5=Earth
+	static const char* BGM_LIST[] = {"bgm_space", "bgm_universe", "bgm_cosmos", "bgm_nova", "bgm_moon", "bgm_earth"};
+	const int BGM_LIST_COUNT = (int)(sizeof(BGM_LIST) / sizeof(BGM_LIST[0]));
 	{
 		auto ud  = UserDefault::getInstance();
 		int sel  = ud->getIntegerForKey("bgm_selection", 0);
 		if (sel == 0) {
 			// Random: 매 판마다 랜덤 트랙
-			m_bgmName = BGM_LIST[rand() % 4];
+			m_bgmName = BGM_LIST[rand() % BGM_LIST_COUNT];
 		} else {
 			// 특정 트랙 고정 재생
-			m_bgmName = BGM_LIST[(sel - 1) % 4];
+			m_bgmName = BGM_LIST[(sel - 1) % BGM_LIST_COUNT];
 		}
 	}
 	bool bSoundOpt = UserDataManager::Instance()->GetSoundOpt();
