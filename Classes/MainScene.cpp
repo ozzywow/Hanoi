@@ -17,15 +17,17 @@ static const Color3B MINT_C(80, 220, 180);
 
 // BGM Player ─────────────────────────────────────────────────────────────────
 struct BgmTrack { const char* file; const char* title; };
-// 선택 순서: selection 1=Space, 2=Universe, 3=Cosmos, 4=Nova
+// 선택 순서: selection 1=Space, 2=Universe, 3=Cosmos, 4=Nova, 5=Moon, 6=Earth
 static const BgmTrack s_bgmTracks[] = {
     {"bgm_space",    "The Space"},
     {"bgm_universe", "The Universe"},
     {"bgm_cosmos",   "The Cosmos"},
     {"bgm_nova",     "The Nova"},
+    {"bgm_moon",     "The Moon"},
+    {"bgm_earth",    "The Earth"},
 };
 static const int BGM_TRACK_COUNT = (int)(sizeof(s_bgmTracks) / sizeof(s_bgmTracks[0]));
-static const int BGM_SEL_COUNT   = BGM_TRACK_COUNT + 1;   // 0=Random + 4 tracks
+static const int BGM_SEL_COUNT   = BGM_TRACK_COUNT + 1;   // 0=Random + 8 tracks
 static const char* KEY_BGM_INDEX = "bgm_player_index";
 static const char* KEY_BGM_SEL   = "bgm_selection";       // 0=Random, 1-4=specific
 static const char* s_selNames[]  = {
@@ -1413,7 +1415,7 @@ void MainScene::bgmTogglePlayPause()
 
 void MainScene::bgmNext()
 {
-	// 선택을 다음으로 이동 (Random → Space → Universe → Cosmos → Nova → Random)
+	// 선택을 다음으로 이동 (Random → Space → Universe → Cosmos → Nova → Moon → Earth → Random)
 	m_bgmSelection = (m_bgmSelection + 1) % BGM_SEL_COUNT;
 	UserDefault::getInstance()->setIntegerForKey(KEY_BGM_SEL, m_bgmSelection);
 	bgmUpdatePlaylistLed();
