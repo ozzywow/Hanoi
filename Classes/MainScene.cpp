@@ -36,6 +36,8 @@ static const char* s_selNames[]  = {
     "\xe2\x99\xaa THE UNIVERSE",
     "\xe2\x99\xaa THE COSMOS",
     "\xe2\x99\xaa THE NOVA",
+    "\xe2\x99\xaa THE MOON",
+    "\xe2\x99\xaa THE EARTH",
 };
 static const int TAG_CASSETTE = 78;
 
