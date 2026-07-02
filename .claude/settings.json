@@ -11,7 +11,14 @@
       "Bash(cmake --version)",
       "Bash(cmake -B*)",
       "Bash(cmake --build*)",
-      "Bash(mkdir -p*)"
+      "Bash(mkdir -p*)",
+      "Bash(python3 -c ' *)",
+      "Bash(md5 /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/claude/2.1.59/claude)",
+      "Bash(md5 /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/XcodeVersions/17E202/claude/claude)",
+      "Bash(xattr -l /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/claude/2.1.59/claude)",
+      "Bash(xattr -l /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/XcodeVersions/17E202/claude/claude)",
+      "Bash(ls -la /Users/ozzy/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/debug/)",
+      "Read(//tmp/**)"
     ],
     "deny": []
   }
