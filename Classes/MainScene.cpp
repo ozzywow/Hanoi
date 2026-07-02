@@ -284,6 +284,31 @@ bool MainScene::init()
 	SoundFactory::Instance()->play("efs_click");
 	this->drawOnlineRank(level);
 
+	// 진입 시 공개 Title Data(마스터 스위치 + 공지) 재조회 → 값이 바뀐 경우에만 UI 갱신.
+	// 티커 자체는 아래에서 캐시값으로 이미 즉시 구성되므로, 여기선 도착한 신규 값만 반영.
+	{
+		auto alive = m_aliveFlag;
+		int  lv    = level;
+		bool        prevEnabled = LeaderboardManager::Instance()->isAwardEnabled();
+		std::string prevNotice  = LeaderboardManager::Instance()->getNotice();
+		LeaderboardManager::Instance()->fetchTitleConfig(
+			[this, alive, lv, prevEnabled, prevNotice]() {
+				if (!alive || !*alive) return;
+#ifdef ENABLE_AWARD_COMMENT
+				// 마스터 스위치가 바뀐 경우에만 재그리기(불필요한 재그림 방지)
+				if (LeaderboardManager::Instance()->isAwardEnabled() != prevEnabled) {
+					LeaderboardManager::Instance()->invalidateComments(lv);
+					drawOnlineRank(lv);
+				}
+#else
+				(void)lv; (void)prevEnabled;
+#endif
+				// 공지가 바뀐 경우에만 상단 티커 갱신(네트워크 지연 도착분/변경 반영)
+				if (LeaderboardManager::Instance()->getNotice() != prevNotice)
+					startTopTicker();
+			});
+	}
+
 	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
 	if (UserDataManager::Instance()->m_justRegistered) {
 		UserDataManager::Instance()->m_justRegistered = false;
@@ -301,9 +326,14 @@ bool MainScene::init()
 		scheduleOnce([this, lv](float) {
 			LeaderboardManager::Instance()->invalidateCache(lv);
 			drawOnlineRank(lv);
+#ifdef ENABLE_AWARD_COMMENT
+			checkAndPromptAward(lv);   // rank 확정 후 Top10이면 수상소감 입력창
+#endif
 		}, 2.0f, "refreshNewRecord");
 	}
 
+	// 캐시된 공지(직전 실행 저장분)로 상단 티커를 네트워크 대기 없이 즉시 구성.
+	// 신규 값이 늦게 도착하면 위 fetchTitleConfig 콜백이 바뀐 경우에만 다시 갱신.
 	startTopTicker();
 	startBotTicker();
 
@@ -454,6 +484,75 @@ void MainScene::callbackRankNext(Ref* pSender)
 // ────────────────────────────────────────────────────────────────────────────
 // drawOnlineRank  ─  첫 진입: 패널 슬라이드 인 / 재진입(◀▶): LED 내용 전환
 // ────────────────────────────────────────────────────────────────────────────
+// UTF-8 문자열을 최대 maxCP 코드포인트까지 자른다 (경계 유지). 이름/소감 truncate 공용.
+static std::string utf8TruncateCP(const std::string& s, int maxCP)
+{
+	int cp = 0; size_t i = 0;
+	while (i < s.size() && cp < maxCP) {
+		unsigned char c = (unsigned char)s[i];
+		size_t adv = 1;
+		if      (c >= 0xF0) adv = 4;
+		else if (c >= 0xE0) adv = 3;
+		else if (c >= 0xC0) adv = 2;
+		i += adv; ++cp;
+	}
+	if (i > s.size()) i = s.size();
+	return s.substr(0, i);
+}
+
+#ifdef ENABLE_AWARD_COMMENT
+// writeAwardComment/clientFilterComment reason → 영어 안내
+static std::string awardReasonMessage(const std::string& r)
+{
+	if (r == "empty")     return "Please enter a message";
+	if (r == "too_long")  return StringUtils::format("Max %d characters", LeaderboardManager::AWARD_MAX_CP);
+	if (r == "link")      return "Links are not allowed";
+	if (r == "profanity") return "Inappropriate language";
+	if (r == "network")   return "Network error, try again";
+	if (r == "disabled")  return "Comments are currently unavailable";
+	return "Failed, please try again";
+}
+
+// UGC 신고/문의 수신 이메일 (App Store 심사 1.2: 신고 수단 + 연락처)
+static const char* AWARD_SUPPORT_EMAIL = "ozzywow2@gmail.com";
+
+// mailto용 퍼센트 인코딩 (unreserved 문자만 통과)
+static std::string urlEncode(const std::string& s)
+{
+	static const char* HEX = "0123456789ABCDEF";
+	std::string out;
+	out.reserve(s.size() * 3);
+	for (unsigned char c : s) {
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+			out += (char)c;
+		} else {
+			out += '%';
+			out += HEX[c >> 4];
+			out += HEX[c & 0xF];
+		}
+	}
+	return out;
+}
+
+// 문제 소감 신고 — 기본 메일 클라이언트로 사전 작성된 신고 메일 열기.
+// 심사관이 요구하는 "신고 수단 + 개발자 연락처"를 버튼 하나로 동시 충족.
+static void openAwardReportEmail(int level, int rank,
+                                 const std::string& playFabId, const std::string& comment)
+{
+	std::string subject = StringUtils::format("[Hanoi] Report award comment (L%02d #%d)", level, rank);
+	std::string body = StringUtils::format(
+		"I'd like to report the following winning speech as inappropriate.\n\n"
+		"Level: %d\nRank: %d\nUser ID: %s\nComment: \"%s\"\n\n"
+		"Reason (please describe):\n",
+		level, rank, playFabId.c_str(), comment.c_str());
+	std::string url = std::string("mailto:") + AWARD_SUPPORT_EMAIL
+		+ "?subject=" + urlEncode(subject)
+		+ "&body="    + urlEncode(body);
+	Application::getInstance()->openURL(url);
+}
+#endif // ENABLE_AWARD_COMMENT
+
 void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 {
 	this->unschedule("rankRetry");
@@ -557,7 +656,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			}
 
 			auto nm = Label::createWithSystemFont(
-				e.displayName.substr(0, 10), "Arial", rowFont);
+				utf8TruncateCP(e.displayName, 10), "Arial", rowFont);  // 바이트 아닌 코드포인트로 자름 (한글 깨짐 방지)
 			nm->setAnchorPoint(Vec2(0, 0.5f)); nm->setPosition(Vec2(55, y));
 			nm->setColor(rowCol); addLbl(nm);
 
@@ -565,6 +664,38 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", rowFont);
 			tm->setAnchorPoint(Vec2(1.0f, 0.5f)); tm->setPosition(Vec2(PW - 10, y));
 			tm->setColor(rowCol); addLbl(tm);
+
+#ifdef ENABLE_AWARD_COMMENT
+			// ── 수상소감: 이름~시간 사이. 다 들어가면 전문, 초과 시 코드포인트 말줄임 ──
+			{
+				float nameRight = 55.f + nm->getContentSize().width;
+				float timeLeft  = (PW - 10.f) - tm->getContentSize().width;
+				float availL    = nameRight + 6.f;
+				float availW    = timeLeft - 6.f - availL;
+				if (availW > 12.f) {
+					if (!e.comment.empty()) {
+						auto cmt = Label::createWithSystemFont(e.comment, "Arial", rowFont - 1);
+						cmt->setAnchorPoint(Vec2(0, 0.5f));
+						cmt->setColor(isMe ? Color3B(255, 235, 150) : Color3B(150, 200, 180));
+						if (cmt->getContentSize().width > availW) {
+							int cp = LeaderboardManager::utf8Length(e.comment);
+							while (cp > 1 && cmt->getContentSize().width > availW) {
+								--cp;
+								cmt->setString(utf8TruncateCP(e.comment, cp) + "...");
+							}
+						}
+						cmt->setPosition(Vec2(availL, y));
+						addLbl(cmt);
+					} else if (isMe && LeaderboardManager::Instance()->isAwardEnabled()) {
+						auto pen = Label::createWithSystemFont("✎", "Arial", rowFont);  // ✎ 미작성 힌트
+						pen->setAnchorPoint(Vec2(0, 0.5f));
+						pen->setColor(Color3B(255, 215, 0));
+						pen->setPosition(Vec2(availL, y));
+						addLbl(pen);
+					}
+				}
+			}
+#endif // ENABLE_AWARD_COMMENT
 
 			if (isMe) {
 				float blinkDelay = ledScan ? (scanDelay + 0.06f) : 0.0f;
@@ -587,6 +718,36 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				makeBlink(tm);
 			}
 		}
+
+#ifdef ENABLE_AWARD_COMMENT
+		// 행 탭 → 소감 카드 (소감 있는 행) / 내 미작성 행 탭 → 입력창
+		{
+			auto entriesCopy = entries;
+			auto touchLs = EventListenerTouchOneByOne::create();
+			touchLs->setSwallowTouches(true);
+			touchLs->onTouchBegan =
+				[this, entriesCopy, rowsNode, FIRST_ROW_Y, ROW_STEP, PW, level](Touch* t, Event*) -> bool {
+					Vec2 p = rowsNode->convertToNodeSpace(t->getLocation());
+					if (p.x < 10 || p.x > PW - 10) return false;
+					for (int i = 0; i < (int)entriesCopy.size(); ++i) {
+						float ry = FIRST_ROW_Y - i * ROW_STEP;
+						if (p.y >= ry - ROW_STEP / 2 && p.y <= ry + ROW_STEP / 2) {
+							const auto& e = entriesCopy[i];
+							std::string myId = LeaderboardManager::Instance()->getPlayFabId();
+							bool isMe = !myId.empty() && e.playFabId == myId;
+							if (!e.comment.empty()) { showAwardCardDialog(e, level); return true; }
+							if (isMe && LeaderboardManager::Instance()->isAwardEnabled()) {
+								showAwardInputDialog(level, e.rank, e.comment); return true;
+							}
+							return false;
+						}
+					}
+					return false;
+				};
+			Director::getInstance()->getEventDispatcher()
+				->addEventListenerWithSceneGraphPriority(touchLs, rowsNode);
+		}
+#endif // ENABLE_AWARD_COMMENT
 
 		panel->addChild(rowsNode, 2, TAG_D_ROWS);
 	};
@@ -698,6 +859,17 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 		});
 }
 
+// 팝업 배경에 모달 터치 차단 리스너 부착 — 뒤 영역 터치를 전부 삼켜(통과 방지),
+// 팝업 영역(버튼/EditBox 등 더 깊은 자식)만 상호작용되게 한다.
+static void attachModalBlocker(Node* backdrop)
+{
+	auto blockLs = EventListenerTouchOneByOne::create();
+	blockLs->setSwallowTouches(true);
+	blockLs->onTouchBegan = [](Touch*, Event*) -> bool { return true; };
+	Director::getInstance()->getEventDispatcher()
+		->addEventListenerWithSceneGraphPriority(blockLs, backdrop);
+}
+
 void MainScene::showResultDialog(const std::string& title, Color3B titleColor, const std::string& msg)
 {
 	SoundFactory::Instance()->play("efs_click");
@@ -710,6 +882,7 @@ void MainScene::showResultDialog(const std::string& title, Color3B titleColor, c
 	backdrop->setTag(TAG);
 	this->addChild(backdrop, 999);
 	backdrop->runAction(FadeTo::create(0.15f, 150));
+	attachModalBlocker(backdrop);
 
 	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
 	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
@@ -850,9 +1023,10 @@ void MainScene::showNameInputDialog()
 	backdrop->setTag(DIALOG_TAG);
 	this->addChild(backdrop, 999);
 	backdrop->runAction(FadeTo::create(0.2f, 160));
+	attachModalBlocker(backdrop);
 
 	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
+	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2+40));
 	dlg->setScale(0.7f);
 	backdrop->addChild(dlg);
 	dlg->runAction(Sequence::create(
@@ -902,34 +1076,65 @@ void MainScene::showNameInputDialog()
 		editBox->openKeyboard();
 	}, 0.35f, "autoKb");
 
+	// 욕설/링크 필터 거부 메시지 표시용
+	auto status = Label::createWithSystemFont("", "Arial", 10);
+	status->setColor(Color3B(255, 120, 120));
+	status->setPosition(Vec2(DW / 2, 36));
+	dlg->addChild(status);
+
 	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 15);
 	okLabel->setColor(Color3B(100, 100, 100));
-	auto okBtn = MenuItemLabel::create(okLabel, [editBox](Ref*) {
+	// 재진입(더블탭) 방지 플래그 — 검증 성공 시 scene 전환하므로 중복 실행 차단
+	auto submitting = std::make_shared<bool>(false);
+	auto okBtn = MenuItemLabel::create(okLabel, [this, editBox, status, submitting](Ref*) {
+		if (*submitting) return;
 		std::string name = editBox->getText();
-		UserDataManager::Instance()->SetUserName(name);
-		UserDataManager::Instance()->SaveUserData();
+		*submitting = true;
+		status->setColor(Color3B(180, 180, 180));
+		status->setString("Checking...");
 
-		auto* ud = UserDataManager::Instance();
-		int lv = ud->m_pendingSubmitLevel;
-		int tm = ud->m_pendingSubmitTime;
-		bool hasPending = ud->HasPendingSubmit();
-		ud->ClearPendingSubmit();
+		auto alive = m_aliveFlag;
+		// 클라 경량 필터 + 서버 banned_words 검증 → 통과 시에만 이름 확정
+		LeaderboardManager::Instance()->validateName(name,
+			[this, alive, name, status, submitting](bool ok, const std::string& reason) {
+				if (!alive || !*alive) return;
+				if (!ok) {
+					*submitting = false;
+					status->setColor(Color3B(255, 120, 120));
+					status->setString(
+						reason == "profanity" ? "Inappropriate name" :
+						reason == "link"      ? "Links are not allowed" :
+						reason == "too_long"  ? "Max 12 characters" :
+						                        "Please choose another name");
+					return;
+				}
 
-		// updateDisplayName 완료 → submitScore 완료 → replaceScene 순서로 체이닝
-		LeaderboardManager::Instance()->updateDisplayName(name, [lv, tm, hasPending](bool) {
-			auto goToMain = []() {
-				UserDataManager::Instance()->m_justRegistered = true;
-				Director::getInstance()->replaceScene(
-					TransitionFade::create(0.3f, MainScene::createScene()));
-			};
-			if (hasPending) {
-				LeaderboardManager::Instance()->submitScore(lv, tm, [goToMain](bool) {
-					goToMain();
+				std::string nameCopy = name;  // SetUserName은 non-const ref를 받음
+				UserDataManager::Instance()->SetUserName(nameCopy);
+				UserDataManager::Instance()->SaveUserData();
+
+				auto* ud = UserDataManager::Instance();
+				int lv = ud->m_pendingSubmitLevel;
+				int tm = ud->m_pendingSubmitTime;
+				bool hasPending = ud->HasPendingSubmit();
+				ud->ClearPendingSubmit();
+
+				// updateDisplayName 완료 → submitScore 완료 → replaceScene 순서로 체이닝
+				LeaderboardManager::Instance()->updateDisplayName(name, [lv, tm, hasPending](bool) {
+					auto goToMain = []() {
+						UserDataManager::Instance()->m_justRegistered = true;
+						Director::getInstance()->replaceScene(
+							TransitionFade::create(0.3f, MainScene::createScene()));
+					};
+					if (hasPending) {
+						LeaderboardManager::Instance()->submitScore(lv, tm, [goToMain](bool) {
+							goToMain();
+						});
+					} else {
+						goToMain();
+					}
 				});
-			} else {
-				goToMain();
-			}
-		});
+			});
 	});
 	okBtn->setEnabled(false);
 
@@ -944,6 +1149,283 @@ void MainScene::showNameInputDialog()
 	dlg->addChild(menu);
 }
 
+#ifdef ENABLE_AWARD_COMMENT
+// ─────────────────────────────────────────────────────────────
+//  랭킹 Top10 수상소감
+// ─────────────────────────────────────────────────────────────
+
+// 신기록 rank 확정 후 — 내 순위가 Top10이면 입력창 표시
+void MainScene::checkAndPromptAward(int level)
+{
+	auto alive = m_aliveFlag;
+	LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
+		[this, alive, level](const std::vector<LeaderboardEntry>& entries) {
+			if (!alive || !*alive) return;
+			if (!LeaderboardManager::Instance()->isAwardEnabled()) return;  // 마스터 OFF → 작성창 생략
+			std::string myId = LeaderboardManager::Instance()->getPlayFabId();
+			if (myId.empty()) return;
+			for (const auto& e : entries) {
+				if (e.playFabId == myId) {
+					if (e.rank >= 1 && e.rank <= 10)
+						showAwardInputDialog(level, e.rank, e.comment);
+					return;
+				}
+			}
+		});
+}
+
+// 수상소감 작성/수정 입력창
+void MainScene::showAwardInputDialog(int level, int rank, const std::string& existing)
+{
+	SoundFactory::Instance()->play("efs_click");
+	const int TAG = 193;
+	this->removeChildByTag(TAG);
+	const float DW = 264, DH = 152;
+
+	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
+	backdrop->setTag(TAG);
+	this->addChild(backdrop, 999);
+	backdrop->runAction(FadeTo::create(0.2f, 160));
+
+	auto dlg = LayerColor::create(Color4B(10, 15, 50, 235), DW, DH);
+	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2 + 40));
+	dlg->setScale(0.7f);
+	backdrop->addChild(dlg);
+	dlg->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+	// 모달 — 박스 안 빈 곳은 삼키기만, 박스 밖(배경) 탭하면 닫힘.
+	// (EditBox/POST 버튼은 더 깊은 자식이라 먼저 터치를 받아 정상 동작)
+	auto closeLs = EventListenerTouchOneByOne::create();
+	closeLs->setSwallowTouches(true);
+	closeLs->onTouchBegan = [this, TAG, dlg, DW, DH](Touch* t, Event*) -> bool {
+		Vec2 p = dlg->convertToNodeSpace(t->getLocation());
+		if (p.x >= 0 && p.x <= DW && p.y >= 0 && p.y <= DH)
+			return true;  // 박스 내부 — 삼키기만 (닫지 않음)
+		SoundFactory::Instance()->play("efs_click");
+		this->removeChildByTag(TAG);
+		return true;       // 박스 밖(배경) — 닫기
+	};
+	Director::getInstance()->getEventDispatcher()
+		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
+
+	auto outline = DrawNode::create();
+	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
+	dlg->addChild(outline);
+
+	auto titleLabel = Label::createWithSystemFont(
+		StringUtils::format("CONGRATULATIONS!  RANK %d", rank), "Arial", 14);
+	titleLabel->setColor(Color3B(255, 215, 0));
+	titleLabel->setPosition(Vec2(DW / 2, DH - 20));
+	dlg->addChild(titleLabel);
+
+	auto sub = Label::createWithSystemFont("Leave your winning speech to the world", "Arial", 10);
+	sub->setColor(Color3B(180, 200, 220));
+	sub->setPosition(Vec2(DW / 2, DH - 38));
+	dlg->addChild(sub);
+
+	auto editBoxBg = DrawNode::create();
+	editBoxBg->drawSolidRect(Vec2(8, DH - 86), Vec2(DW - 8, DH - 58), Color4F(0.05f, 0.07f, 0.15f, 0.9f));
+	editBoxBg->drawRect(Vec2(8, DH - 86), Vec2(DW - 8, DH - 58), Color4F(0.4f, 0.4f, 0.6f, 0.7f));
+	dlg->addChild(editBoxBg);
+
+	auto editBox = cocos2d::ui::EditBox::create(Size(DW - 20, 24),
+		cocos2d::ui::Scale9Sprite::create());
+	editBox->setFont("Arial", 13);
+	editBox->setFontColor(Color3B::WHITE);
+	editBox->setPlaceholderFontColor(Color3B(170, 170, 170));
+	editBox->setPlaceHolder(StringUtils::format("Your speech (max %d)",
+		LeaderboardManager::AWARD_MAX_CP).c_str());
+	// 코드포인트 제한은 아래 스케줄(utf8TruncateCP)이 실제로 강제. maxLength(UTF-16 코드유닛 기준)는
+	// 이모지(서로게이트 2유닛)로도 항상 코드포인트 강제가 먼저 걸리도록 여유롭게(=서로게이트 분할 방지).
+	editBox->setMaxLength(LeaderboardManager::AWARD_MAX_CP * 3);
+	editBox->setInputMode(cocos2d::ui::EditBox::InputMode::SINGLE_LINE);
+	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
+	editBox->setAnchorPoint(Vec2(0, 0.5f));
+	editBox->setPosition(Vec2(10, DH - 72));
+	if (!existing.empty()) editBox->setText(existing.c_str());
+	dlg->addChild(editBox);
+
+	dlg->scheduleOnce([editBox](float) { editBox->openKeyboard(); }, 0.35f, "awardKb");
+
+	auto counter = Label::createWithSystemFont(
+		StringUtils::format("0 / %d", LeaderboardManager::AWARD_MAX_CP), "Arial", 10);
+	counter->setColor(Color3B(150, 150, 150));
+	counter->setAnchorPoint(Vec2(1.0f, 0.5f));
+	counter->setPosition(Vec2(DW - 10, DH - 98));
+	dlg->addChild(counter);
+
+	auto status = Label::createWithSystemFont("", "Arial", 10);
+	status->setColor(Color3B(255, 120, 120));
+	status->setAnchorPoint(Vec2(0, 0.5f));
+	status->setPosition(Vec2(10, DH - 98));
+	dlg->addChild(status);
+
+	// 코드포인트 제한 강제 + 카운터 갱신 (iOS/Android 공용)
+	dlg->schedule([editBox, counter](float) {
+		const int MAXCP = LeaderboardManager::AWARD_MAX_CP;
+		std::string t = editBox->getText();
+		int len = LeaderboardManager::utf8Length(t);
+		if (len > MAXCP) {
+			editBox->setText(utf8TruncateCP(t, MAXCP).c_str());
+			len = MAXCP;
+		}
+		counter->setString(StringUtils::format("%d / %d", len, MAXCP));
+		counter->setColor(len >= MAXCP ? Color3B(255, 180, 80) : Color3B(150, 150, 150));
+	}, 0.1f, CC_REPEAT_FOREVER, 0.f, "awardCount");
+
+	// POST
+	auto okLabel = Label::createWithSystemFont(" POST ", "Arial", 14);
+	okLabel->setColor(Color3B(255, 215, 0));
+	auto okBtn = MenuItemLabel::create(okLabel,
+		[this, TAG, editBox, status, level, existing](Ref*) {
+			std::string text = editBox->getText();
+			// 변경 사항 없으면 서버 전송 없이 그냥 닫기
+			auto trimws = [](std::string s) -> std::string {
+				size_t a = s.find_first_not_of(" \t\r\n");
+				if (a == std::string::npos) return std::string();
+				size_t b = s.find_last_not_of(" \t\r\n");
+				return s.substr(a, b - a + 1);
+			};
+			if (trimws(text) == trimws(existing)) {
+				this->removeChildByTag(TAG);
+				return;
+			}
+			std::string reason;
+			if (!LeaderboardManager::clientFilterComment(text, reason)) {
+				status->setColor(Color3B(255, 120, 120));
+				status->setString(awardReasonMessage(reason));
+				return;
+			}
+			status->setColor(Color3B(180, 180, 180));
+			status->setString("Sending...");
+			LeaderboardManager::Instance()->writeAwardComment(level, text,
+				[this, TAG, status, level](bool ok, const std::string& r) {
+					if (ok) {
+						this->removeChildByTag(TAG);
+						LeaderboardManager::Instance()->invalidateComments(level);
+						drawOnlineRank(level);
+						// 전파 지연 보상 재갱신
+						this->scheduleOnce([this, level](float) {
+							LeaderboardManager::Instance()->invalidateComments(level);
+							drawOnlineRank(level);
+						}, 1.5f, "awardRefresh");
+					} else {
+						status->setColor(Color3B(255, 120, 120));
+						status->setString(awardReasonMessage(r));
+					}
+				});
+		});
+	okBtn->setPosition(Vec2(DW / 2, 16));
+
+	auto menu = Menu::create(okBtn, nullptr);
+	menu->setPosition(Vec2::ZERO);
+	dlg->addChild(menu);
+}
+
+// 수상소감 읽기 카드 (탭 시). 내 항목이면 '수정' 버튼 포함. 배경 탭하면 닫힘.
+void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
+{
+	SoundFactory::Instance()->play("efs_click");
+	const int TAG = 194;
+	this->removeChildByTag(TAG);
+	const float DW = 250, DH = 132;
+
+	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
+	backdrop->setTag(TAG);
+	this->addChild(backdrop, 999);
+	backdrop->runAction(FadeTo::create(0.2f, 150));
+
+	// 배경 아무 곳이나 탭하면 닫힘 (수정 버튼 메뉴가 더 높은 우선순위로 먼저 처리됨)
+	auto closeLs = EventListenerTouchOneByOne::create();
+	closeLs->setSwallowTouches(true);
+	closeLs->onTouchBegan = [this, TAG](Touch*, Event*) -> bool {
+		SoundFactory::Instance()->play("efs_click");
+		this->removeChildByTag(TAG);
+		return true;
+	};
+	Director::getInstance()->getEventDispatcher()
+		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
+
+	auto dlg = LayerColor::create(Color4B(12, 16, 45, 240), DW, DH);
+	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
+	dlg->setScale(0.7f);
+	backdrop->addChild(dlg);
+	dlg->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+	auto outline = DrawNode::create();
+	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
+	dlg->addChild(outline);
+
+	auto rankLbl = Label::createWithSystemFont(
+		StringUtils::format("🏆  RANK %d", e.rank), "Arial", 16);
+	rankLbl->setColor(Color3B(255, 215, 0));
+	rankLbl->setPosition(Vec2(DW / 2, DH - 22));
+	dlg->addChild(rankLbl);
+
+	std::string flag = e.countryCode.empty() ? "" : countryToFlag(e.countryCode);
+	auto nameLbl = Label::createWithSystemFont(flag + "  " + e.displayName, "Arial", 13);
+	nameLbl->setColor(Color3B::WHITE);
+	nameLbl->setAnchorPoint(Vec2(0, 0.5f));
+	nameLbl->setPosition(Vec2(16, DH - 50));
+	dlg->addChild(nameLbl);
+
+	RecordTime rt = getRecordTime(e.scoreMs);
+	auto timeLbl = Label::createWithSystemFont(
+		StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 13);
+	timeLbl->setColor(Color3B(180, 220, 255));
+	timeLbl->setAnchorPoint(Vec2(1.0f, 0.5f));
+	timeLbl->setPosition(Vec2(DW - 16, DH - 50));
+	dlg->addChild(timeLbl);
+
+	auto divider = DrawNode::create();
+	divider->drawLine(Vec2(16, DH - 62), Vec2(DW - 16, DH - 62), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
+	dlg->addChild(divider);
+
+	auto cmtLbl = Label::createWithSystemFont("\"" + e.comment + "\"", "Arial", 13);
+	cmtLbl->setColor(Color3B(230, 235, 180));
+	cmtLbl->setDimensions(DW - 30, 0);
+	cmtLbl->setHorizontalAlignment(TextHAlignment::CENTER);
+	cmtLbl->setAnchorPoint(Vec2(0.5f, 1.0f));
+	cmtLbl->setPosition(Vec2(DW / 2, DH - 70));
+	dlg->addChild(cmtLbl);
+
+	// 내 항목이면 수정 버튼, 남의 항목이면 신고 버튼 (App Store 1.2 UGC 신고 수단)
+	std::string myId = LeaderboardManager::Instance()->getPlayFabId();
+	if (!myId.empty() && e.playFabId == myId) {
+		auto editLabel = Label::createWithSystemFont(" EDIT ", "Arial", 12);
+		editLabel->setColor(Color3B(120, 220, 255));
+		std::string existing = e.comment;
+		int rank = e.rank;
+		auto editBtn = MenuItemLabel::create(editLabel,
+			[this, TAG, level, rank, existing](Ref*) {
+				this->removeChildByTag(TAG);
+				this->showAwardInputDialog(level, rank, existing);
+			});
+		editBtn->setPosition(Vec2(DW / 2, 14));
+		auto menu = Menu::create(editBtn, nullptr);
+		menu->setPosition(Vec2::ZERO);
+		dlg->addChild(menu, 5);
+	} else {
+		auto reportLabel = Label::createWithSystemFont("🚩 Report", "Arial", 12);
+		reportLabel->setColor(Color3B(220, 140, 140));
+		int rank = e.rank;
+		std::string pid = e.playFabId, cmt = e.comment;
+		auto reportBtn = MenuItemLabel::create(reportLabel,
+			[this, TAG, level, rank, pid, cmt](Ref*) {
+				SoundFactory::Instance()->play("efs_click");
+				openAwardReportEmail(level, rank, pid, cmt);
+				this->removeChildByTag(TAG);
+			});
+		reportBtn->setPosition(Vec2(DW / 2, 14));
+		auto menu = Menu::create(reportBtn, nullptr);
+		menu->setPosition(Vec2::ZERO);
+		dlg->addChild(menu, 5);
+	}
+}
+#endif // ENABLE_AWARD_COMMENT
+
 void MainScene::showSettingsMenu()
 {
 	const int TAG = 196;
@@ -956,6 +1438,7 @@ void MainScene::showSettingsMenu()
 	backdrop->setTag(TAG);
 	this->addChild(backdrop, 999);
 	backdrop->runAction(FadeTo::create(0.15f, 150));
+	attachModalBlocker(backdrop);
 
 	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
 	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
@@ -1109,14 +1592,32 @@ void MainScene::playStartSparkle()
 // ── TopInfoBar 티커: 레벨 3~10 각 1위 → 우→좌 스크롤 ──────────────────
 void MainScene::startTopTicker()
 {
+	if (!m_topTickerLabel) return;
+
+	// 세대 증가 — 이 호출 이후의 늦게 오는 랭킹 콜백은 폐기(공지가 덮이지 않게).
+	const int gen = ++m_topTickerGen;
+
+	// 공지가 있으면 랭킹 스크롤 대신 공지를 표시 (앰버 + 📢). 없으면 기존 Top Players 로직.
+	const std::string notice = LeaderboardManager::Instance()->getNotice();
+	if (!notice.empty()) {
+		m_topTickerBaseText = "\xF0\x9F\x93\xA2 " + notice;   // "📢 " (U+1F4E2) UTF-8
+		m_topTickerLabel->setString(m_topTickerBaseText);
+		m_topTickerLabel->setColor(Color3B(255, 191, 0));    // 앰버
+		m_topTickerLabel->setVisible(true);
+		tickTopStep();
+		return;
+	}
+	m_topTickerLabel->setColor(Color3B::WHITE);              // 랭킹 스크롤은 흰색
+
 	auto alive = m_aliveFlag;
 	auto results = std::make_shared<std::map<int, std::string>>();
 	auto pending = std::make_shared<int>(8);   // level 3~10
 
 	for (int lv = 3; lv <= 10; ++lv) {
 		LeaderboardManager::Instance()->fetchLeaderboard(lv, 1,
-			[this, alive, results, pending, lv](const std::vector<LeaderboardEntry>& entries) {
+			[this, alive, gen, results, pending, lv](const std::vector<LeaderboardEntry>& entries) {
 				if (!alive || !*alive) return;
+				if (gen != m_topTickerGen) return;   // 더 최신 호출(공지 등)로 대체됨 → 폐기
 				if (!entries.empty()) {
 					const auto& e = entries[0];
 					std::string cc = e.countryCode.empty() ? "--" : e.countryCode;
@@ -1135,7 +1636,7 @@ void MainScene::startTopTicker()
 						first = false;
 					}
 					if (first) text += "---  BE THE FIRST!  ---";
-					if (m_topTickerLabel) {
+					if (m_topTickerLabel && gen == m_topTickerGen) {
 						m_topTickerBaseText = text;
 						m_topTickerLabel->setString(text);
 						m_topTickerLabel->setVisible(true);

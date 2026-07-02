@@ -42,7 +42,100 @@ static std::string escapeJson(const std::string& s)
     return out;
 }
 
-LeaderboardManager::LeaderboardManager() {}
+// 명백한 욕설/링크 즉시 차단용 경량 스캐너 (전체 목록은 서버 banned_words가 최종 검증).
+// 소감/이름 공용. 입력은 소문자 사본을 기대(ASCII만 영향, 멀티바이트 한글은 그대로라 매칭 정상).
+static std::string toLowerAscii(const std::string& s)
+{
+    std::string low = s;
+    for (char& c : low) c = (char)tolower((unsigned char)c);
+    return low;
+}
+static bool textHasProfanity(const std::string& low)
+{
+    static const char* bad[] = { "씨발", "시발", "개새끼",
+                                 "병신", "fuck", "shit", "asshole", "bitch" };
+    for (const char* w : bad)
+        if (low.find(w) != std::string::npos) return true;
+    return false;
+}
+static bool textHasLink(const std::string& low)
+{
+    static const char* needles[] = { "http", "www.", "://", ".com", ".net",
+                                     ".gg", ".io", ".kr", "t.me", "kakao" };
+    for (const char* n : needles)
+        if (low.find(n) != std::string::npos) return true;
+    return false;
+}
+
+// 플레이어 이름 경량 필터 (즉시 피드백용, 서버 validateName이 최종 게이트).
+// 통과=true. 거부 시 reasonOut = "empty" / "profanity".
+// ※ ENABLE_AWARD_COMMENT와 무관하게 항상 동작 (이름 필터는 소감 기능과 독립).
+bool LeaderboardManager::clientFilterName(const std::string& name, std::string& reasonOut)
+{
+    size_t a = name.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) { reasonOut = "empty"; return false; }
+    size_t b = name.find_last_not_of(" \t\r\n");
+    std::string t = name.substr(a, b - a + 1);
+
+    std::string low = toLowerAscii(t);
+    if (textHasProfanity(low)) { reasonOut = "profanity"; return false; }
+
+    reasonOut.clear();
+    return true;
+}
+
+// 이름 검증 — 클라 경량 필터 후 CloudScript validateName(서버 banned_words) 경유.
+// 콜백: (통과, reason). 네트워크/로그인 실패 시 클라 필터 통과분은 허용(fail-open).
+void LeaderboardManager::validateName(const std::string& name,
+    std::function<void(bool, const std::string&)> callback)
+{
+    std::string reason;
+    if (!clientFilterName(name, reason)) {
+        if (callback) callback(false, reason);
+        return;
+    }
+    if (!isLoggedIn()) {
+        login([this, name, callback](bool ok) {
+            if (ok) validateName(name, callback);
+            else if (callback) callback(true, "");   // 로그인 실패 → 클라 필터 통과분 허용
+        });
+        return;
+    }
+
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"validateName\","
+        "\"FunctionParameter\":{\"name\":\"%s\"},"
+        "\"GeneratePlayStreamEvent\":false}",
+        escapeJson(name).c_str());
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(true, ""); return; }   // 네트워크 실패 → 허용
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) {
+                if (callback) callback(true, ""); return;
+            }
+            const auto& data = doc["data"];
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(true, ""); return;            // 스크립트 오류 등 → 허용
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+            if (okFlag) { if (callback) callback(true, ""); }
+            else        { if (callback) callback(false, reason.empty() ? "profanity" : reason); }
+        });
+}
+
+LeaderboardManager::LeaderboardManager()
+{
+    // 직전 실행 시 저장한 Title Data 값을 즉시 로드(stale-while-revalidate) —
+    // 네트워크 도착 전에도 마지막 공지/스위치를 바로 표시. 최초 실행만 기본값.
+    m_awardEnabled = UserDefault::getInstance()->getBoolForKey("cfg_award_enabled", true);
+    m_notice       = UserDefault::getInstance()->getStringForKey("cfg_notice", "");
+}
 
 void LeaderboardManager::httpPost(const std::string& url,
                                    const std::string& jsonBody,
@@ -137,6 +230,13 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
                 httpPost(BASE_URL + "/Client/UpdateUserTitleDisplayName",
                          nameBody, m_sessionTicket, nullptr);
             }
+
+#ifdef ENABLE_AWARD_COMMENT
+            // 수상소감 Shared Group 최초 1회 생성 (기기당 1회, 이미 있으면 무시)
+            bootstrapAwardGroups();
+#endif
+            // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
+            fetchTitleConfig();
 
             if (callback) callback(true);
         });
@@ -266,6 +366,53 @@ void LeaderboardManager::invalidateCache(int level)
     m_leaderboardCache.erase(level);
 }
 
+// 공개 Title Data 단일 조회 — award_enabled(마스터 스위치) + notice(상단 티커 공지).
+// ENABLE_AWARD_COMMENT와 무관하게 항상 컴파일(공지는 소감 기능과 독립).
+void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, callback](bool ok) {
+            if (ok) fetchTitleConfig(callback);
+            else if (callback) callback();  // 로그인 실패 — 기존값 유지(fail-open/safe)
+        });
+        return;
+    }
+
+    std::string body = "{\"Keys\":[\"award_enabled\",\"notice\"]}";
+    httpPost(BASE_URL + "/Client/GetTitleData", body, m_sessionTicket,
+        [this, callback](bool ok, const std::string& resp) {
+            // 조회 실패 시 기존값 유지 (award_enabled=활성, notice는 직전값)
+            if (ok) {
+                rapidjson::Document doc;
+                doc.Parse(resp.c_str());
+                if (!doc.HasParseError() && doc.HasMember("data") &&
+                    doc["data"].HasMember("Data") && doc["data"]["Data"].IsObject()) {
+                    const auto& d = doc["data"]["Data"];
+                    // award_enabled: "0"/"false"/"off" → 비활성, 그 외/키없음 → 활성
+                    if (d.HasMember("award_enabled") && d["award_enabled"].IsString()) {
+                        std::string v = d["award_enabled"].GetString();
+                        m_awardEnabled = !(v == "0" || v == "false" || v == "off");
+                    } else {
+                        m_awardEnabled = true;
+                    }
+                    // notice: 있으면 그대로, 없으면 빈 문자열(기존 랭킹 스크롤로 폴백)
+                    if (d.HasMember("notice") && d["notice"].IsString())
+                        m_notice = d["notice"].GetString();
+                    else
+                        m_notice.clear();
+                    log("LeaderboardManager: award_enabled=%s notice=%s",
+                        m_awardEnabled ? "ON" : "OFF",
+                        m_notice.empty() ? "(none)" : m_notice.c_str());
+                    // 다음 실행에서 즉시 쓰도록 캐시 저장(stale-while-revalidate)
+                    UserDefault::getInstance()->setBoolForKey("cfg_award_enabled", m_awardEnabled);
+                    UserDefault::getInstance()->setStringForKey("cfg_notice", m_notice);
+                    UserDefault::getInstance()->flush();
+                }
+            }
+            if (callback) callback();  // httpPost 콜백은 이미 cocos 스레드
+        });
+}
+
 void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
     std::function<void(const std::vector<LeaderboardEntry>&)> callback)
 {
@@ -296,8 +443,13 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
                 // 캐시는 전체 항목을 보관 — 요청한 개수만큼 잘라 반환
                 if ((int)entries.size() > maxCount)
                     entries.resize(maxCount);
+#ifdef ENABLE_AWARD_COMMENT
+                // 소감 조인 후 서빙 (joinCommentsAndServe가 cocos 스레드로 dispatch)
+                joinCommentsAndServe(level, entries, callback);
+#else
                 Director::getInstance()->getScheduler()->performFunctionInCocosThread(
                     [callback, entries]() { callback(entries); });
+#endif
             }
             return;
         }
@@ -407,6 +559,262 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             if ((int)entries.size() > maxCount)
                 entries.resize(maxCount);
 
+#ifdef ENABLE_AWARD_COMMENT
+            // 소감을 playFabId로 조인 후 서빙
+            joinCommentsAndServe(level, entries, callback);
+#else
             if (callback) callback(entries);
+#endif
         });
 }
+
+#ifdef ENABLE_AWARD_COMMENT
+// ─────────────────────────────────────────────────────────────
+//  랭킹 Top10 수상소감 (Award Comments)
+// ─────────────────────────────────────────────────────────────
+
+std::string LeaderboardManager::awardGroupId(int level)
+{
+    return StringUtils::format("awards_L%02d", level);
+}
+
+int LeaderboardManager::utf8Length(const std::string& s)
+{
+    return (int)StringUtils::getCharacterCountInUTF8String(s);
+}
+
+bool LeaderboardManager::clientFilterComment(const std::string& text, std::string& reasonOut)
+{
+    // trim
+    size_t a = text.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) { reasonOut = "empty"; return false; }
+    size_t b = text.find_last_not_of(" \t\r\n");
+    std::string t = text.substr(a, b - a + 1);
+
+    int len = utf8Length(t);
+    if (len == 0)            { reasonOut = "empty";    return false; }
+    if (len > AWARD_MAX_CP)  { reasonOut = "too_long"; return false; }
+
+    // 소문자 사본 (ASCII만 영향, 멀티바이트는 그대로 유지되어 한글 매칭 정상)
+    std::string low = toLowerAscii(t);
+    if (textHasLink(low))      { reasonOut = "link";      return false; }
+    if (textHasProfanity(low)) { reasonOut = "profanity"; return false; }
+
+    reasonOut.clear();
+    return true;
+}
+
+void LeaderboardManager::bootstrapAwardGroups(bool force)
+{
+    if (!force) {
+        if (m_awardGroupsBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("award_groups_bootstrapped", false)) {
+            m_awardGroupsBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    for (int lv = 3; lv <= MAX_PLAY_LEVEL; ++lv) {
+        std::string gid  = awardGroupId(lv);
+        std::string body = StringUtils::format("{\"SharedGroupId\":\"%s\"}", gid.c_str());
+        httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+            [gid](bool ok, const std::string&) {
+                log("PlayFab CreateSharedGroup %s: %s",
+                    gid.c_str(), ok ? "created" : "exists/err (ignored)");
+            });
+    }
+    m_awardGroupsBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("award_groups_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::invalidateComments(int level)
+{
+    m_commentCache.erase(level);
+}
+
+void LeaderboardManager::deleteAllAwardComments()
+{
+    if (!isLoggedIn()) {
+        login([this](bool ok) { if (ok) deleteAllAwardComments(); });
+        return;
+    }
+    for (int lv = 3; lv <= MAX_PLAY_LEVEL; ++lv) {
+        std::string body = StringUtils::format(
+            "{\"FunctionName\":\"deleteAwardComment\","
+            "\"FunctionParameter\":{\"level\":%d},"
+            "\"GeneratePlayStreamEvent\":false}", lv);
+        httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+            [lv](bool ok, const std::string&) {
+                log("PlayFab deleteAwardComment L%d: %s", lv, ok ? "OK" : "FAIL");
+            });
+    }
+    m_commentCache.clear();
+}
+
+void LeaderboardManager::fetchComments(int level,
+    std::function<void(const std::map<std::string, std::string>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, callback](bool ok) {
+            if (ok) fetchComments(level, callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    // 캐시 확인
+    auto it = m_commentCache.find(level);
+    if (it != m_commentCache.end()) {
+        double elapsedH = difftime(time(nullptr), it->second.cachedAt) / 3600.0;
+        if (elapsedH < CACHE_TTL_HOURS) {
+            if (callback) {
+                auto byId = it->second.byId;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, byId]() { callback(byId); });
+            }
+            return;
+        }
+    }
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\",\"GetMembers\":false}", awardGroupId(level).c_str());
+
+    httpPost(BASE_URL + "/Client/GetSharedGroupData", body, m_sessionTicket,
+        [this, level, callback](bool ok, const std::string& resp) {
+            std::map<std::string, std::string> out;
+            if (!ok) {
+                // 그룹 없음/오류 — 빈 결과 (캐시하지 않음)
+                if (callback) callback(out);
+                return;
+            }
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (!doc.HasParseError() && doc.HasMember("data")) {
+                const auto& data = doc["data"];
+                if (data.HasMember("Data") && data["Data"].IsObject()) {
+                    for (auto m = data["Data"].MemberBegin(); m != data["Data"].MemberEnd(); ++m) {
+                        if (!m->value.IsObject() ||
+                            !m->value.HasMember("Value") || !m->value["Value"].IsString())
+                            continue;
+                        // Value = JSON 문자열 {"t":"소감","ts":epochMs}
+                        rapidjson::Document inner;
+                        inner.Parse(m->value["Value"].GetString());
+                        if (!inner.HasParseError() &&
+                            inner.HasMember("t") && inner["t"].IsString()) {
+                            out[m->name.GetString()] = inner["t"].GetString();
+                        }
+                    }
+                }
+            }
+            m_commentCache[level] = CommentCacheEntry{ out, time(nullptr) };
+            log("LeaderboardManager: cached comments L%d (%d entries)", level, (int)out.size());
+            if (callback) callback(out);
+        });
+}
+
+void LeaderboardManager::writeAwardComment(int level, const std::string& text,
+    std::function<void(bool, const std::string&)> callback)
+{
+    // 1) 클라 경량 필터 — 즉시 거부
+    std::string reason;
+    if (!clientFilterComment(text, reason)) {
+        if (callback) callback(false, reason);
+        return;
+    }
+
+    if (!isLoggedIn()) {
+        login([this, level, text, callback](bool ok) {
+            if (ok) doWriteAwardComment(level, text, true, callback);
+            else if (callback) callback(false, "login");
+        });
+        return;
+    }
+    doWriteAwardComment(level, text, true, callback);
+}
+
+void LeaderboardManager::doWriteAwardComment(int level, const std::string& text,
+    bool allowRetry, std::function<void(bool, const std::string&)> callback)
+{
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"writeAwardComment\","
+        "\"FunctionParameter\":{\"level\":%d,\"comment\":\"%s\"},"
+        "\"GeneratePlayStreamEvent\":false}",
+        level, escapeJson(text).c_str());
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, level, text, allowRetry, callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(false, "network"); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) {
+                if (callback) callback(false, "parse");
+                return;
+            }
+            const auto& data = doc["data"];
+
+            // CloudScript 실행 자체가 실패한 경우
+            if (data.HasMember("Error") && data["Error"].IsObject()) {
+                log("PlayFab writeAwardComment script error: %.300s", resp.c_str());
+                if (callback) callback(false, "script_error");
+                return;
+            }
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(false, "parse");
+                return;
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+
+            if (okFlag) {
+                // 작성 성공 — 소감/리더보드 캐시 무효화 (즉시 반영은 상위에서 재조회)
+                m_commentCache.erase(level);
+                m_leaderboardCache.erase(level);
+                log("PlayFab writeAwardComment L%d: OK", level);
+                if (callback) callback(true, "");
+                return;
+            }
+
+            // 그룹 미생성 → 부트스트랩 후 1회 재시도
+            if (reason == "no_group" && allowRetry) {
+                log("PlayFab writeAwardComment L%d: no_group, bootstrapping + retry", level);
+                bootstrapAwardGroups(true);
+                Director::getInstance()->getScheduler()->schedule(
+                    [this, level, text, callback](float) {
+                        doWriteAwardComment(level, text, false, callback);
+                    },
+                    (void*)this, 0.0f, 0, 1.0f, false,
+                    "award_write_retry_" + std::to_string(level));
+                return;
+            }
+
+            log("PlayFab writeAwardComment L%d: FAIL reason=%s", level, reason.c_str());
+            if (callback) callback(false, reason);
+        });
+}
+
+void LeaderboardManager::joinCommentsAndServe(int level, std::vector<LeaderboardEntry> entries,
+    std::function<void(const std::vector<LeaderboardEntry>&)> callback)
+{
+    if (!callback) return;
+    // 마스터 스위치 OFF → 소감 조인 생략(숨김). 이름/시간 등 나머지는 그대로 서빙.
+    if (!m_awardEnabled) {
+        Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+            [entries, callback]() { callback(entries); });
+        return;
+    }
+    // 소감은 별도 캐시(1h) — 조회 후 playFabId로 매칭해 각 엔트리에 채운다.
+    fetchComments(level,
+        [entries, callback](const std::map<std::string, std::string>& comments) mutable {
+            for (auto& e : entries) {
+                auto it = comments.find(e.playFabId);
+                if (it != comments.end()) e.comment = it->second;
+            }
+            callback(entries);
+        });
+}
+#endif // ENABLE_AWARD_COMMENT

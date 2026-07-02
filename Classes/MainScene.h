@@ -7,6 +7,8 @@
 #include "MKStoreManagerDelegate.h"
 using namespace cocos2d;
 
+struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h)
+
 
 
 class  MainScene : public Scene
@@ -45,6 +47,13 @@ public:
 	void showNameInputDialog();
 	void showSettingsMenu();
 
+#ifdef ENABLE_AWARD_COMMENT
+	// 랭킹 Top10 수상소감
+	void checkAndPromptAward(int level);                                   // 신기록 rank 확정 후 rank≤10이면 입력창
+	void showAwardInputDialog(int level, int rank, const std::string& existing);  // 작성/수정 입력창
+	void showAwardCardDialog(const LeaderboardEntry& entry, int level);    // 읽기 카드 팝업
+#endif
+
 	int m_rankLevel = 3;
 	int m_rankGeneration = 0;          // 연속 탭 시 오래된 콜백 무시용
 	std::shared_ptr<bool> m_aliveFlag;
@@ -65,6 +74,7 @@ public:
 	DrawNode* m_playBtnIcon    = nullptr;
 	Label*    m_bgmTitleLabel  = nullptr;
 	std::string m_topTickerBaseText;
+	int         m_topTickerGen = 0;   // 상단 티커 세대 — 늦게 오는 랭킹 콜백이 공지를 덮어쓰지 않게
 
 	void drawBgmPlayer();
 	void bgmPlay(int index);

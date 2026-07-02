@@ -14,6 +14,9 @@ using namespace cocos2d;
 #define MAX_PLAY_LEVEL	10
 #define MAX_LIMIT_LEVEL_FOR_LITE 4
 
+// 랭킹 Top10 수상소감 기능 — 이 줄을 주석 처리하면 빌드에서 완전히 제외됨
+#define ENABLE_AWARD_COMMENT
+
 #define MASTER_VOLUME 1.0f			// 0.0~1.0
 
 #define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
