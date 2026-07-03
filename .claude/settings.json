@@ -18,7 +18,10 @@
       "Bash(xattr -l /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/claude/2.1.59/claude)",
       "Bash(xattr -l /Users/ozzy/Library/Developer/Xcode/CodingAssistant/Agents/XcodeVersions/17E202/claude/claude)",
       "Bash(ls -la /Users/ozzy/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/debug/)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(launchctl unsetenv *)",
+      "Bash(launchctl setenv *)",
+      "Bash(defaults write *)"
     ],
     "deny": []
   }
