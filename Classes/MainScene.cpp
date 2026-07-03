@@ -1214,7 +1214,7 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 	dlg->addChild(outline);
 
 	auto titleLabel = Label::createWithSystemFont(
-		StringUtils::format("CONGRATULATIONS!  RANK %d", rank), "Arial", 14);
+		StringUtils::format("CONGRATULATIONS!  LEVEL %d  ·  RANK %d", level, rank), "Arial", 13);
 	titleLabel->setColor(Color3B(255, 215, 0));
 	titleLabel->setPosition(Vec2(DW / 2, DH - 20));
 	dlg->addChild(titleLabel);
@@ -1243,7 +1243,9 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
 	editBox->setPosition(Vec2(10, DH - 72));
+	// 기존 소감이 있으면 그대로, 없으면(신규 작성) 자국어 인삿말을 기본값으로 채움
 	if (!existing.empty()) editBox->setText(existing.c_str());
+	else                   editBox->setText(getLocalGreeting().c_str());
 	dlg->addChild(editBox);
 
 	dlg->scheduleOnce([editBox](float) { editBox->openKeyboard(); }, 0.35f, "awardKb");
