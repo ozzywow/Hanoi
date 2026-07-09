@@ -637,7 +637,7 @@ static std::string appStoreUrl()
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
 	return "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi";
 #elif (CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
-	return "https://apps.apple.com/app/id504138737";
+	return "https://apps.apple.com/app/id430261581";
 #else
 	return BUY_AT_STORE_URL;
 #endif
