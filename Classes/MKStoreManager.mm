@@ -21,7 +21,6 @@
 #import <StoreKit/StoreKit.h>
 #import "MKStoreManager.h"
 
-#define BUY_AT_STORE_URL @"https://itunes.apple.com/app/id504138737?mt=8"
 #define kConsumableBaseFeatureId @"com.ozzywow.TowerOfHanoiOlympic"
 #define kProductIdTotal @"com.ozzywow.TowerOfHanoiOlympic.FullVersion"
 
