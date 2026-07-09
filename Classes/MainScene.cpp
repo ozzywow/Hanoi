@@ -15,6 +15,10 @@
 
 static const Color3B MINT_C(80, 220, 180);
 
+// c(patch) 업데이트의 소극적 안내는 앱 실행당 1회(최초 진입)만. static이라 MainScene 재진입에도 유지,
+// 앱 콜드 재시작 시 리셋. (b=권장은 진입마다, a=강제는 항상)
+static bool s_patchPromptShownThisRun = false;
+
 // BGM Player ─────────────────────────────────────────────────────────────────
 struct BgmTrack { const char* file; const char* title; };
 // 선택 순서: selection 1=Space, 2=Universe, 3=Cosmos, 4=Nova, 5=Moon, 6=Earth
@@ -263,15 +267,52 @@ bool MainScene::init()
 
 	if (UserDataManager::Instance()->GetUserName().empty()) {
 		if (!UserDataManager::Instance()->HasPendingSubmit()) {
-			// 완전 신규 유저 — 첫판 플레이 후 이름 입력
-			scheduleOnce([](float) {
-				SoundFactory::Instance()->play("efs_turn_playScene");
-				Director::getInstance()->replaceScene(
-					TransitionFade::create(0.3f, PlayScene::createScene(3, true)));
-			}, 0.0f, "firstPlay");
+			// 완전 신규 유저 — 첫판(3레벨) 자동 전환 "전에" 업데이트 강제 여부 먼저 확인.
+			// 강제 업데이트면 차단(플레이 진입 안 함), 아니면 첫판으로 전환.
+			// fetchTitleConfig가 내부에서 로그인까지 처리하고 실패해도 콜백은 항상 호출(fail-open).
+			// 단, 오프라인 로그인 타임아웃(~수십초) 동안 타이틀에 묶이지 않도록 4초 폴백 진행.
+			auto alive = m_aliveFlag;
+			auto done  = std::make_shared<bool>(false);
+			auto go = [this, alive, done]() {
+				if (!alive || !*alive || *done) return;
+				*done = true;
+				this->unschedule("firstPlayFallback");
+				// 첫판(3레벨)으로 진행하는 동작 — 업데이트 없거나 권장/소극 창을 닫으면 실행.
+				auto alive2 = alive;
+				auto proceed = [this, alive2]() {
+					if (!alive2 || !*alive2) return;
+					SoundFactory::Instance()->play("efs_turn_playScene");
+					Director::getInstance()->replaceScene(
+						TransitionFade::create(0.3f, PlayScene::createScene(3, true)));
+				};
+				auto lm = LeaderboardManager::Instance();
+				if (lm->needsForceUpdate()) {          // a — 차단(플레이 진입 안 함)
+					showUpdateDialog(true);
+					return;
+				}
+				// 최초 실행이므로 b(권장)/c(소극) 모두 여기서 안내 → 닫으면 첫판으로.
+				// 단 "다시 묻지 않기"로 옵트아웃한 버전이면 안내 생략하고 바로 첫판.
+				if (!lm->isOptionalUpdateSuppressed()) {
+					if (lm->hasRecommendedUpdate()) {      // b
+						m_updatePromptShown = true;
+						showUpdateDialog(false, proceed);
+						return;
+					}
+					if (lm->hasPatchUpdate()) {            // c — 앱 실행당 1회
+						s_patchPromptShownThisRun = true;
+						showUpdateDialog(false, proceed);
+						return;
+					}
+				}
+				proceed();                             // 업데이트 없음/옵트아웃 → 바로 첫판
+			};
+			LeaderboardManager::Instance()->fetchTitleConfig([go]() { go(); });
+			// 응답 지연/오프라인 대비: 4초 내 미도착이면 판정 못 해도 첫판 진행(fail-open).
+			this->scheduleOnce([go](float) { go(); }, 4.0f, "firstPlayFallback");
 			return true;
 		}
-		// 첫판 완료, 이름 미입력 — 이름 입력창 표시
+		// 첫판 완료, 이름 미입력 — 이름 입력창 표시.
+		// (강제 업데이트가 도착하면 아래 fetchTitleConfig 콜백/showUpdateDialog가 이 창을 닫음)
 		showNameInputDialog();
 	}
 
@@ -306,6 +347,28 @@ bool MainScene::init()
 				// 공지가 바뀐 경우에만 상단 티커 갱신(네트워크 지연 도착분/변경 반영)
 				if (LeaderboardManager::Instance()->getNotice() != prevNotice)
 					startTopTicker();
+				// 버전 게이트 — 서버 조회 성공분으로만 판정(오프라인 오차단 방지).
+				// a=강제(항상, 이름창까지 닫음) / b=권장(진입마다) / c=소극적(앱 실행당 1회).
+				auto lm = LeaderboardManager::Instance();
+				if (lm->needsForceUpdate()) {          // a — 차단
+					showUpdateDialog(true);
+					return;
+				}
+				// 권장/소극적 안내는 이름 입력창이 없을 때만(겹침 방지).
+				if (this->getChildByTag(199) != nullptr) return;
+				// "다시 묻지 않기"로 이 버전을 옵트아웃한 경우 안내 생략.
+				if (lm->isOptionalUpdateSuppressed()) return;
+				if (lm->hasRecommendedUpdate()) {      // b — 이 MainScene 진입당 1회
+					if (!m_updatePromptShown) {
+						m_updatePromptShown = true;
+						showUpdateDialog(false);
+					}
+				} else if (lm->hasPatchUpdate()) {     // c — 앱 실행당 1회(최초 진입만)
+					if (!s_patchPromptShownThisRun) {
+						s_patchPromptShownThisRun = true;
+						showUpdateDialog(false);
+					}
+				}
 			});
 	}
 
@@ -552,6 +615,139 @@ static void openAwardReportEmail(int level, int rank,
 	Application::getInstance()->openURL(url);
 }
 #endif // ENABLE_AWARD_COMMENT
+
+// 플랫폼별 스토어 페이지 URL. ⚠️ iOS App Store ID / Android 패키지 배포 정보와 일치 확인 필요.
+static std::string appStoreUrl()
+{
+#if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
+	return "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi";
+#elif (CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
+	return "https://apps.apple.com/app/id504138737";
+#else
+	return BUY_AT_STORE_URL;
+#endif
+}
+
+// 앱 버전 게이트 다이얼로그.
+//   force=true  → 차단 모달. UPDATE 버튼만, 배경/바깥 탭으로 닫히지 않음. onClose 무시.
+//   force=false → 권장 안내. UPDATE + LATER, 바깥 탭으로도 닫힘. 닫을 때 onClose 호출.
+void MainScene::showUpdateDialog(bool force, std::function<void()> onClose)
+{
+	const int TAG = 194;
+	if (this->getChildByTag(TAG)) return;   // 이미 떠 있으면 중복 생성 방지
+	// 강제 업데이트는 다른 모달(이름 입력창 tag=199)보다 우선 — 닫아서 겹침/키보드 잔존 방지.
+	// (EditBox 노드가 제거되면 iOS/Android 모두 소프트 키보드가 함께 닫힘)
+	if (force) this->removeChildByTag(199);
+	SoundFactory::Instance()->play("efs_click");
+
+	// "다시 묻지 않기" 체크 상태(권장/소극 전용). 닫거나 UPDATE 시 체크돼 있으면 해당 버전 억제.
+	auto optOut = std::make_shared<bool>(false);
+	// 권장 창 닫기(LATER/바깥탭) — 1회만 실행하고 onClose 콜백 호출.
+	auto closedGuard = std::make_shared<bool>(false);
+	auto dismiss = [this, TAG, closedGuard, onClose, optOut, force]() {
+		if (*closedGuard) return;
+		*closedGuard = true;
+		if (!force && *optOut) LeaderboardManager::Instance()->suppressOptionalUpdate();
+		SoundFactory::Instance()->play("efs_click");
+		this->removeChildByTag(TAG);
+		if (onClose) onClose();
+	};
+
+	// 체크박스 자리를 위해 권장/소극 창은 세로로 조금 더 크게.
+	const float DW = 264, DH = force ? 150 : 176;
+
+	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
+	backdrop->setTag(TAG);
+	this->addChild(backdrop, 1000);
+	backdrop->runAction(FadeTo::create(0.2f, force ? 210 : 160));
+
+	auto dlg = LayerColor::create(Color4B(10, 15, 50, 240), DW, DH);
+	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2 + 40));
+	dlg->setScale(0.7f);
+	backdrop->addChild(dlg);
+	dlg->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+	// 모달 — 강제면 바깥 탭도 삼키기만(닫지 않음), 권장이면 바깥 탭 시 닫힘.
+	auto closeLs = EventListenerTouchOneByOne::create();
+	closeLs->setSwallowTouches(true);
+	closeLs->onTouchBegan = [dlg, DW, DH, force, dismiss](Touch* t, Event*) -> bool {
+		Vec2 p = dlg->convertToNodeSpace(t->getLocation());
+		if (p.x >= 0 && p.x <= DW && p.y >= 0 && p.y <= DH) return true;  // 박스 내부
+		if (force) return true;   // 강제 — 바깥 탭 무시(닫기 불가)
+		dismiss();                // 권장 — 바깥 탭 시 닫기(+onClose)
+		return true;
+	};
+	Director::getInstance()->getEventDispatcher()
+		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
+
+	auto outline = DrawNode::create();
+	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
+	dlg->addChild(outline);
+
+	auto titleLabel = Label::createWithSystemFont(
+		force ? "UPDATE REQUIRED" : "UPDATE AVAILABLE", "Arial", 15);
+	titleLabel->setColor(Color3B(255, 215, 0));
+	titleLabel->setPosition(Vec2(DW / 2, DH - 26));
+	dlg->addChild(titleLabel);
+
+	auto msg = Label::createWithSystemFont(
+		force ? "A new version is required to keep playing."
+		      : "A new version is available.", "Arial", 11);
+	msg->setColor(Color3B(200, 215, 230));
+	msg->setDimensions(DW - 30, 0);
+	msg->setHorizontalAlignment(TextHAlignment::CENTER);
+	msg->setPosition(Vec2(DW / 2, DH - 66));
+	dlg->addChild(msg);
+
+	// 현재 → 최신 버전 표기
+	std::string cur = Application::getInstance()->getVersion();
+	std::string tgt = LeaderboardManager::Instance()->getLatestVersion();
+	if (!cur.empty() && !tgt.empty()) {
+		auto ver = Label::createWithSystemFont(
+			StringUtils::format("v%s  ->  v%s", cur.c_str(), tgt.c_str()), "Arial", 10);
+		ver->setColor(Color3B(150, 165, 185));
+		ver->setPosition(Vec2(DW / 2, DH - 90));
+		dlg->addChild(ver);
+	}
+
+	// UPDATE 버튼 (스토어로 이동). 체크돼 있으면 이동 전에 억제 저장.
+	auto upLabel = Label::createWithSystemFont(" UPDATE ", "Arial", 14);
+	upLabel->setColor(Color3B(255, 215, 0));
+	auto upBtn = MenuItemLabel::create(upLabel, [optOut, force](Ref*) {
+		if (!force && *optOut) LeaderboardManager::Instance()->suppressOptionalUpdate();
+		Application::getInstance()->openURL(appStoreUrl());
+	});
+
+	Menu* menu = nullptr;
+	if (force) {
+		upBtn->setPosition(Vec2(DW / 2, 18));
+		menu = Menu::create(upBtn, nullptr);
+	} else {
+		auto laterLabel = Label::createWithSystemFont(" LATER ", "Arial", 14);
+		laterLabel->setColor(Color3B(160, 170, 185));
+		auto laterBtn = MenuItemLabel::create(laterLabel, [dismiss](Ref*) {
+			dismiss();
+		});
+		upBtn->setPosition(Vec2(DW / 2 + 52, 18));
+		laterBtn->setPosition(Vec2(DW / 2 - 52, 18));
+
+		// "다시 묻지 않기" 체크박스 (탭 시 토글 + 라벨 갱신). [  ] / [X]
+		auto cbLabel = Label::createWithSystemFont("[  ]  Don't ask again", "Arial", 11);
+		cbLabel->setColor(Color3B(150, 165, 185));
+		auto cbBtn = MenuItemLabel::create(cbLabel, [optOut, cbLabel](Ref*) {
+			*optOut = !*optOut;
+			cbLabel->setString(*optOut ? "[X]  Don't ask again" : "[  ]  Don't ask again");
+			cbLabel->setColor(*optOut ? Color3B(255, 215, 0) : Color3B(150, 165, 185));
+			SoundFactory::Instance()->play("efs_click");
+		});
+		cbBtn->setPosition(Vec2(DW / 2, 46));
+
+		menu = Menu::create(upBtn, laterBtn, cbBtn, nullptr);
+	}
+	menu->setPosition(Vec2::ZERO);
+	dlg->addChild(menu, 5);
+}
 
 void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 {

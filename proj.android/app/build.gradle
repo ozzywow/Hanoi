@@ -9,8 +9,8 @@ android {
         applicationId "com.ozzywow.hanoi"
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 48
-        versionName "1.0.3"
+        versionCode 49
+        versionName "2.2.0"
 
         externalNativeBuild {
             cmake {

@@ -61,6 +61,27 @@ public:
     // 상단 티커 공지(공개 Title Data "notice"). 비면 기존 랭킹 스크롤로 폴백.
     const std::string& getNotice() const { return m_notice; }
 
+    // ── 앱 버전 게이트 (공개 Title Data 단일 키 latest_version) ──
+    // 2.2.0부터 iOS/Android 버전 체계 통합 → 플랫폼 구분 없는 단일 키.
+    // 버전 규칙 a.b.c: a=대규모, b=중요, c=버그픽스.
+    //   a 변경 → 강제 업데이트 / b 변경 → 권장 업데이트 / c 변경 → 알림 없음(무음).
+    // 안전을 위해 UserDefault에 캐시하지 않음 → 서버 조회 성공 시에만 판정(오프라인 오차단 방지).
+    // dotted numeric 비교. a<b → -1, a==b → 0, a>b → 1. 구분자/자릿수 차이에 견고.
+    // maxComponents>0 이면 앞쪽 그 개수만 비교(1 → major만, 2 → major.minor).
+    static int compareVersion(const std::string& a, const std::string& b, int maxComponents = 0);
+    // 강제 업데이트: major(a)가 latest보다 뒤처짐. latest 미설정/로컬버전 불명 → false(fail-open).
+    bool needsForceUpdate() const;
+    // 권장 업데이트: a는 같고 minor(b)만 뒤처짐. c만 다르면 false.
+    bool hasRecommendedUpdate() const;
+    // 패치 업데이트: a·b는 같고 patch(c)만 뒤처짐. (소극적 안내 — 앱 최초 실행시에만 표시)
+    bool hasPatchUpdate() const;
+    const std::string& getLatestVersion() const { return m_latestVersion; }
+
+    // 선택적(b/c) 업데이트 "다시 묻지 않기" — 현재 latest_version 기준으로 억제 저장/조회.
+    // 저장값 == 현재 latest 일 때만 억제(새 버전이 나오면 저장값≠latest → 다시 안내). 강제(a)엔 미적용.
+    bool isOptionalUpdateSuppressed() const;
+    void suppressOptionalUpdate();
+
     static std::string statName(int level);
 
 #ifdef ENABLE_AWARD_COMMENT
@@ -105,6 +126,7 @@ private:
     // 공개 Title Data 캐시 (fetchTitleConfig). ENABLE_AWARD_COMMENT와 무관하게 항상 존재.
     bool        m_awardEnabled = true;   // fail-open 기본값 = 활성
     std::string m_notice;                // 상단 티커 공지 (없으면 빈 문자열)
+    std::string m_latestVersion;         // 최신 배포 버전 (공개 Title Data latest_version, 미설정=빈 문자열)
 
     struct CacheEntry {
         std::vector<LeaderboardEntry> entries;
