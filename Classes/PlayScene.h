@@ -58,6 +58,12 @@ public:
 	bool m_isTransitioning = false;
 	std::string m_bgmName;
 
+	// 첫판(강제 3레벨) 탈출 SKIP 버튼 — 30초 경과 / 15초 무활동 / 이동 25수↑ 중 하나면 노출.
+	// 포기해도 first_play_seen 저장 → MainScene 재진입 시 강제 첫판 루프 방지.
+	bool m_skipShown      = false;
+	int  m_lastActivityMs = 0;
+	void showFirstPlaySkipButton();
+
 	// RPM meter
 	int    m_rpmTouchCount = 0;
 	int    m_rpmStartTime  = 0;

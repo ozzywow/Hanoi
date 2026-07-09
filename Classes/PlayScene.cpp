@@ -538,6 +538,8 @@ void PlayScene::Start()
 		CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(0.0f);
 	m_dateTime = getMilliCount();
 	m_rpmStartTime = m_dateTime;
+	m_lastActivityMs = m_dateTime;   // 첫판 SKIP 무활동 판정 기준
+	m_skipShown = false;
 	
 	
 	
@@ -720,6 +722,17 @@ void PlayScene::DrawTime()
 	{
 		MainScene* mainScene = MainScene::createScene();
 		Director::getInstance()->replaceScene(TransitionFade::create(0.2, mainScene));
+	}
+
+	// 첫판(강제 3레벨) 탈출 SKIP 노출 판정 — 막힌/이탈직전 유저에게만.
+	// 30초 경과(백스톱) OR 15초 무활동(멍때림) OR 이동 25수↑(헤맴) 중 하나라도.
+	if (m_isFirstPlay && m_countOfDiscus == 3 && m_isIng == PLAY && !m_skipShown) {
+		int now = getMilliCount();
+		bool elapsed30 = (now - m_rpmStartTime) >= 30000;
+		bool idle15    = (now - m_lastActivityMs) >= 15000;
+		bool flailing  = (m_moveCount >= 25);
+		if (elapsed30 || idle15 || flailing)
+			showFirstPlaySkipButton();
 	}
 
 	// RPM 실시간 계산 및 BGM 볼륨 조정
@@ -1010,8 +1023,10 @@ bool PlayScene::AttachDiscusToPole(Discus* pDiscus, int poleID)
 
 void PlayScene::SelectPole(int poleID, bool bIsAble)
 {
-	if (m_isIng == PLAY && poleID > -1)
+	if (m_isIng == PLAY && poleID > -1) {
 		++m_rpmTouchCount;
+		m_lastActivityMs = getMilliCount();   // 활동 갱신 → 무활동 타이머 리셋
+	}
 
 	if( poleID > -1 && poleID < 3)
 	{
@@ -1065,6 +1080,37 @@ bool PlayScene::CheckSuccess()
 	}	
 	return true ;
 	
+}
+
+void PlayScene::showFirstPlaySkipButton()
+{
+	if (m_skipShown) return;
+	m_skipShown = true;
+
+	// 우상단 구석에 잔잔한 텍스트 버튼(dim) — 강요 없이 "나갈 수 있다"만 알림.
+	// (첫판엔 도크 메뉴가 없어 우상단이 비어 있음: 좌 LEVEL·중앙 RPM·우 TIME 옆)
+	auto skipLabel = Label::createWithSystemFont("SKIP  >", "Arial", 12);
+	skipLabel->setColor(Color3B(150, 160, 175));
+	skipLabel->setOpacity(0);
+	skipLabel->runAction(FadeIn::create(0.6f));
+
+	auto skipItem = MenuItemLabel::create(skipLabel, [this](Ref*) {
+		if (m_isTransitioning) return;
+		m_isTransitioning = true;
+		SoundFactory::Instance()->play("efs_click");
+		// 첫판을 경험(포기 포함)했음을 영구 저장 → MainScene 재진입 시 강제 첫판 루프 방지.
+		UserDefault::getInstance()->setBoolForKey("first_play_seen", true);
+		UserDefault::getInstance()->flush();
+#ifdef LITE_VER
+		CMKStoreManager::Instance()->SetDelegate(NULL);
+#endif
+		Director::getInstance()->replaceScene(
+			TransitionFade::create(0.3f, MainScene::createScene()));
+	});
+
+	auto menu = Menu::create(skipItem, nullptr);
+	menu->setPosition(Vec2(RESOURCE_WIDTH - 36, RESOURCE_HEIGHT - 14));
+	this->addChild(menu, 60);
 }
 
 void PlayScene::callbackOnPushed_homeMenuItem(Ref* pSender)
