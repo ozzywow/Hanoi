@@ -234,6 +234,18 @@ bool MainScene::init()
 		setupLedDotOverlay(tDots, TW, TH);
 		tDots->setPosition(TPOS);
 		this->addChild(tDots, 12);   // dots는 라벨 위에 (LED 효과)
+
+		// 앱 버전 — TopInfoBar 우측 바로 아래에 작게(중요 정보 아님, 잘 안 띄게).
+		// win32 개발빌드는 빈 값이라 생략.
+		std::string appVer = Application::getInstance()->getVersion();
+		if (!appVer.empty()) {
+			auto verLbl = Label::createWithSystemFont("v" + appVer, "Arial", 6);
+			verLbl->setColor(Color3B(90, 100, 122));
+			verLbl->setOpacity(165);
+			verLbl->setAnchorPoint(Vec2(1.0f, 1.0f));   // 우측 상단 기준 → 바 아래로 매달림
+			verLbl->setPosition(Vec2(TPOS.x + TW / 2 - 2, TPOS.y - TH / 2 - 1));
+			this->addChild(verLbl, 13);
+		}
 	}
 	// ── 최하단 LED 전광판 (BottomInfoBar) — 국기 스크롤 (좌→우) ──
 	{
@@ -266,7 +278,9 @@ bool MainScene::init()
 	this->addChild(m_rankTableLayer, tagInfoText, tagInfoText);
 
 	if (UserDataManager::Instance()->GetUserName().empty()) {
-		if (!UserDataManager::Instance()->HasPendingSubmit()) {
+		// first_play_seen: 첫판을 완료했거나 SKIP(포기)한 적 있으면 다시 강제하지 않음(무한 루프 방지).
+		bool firstPlaySeen = UserDefault::getInstance()->getBoolForKey("first_play_seen", false);
+		if (!UserDataManager::Instance()->HasPendingSubmit() && !firstPlaySeen) {
 			// 완전 신규 유저 — 첫판(3레벨) 자동 전환 "전에" 업데이트 강제 여부 먼저 확인.
 			// 강제 업데이트면 차단(플레이 진입 안 함), 아니면 첫판으로 전환.
 			// fetchTitleConfig가 내부에서 로그인까지 처리하고 실패해도 콜백은 항상 호출(fail-open).
@@ -311,8 +325,9 @@ bool MainScene::init()
 			this->scheduleOnce([go](float) { go(); }, 4.0f, "firstPlayFallback");
 			return true;
 		}
-		// 첫판 완료, 이름 미입력 — 이름 입력창 표시.
-		// (강제 업데이트가 도착하면 아래 fetchTitleConfig 콜백/showUpdateDialog가 이 창을 닫음)
+		// 신규 강제 첫판(위 예외)이 아닌, 이름 없는 모든 MainScene 진입 → 이름 입력.
+		// (첫판 클리어 후 복귀 / SKIP 후 복귀 / 이후 이름 없이 재진입 전부 포함)
+		// 강제 업데이트가 도착하면 fetchTitleConfig 콜백/showUpdateDialog가 이 창을 닫음.
 		showNameInputDialog();
 	}
 
