@@ -47,6 +47,11 @@ public:
 	void showNameInputDialog();
 	void showSettingsMenu();
 
+	// 앱 버전 게이트 다이얼로그. force=true → 차단(닫기 불가), false → 권장(LATER로 닫힘).
+	// onClose: 권장 창을 닫을 때(LATER/바깥탭) 호출(예: 첫판 진행). force=true면 무시.
+	void showUpdateDialog(bool force, std::function<void()> onClose = nullptr);
+	bool m_updatePromptShown = false;   // 권장 업데이트 안내 중복 방지(강제는 매번 표시)
+
 #ifdef ENABLE_AWARD_COMMENT
 	// 랭킹 Top10 수상소감
 	void checkAndPromptAward(int level);                                   // 신기록 rank 확정 후 rank≤10이면 입력창

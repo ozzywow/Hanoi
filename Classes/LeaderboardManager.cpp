@@ -378,7 +378,8 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
         return;
     }
 
-    std::string body = "{\"Keys\":[\"award_enabled\",\"notice\"]}";
+    // 2.2.0부터 iOS/Android 버전 통합 → 플랫폼 구분 없는 단일 latest_version 키.
+    std::string body = "{\"Keys\":[\"award_enabled\",\"notice\",\"latest_version\"]}";
     httpPost(BASE_URL + "/Client/GetTitleData", body, m_sessionTicket,
         [this, callback](bool ok, const std::string& resp) {
             // 조회 실패 시 기존값 유지 (award_enabled=활성, notice는 직전값)
@@ -400,9 +401,14 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
                         m_notice = d["notice"].GetString();
                     else
                         m_notice.clear();
-                    log("LeaderboardManager: award_enabled=%s notice=%s",
+                    // 버전 게이트 (단일 latest_version). 없으면 빈 문자열 → 게이트 비활성.
+                    // 캐시하지 않음(멤버만) — 오프라인 오차단 방지, 서버 조회 성공 시에만 판정.
+                    m_latestVersion = (d.HasMember("latest_version") && d["latest_version"].IsString())
+                        ? d["latest_version"].GetString() : "";
+                    log("LeaderboardManager: award_enabled=%s notice=%s latest=%s",
                         m_awardEnabled ? "ON" : "OFF",
-                        m_notice.empty() ? "(none)" : m_notice.c_str());
+                        m_notice.empty() ? "(none)" : m_notice.c_str(),
+                        m_latestVersion.empty() ? "(none)" : m_latestVersion.c_str());
                     // 다음 실행에서 즉시 쓰도록 캐시 저장(stale-while-revalidate)
                     UserDefault::getInstance()->setBoolForKey("cfg_award_enabled", m_awardEnabled);
                     UserDefault::getInstance()->setStringForKey("cfg_notice", m_notice);
@@ -411,6 +417,73 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
             }
             if (callback) callback();  // httpPost 콜백은 이미 cocos 스레드
         });
+}
+
+// dotted numeric 버전 비교. 숫자 그룹을 순서대로 비교하고, 짧은 쪽의 부족한 자리는 0으로 간주.
+// 구분자 종류('.', '-' 등)나 자릿수 차이에 견고. "2.1.10" > "2.1.3" 정상 판정.
+// maxComponents>0 이면 앞쪽 그 개수의 그룹만 비교(예: 2 → major.minor만, patch 무시).
+int LeaderboardManager::compareVersion(const std::string& a, const std::string& b, int maxComponents)
+{
+    size_t ia = 0, ib = 0;
+    int comp = 0;
+    while (ia < a.size() || ib < b.size()) {
+        if (maxComponents > 0 && comp >= maxComponents) break;
+        long na = 0, nb = 0;
+        while (ia < a.size() && a[ia] >= '0' && a[ia] <= '9') na = na * 10 + (a[ia++] - '0');
+        while (ib < b.size() && b[ib] >= '0' && b[ib] <= '9') nb = nb * 10 + (b[ib++] - '0');
+        if (na != nb) return na < nb ? -1 : 1;
+        while (ia < a.size() && !(a[ia] >= '0' && a[ia] <= '9')) ia++;  // 다음 숫자 그룹으로
+        while (ib < b.size() && !(b[ib] >= '0' && b[ib] <= '9')) ib++;
+        comp++;
+    }
+    return 0;
+}
+
+// 강제: major(a)가 올라감. (a<latest.a) → 강제 업데이트.
+bool LeaderboardManager::needsForceUpdate() const
+{
+    if (m_latestVersion.empty()) return false;
+    std::string cur = Application::getInstance()->getVersion();
+    if (cur.empty()) return false;  // 로컬 버전 불명(win32 등) → 차단 안 함 (fail-open)
+    return compareVersion(cur, m_latestVersion, 1) < 0;  // major(a)만 비교
+}
+
+// 권장: a는 같고 minor(b)만 올라감. (a==latest.a && a.b<latest.a.b) → 권장 업데이트.
+// c(patch)만 다른 경우는 어느 쪽도 아님 → 알림 없음(무음).
+bool LeaderboardManager::hasRecommendedUpdate() const
+{
+    if (m_latestVersion.empty()) return false;
+    std::string cur = Application::getInstance()->getVersion();
+    if (cur.empty()) return false;
+    return compareVersion(cur, m_latestVersion, 1) == 0    // major(a) 동일
+        && compareVersion(cur, m_latestVersion, 2) < 0;    // minor(b)는 뒤처짐
+}
+
+// 패치: a·b는 같고 patch(c)만 뒤처짐. (소극적 선택적 안내)
+bool LeaderboardManager::hasPatchUpdate() const
+{
+    if (m_latestVersion.empty()) return false;
+    std::string cur = Application::getInstance()->getVersion();
+    if (cur.empty()) return false;
+    return compareVersion(cur, m_latestVersion, 2) == 0    // major.minor(a.b) 동일
+        && compareVersion(cur, m_latestVersion) < 0;       // 전체로는 뒤처짐 → c만 다름
+}
+
+// "다시 묻지 않기" 억제 — 사용자가 옵트아웃한 버전을 UserDefault에 저장(버전별).
+static const char* KEY_UPDATE_OPTOUT = "update_optout_version";
+
+bool LeaderboardManager::isOptionalUpdateSuppressed() const
+{
+    if (m_latestVersion.empty()) return false;
+    std::string v = UserDefault::getInstance()->getStringForKey(KEY_UPDATE_OPTOUT, "");
+    return !v.empty() && v == m_latestVersion;
+}
+
+void LeaderboardManager::suppressOptionalUpdate()
+{
+    if (m_latestVersion.empty()) return;
+    UserDefault::getInstance()->setStringForKey(KEY_UPDATE_OPTOUT, m_latestVersion);
+    UserDefault::getInstance()->flush();
 }
 
 void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
