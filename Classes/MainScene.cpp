@@ -1660,8 +1660,21 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 						Director::getInstance()->replaceScene(
 							TransitionFade::create(0.3f, PlayScene::createSpectateScene(lv, blob, nm, rnk, sms)));
 					});
-				watchBtn->setPosition(Vec2(DW / 2, 42));
-				auto menu = Menu::create(watchBtn, nullptr);
+				watchBtn->setPosition(Vec2(DW * 0.30f, 42));
+
+				// ⚔ RACE — 고스트 대결 (3차)
+				auto raceLabel = Label::createWithSystemFont("\xE2\x9A\x94 RACE", "Arial", 13);
+				raceLabel->setColor(Color3B(255, 180, 90));
+				auto raceBtn = MenuItemLabel::create(raceLabel,
+					[this, TAG, lv, blob, nm, rnk, sms](Ref*) {
+						SoundFactory::Instance()->play("efs_click");
+						this->removeChildByTag(TAG);
+						Director::getInstance()->replaceScene(
+							TransitionFade::create(0.3f, PlayScene::createRaceScene(lv, blob, nm, rnk, sms)));
+					});
+				raceBtn->setPosition(Vec2(DW * 0.70f, 42));
+
+				auto menu = Menu::create(watchBtn, raceBtn, nullptr);
 				menu->setPosition(Vec2::ZERO);
 				dlg->addChild(menu, 6);
 			});
@@ -1754,6 +1767,13 @@ void MainScene::showSettingsMenu()
 		ud->SetUserName(empty);
 		ud->SaveUserData();
 		LeaderboardManager::Instance()->resetStats();
+
+		// 랭킹보드 관련 전 캐시(리더보드/리플레이/수상소감) 무효화 — 리셋 후 옛 데이터 잔존 방지.
+		LeaderboardManager::Instance()->clearAllCaches();
+		// 로컬 최고기록 리플레이 저장본도 삭제: 기록이 0으로 초기화됐으니 stale.
+		for (int lv = 3; lv <= LeaderboardManager::REPLAY_MAX_LEVEL; ++lv)
+			UserDefault::getInstance()->deleteValueForKey(StringUtils::format("replay_L%d", lv).c_str());
+		UserDefault::getInstance()->flush();
 
 		if (m_rankBG)
 		{

@@ -49,6 +49,9 @@ public:
     // 해당 레벨 캐시를 즉시 무효화
     void invalidateCache(int level);
 
+    // 랭킹보드 관련 전 캐시(리더보드/리플레이/수상소감)를 즉시 비운다. RESET ALL 시 호출.
+    void clearAllCaches();
+
     bool isLoggedIn() const { return !m_sessionTicket.empty(); }
     const std::string& getPlayFabId() const { return m_playFabId; }
 
