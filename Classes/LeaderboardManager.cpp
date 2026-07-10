@@ -369,6 +369,15 @@ void LeaderboardManager::invalidateCache(int level)
     m_leaderboardCache.erase(level);
 }
 
+void LeaderboardManager::clearAllCaches()
+{
+    m_leaderboardCache.clear();
+    m_replayCache.clear();
+#ifdef ENABLE_AWARD_COMMENT
+    m_commentCache.clear();
+#endif
+}
+
 // 공개 Title Data 단일 조회 — award_enabled(마스터 스위치) + notice(상단 티커 공지).
 // ENABLE_AWARD_COMMENT와 무관하게 항상 컴파일(공지는 소감 기능과 독립).
 void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)

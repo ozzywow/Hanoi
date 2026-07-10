@@ -124,6 +124,40 @@ public:
 	int         m_spectateRank    = 0;   // 종료 팝업 표시용
 	int         m_spectateScoreMs = 0;   // 종료 팝업 표시용(기록 시간)
 	void startSpectate();
+
+	// 3차: 고스트 레이스 (라이브 플레이 + 진행 HUD, docs §10)
+	bool        m_isRace        = false;
+	std::string m_ghostBlob;
+	std::string m_ghostName;
+	int         m_ghostRank     = 0;
+	int         m_ghostScoreMs  = 0;
+	int         m_raceTotalMoves= 0;              // 2^N - 1
+	bool        m_ghostFinishedShown = false;     // "GHOST FINISHED" 연출 1회
+	std::vector<int> m_ghostReach;                // r(0..total) → 고스트가 처음 남은수≤r 된 t_ms
+	cocos2d::DrawNode* m_raceBar        = nullptr;
+	cocos2d::Label*    m_raceYouIcon    = nullptr;   // 🏃 (내 진행)
+	cocos2d::Label*    m_raceGhostIcon  = nullptr;   // 👻 (고스트 진행)
+	cocos2d::Label*    m_raceGapLabel   = nullptr;   // 두 마커 사이 델타값(초)
+	float m_youTargetX   = -1.0f;                    // 마커 스프링 이동 목표(가속감속)
+	float m_ghostTargetX = -1.0f;
+	float m_youVel       = 0.0f;                     // 스프링 속도
+	float m_ghostVel     = 0.0f;
+	void _setupRace();          // 고스트 테이블 precompute + HUD 생성 (Start에서 호출)
+	void _updateRaceHud();      // 델타/마커 갱신 (내 이동 후 + DrawTime)
+	int  _movesRemaining();     // 내 보드 distance-to-solved
+
+	static PlayScene* createRaceScene(int level, const std::string& ghostBlob,
+	                                  const std::string& name, int rank, int scoreMs)
+	{
+		PlayScene* p = PlayScene::create();
+		p->m_isRace       = true;
+		p->m_ghostBlob    = ghostBlob;
+		p->m_ghostName    = name;
+		p->m_ghostRank    = rank;
+		p->m_ghostScoreMs = scoreMs;
+		p->initWithDiscusNum(level);
+		return p;
+	}
 	void _beginSpectatePlayback();   // 관전 재생 시작(재호출 가능)
 	void showSpectateEndPopup();     // 관전 종료 팝업(REPLAY/HOME)
 

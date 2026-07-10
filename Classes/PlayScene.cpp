@@ -31,6 +31,13 @@ static const int REPLAY_JUNK_DEBOUNCE_MS = 40;
 static const float kReplaySpeeds[]  = { 0.5f, 1.0f, 1.5f, 2.0f, 4.0f };
 static const int   kReplaySpeedCount = 5;
 
+// 레이스 마커 스프링(가속·감속). K=강성(클수록 강한 가속), D=감쇠.
+// 감쇠비 ζ = D/(2√K): ζ<1이면 목표를 살짝 지나쳤다 돌아옴(역동적). 여기선 ζ≈0.71 → 부드럽되 탄력.
+// 더 튕기게 하려면 D를 줄이고, 더 빠릿하게 하려면 K를 키운다. RACE_SPRING_VMAX는 폭주 방지 상한(px/s).
+static const float RACE_SPRING_K    = 300.0f;
+static const float RACE_SPRING_D    = 24.5f;
+static const float RACE_SPRING_VMAX = 900.0f;
+
 static const float BOTTOM_PANEL_Y      = 28.0f;
 static const float BOTTOM_FONT_DEFAULT = 10.0f;
 static const int   TAG_GUIDE_ANIM      = 201;
@@ -565,6 +572,9 @@ void PlayScene::Start()
 	m_replayOverflow     = false;
 	m_lastReplayEventMs  = 0;
 	m_idleAbandoned      = false;
+
+	// 3차: 고스트 테이블 + HUD — 카운트다운 신호등이 사라진 뒤 등장(겹침 방지)
+	if (m_isRace) this->scheduleOnce([this](float){ this->_setupRace(); }, 1.3f, "race_setup");
 	
 	
 	
@@ -614,7 +624,17 @@ void PlayScene::Finished()
 	int bestRecord = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	bool isNewRecord = (bestRecord == 0 || bestRecord > m_mastTime);
 	m_lastIsNewRecord = isNewRecord;   // 재생 종료 후 결과 텍스트 복원용
-	showHudResult(isNewRecord, rt);
+	if (m_isRace) {
+		// 레이스: 상단 "Perfect!" 티커 생략(결과는 팝업 YOU WIN/LOSE), 트랙 HUD 정리
+		this->unschedule("race_setup");
+		this->unschedule("race_anim");
+		if (m_raceBar)       m_raceBar->setVisible(false);
+		if (m_raceYouIcon)   m_raceYouIcon->setVisible(false);
+		if (m_raceGhostIcon) m_raceGhostIcon->setVisible(false);
+		if (m_raceGapLabel)  m_raceGapLabel->setVisible(false);
+	} else {
+		showHudResult(isNewRecord, rt);
+	}
 	if (isNewRecord)
 		SoundFactory::Instance()->play("efs_new_record");
 	else
@@ -683,13 +703,33 @@ void PlayScene::MessagePopup()
 		nullptr
 	));
 
-	// 타이틀
-	std::string titleStr = isNewRecord ? "NEW RECORD!" : "LEVEL CLEAR";
-	Color3B titleColor = isNewRecord ? Color3B(255, 215, 0) : Color3B(100, 220, 255);
+	// 타이틀 (레이스면 승패로 교체)
+	bool raceWon = false;
+	std::string titleStr;  Color3B titleColor;
+	if (m_isRace) {
+		raceWon    = (m_mastTime < m_ghostScoreMs);
+		titleStr   = raceWon ? "YOU WIN!" : "YOU LOSE";
+		titleColor = raceWon ? Color3B(255, 215, 0) : Color3B(255, 90, 90);
+	} else {
+		titleStr   = isNewRecord ? "NEW RECORD!" : "LEVEL CLEAR";
+		titleColor = isNewRecord ? Color3B(255, 215, 0) : Color3B(100, 220, 255);
+	}
 	auto titleLabel = Label::createWithSystemFont(titleStr, "Arial", 22);
 	titleLabel->setColor(titleColor);
 	titleLabel->setPosition(Vec2(PW / 2, PH - 28));
 	popupBox->addChild(titleLabel);
+
+	// 레이스 vs 라인 (누구를 상대로, 몇 초 차)
+	if (m_isRace) {
+		int diff = m_mastTime - m_ghostScoreMs;  int ad = diff < 0 ? -diff : diff;
+		std::string vs = raceWon
+			? StringUtils::format("\xE2\x9A\x94 Beat %s by %d.%01ds", m_ghostName.c_str(), ad / 1000, (ad % 1000) / 100)
+			: StringUtils::format("\xE2\x9A\x94 %s won by %d.%01ds", m_ghostName.c_str(), ad / 1000, (ad % 1000) / 100);
+		auto vsLbl = Label::createWithSystemFont(vs, "Arial", 11);
+		vsLbl->setColor(raceWon ? Color3B(80, 220, 120) : Color3B(255, 150, 150));
+		vsLbl->setPosition(Vec2(PW / 2, PH - 64));   // 구분선(PH-52) 아래로 → 겹침 방지
+		popupBox->addChild(vsLbl);
+	}
 
 	// 구분선
 	auto divider = DrawNode::create();
@@ -735,8 +775,26 @@ void PlayScene::MessagePopup()
 			this->startReplay();
 		});
 		auto replayMenu = Menu::create(replayItem, nullptr);
-		replayMenu->setPosition(Vec2(PW / 2, 48));
+		replayMenu->setPosition(Vec2((m_isRace && !raceWon) ? PW * 0.30f : PW / 2, 48));  // 패배 시 RETRY와 나란히
 		popupBox->addChild(replayMenu);
+	}
+
+	// 레이스 패배 시: RETRY 버튼 (같은 고스트에게 다시 도전)
+	if (m_isRace && !raceWon)
+	{
+		auto retryLabel = Label::createWithSystemFont("\xE2\x86\xBB  RETRY", "Arial", 13);   // ↻
+		retryLabel->setColor(Color3B(255, 180, 90));
+		int lvl = m_countOfDiscus, gr = m_ghostRank, gs = m_ghostScoreMs;
+		std::string gb = m_ghostBlob, gn = m_ghostName;
+		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs](Ref*) {
+			SoundFactory::Instance()->play("efs_click");
+			Director::getInstance()->replaceScene(
+				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs)));
+		});
+		retryItem->setPosition(Vec2(PW * 0.70f, 48));
+		auto retryMenu = Menu::create(retryItem, nullptr);
+		retryMenu->setPosition(Vec2::ZERO);
+		popupBox->addChild(retryMenu);
 	}
 
 	// 힌트 (깜빡임)
@@ -849,6 +907,8 @@ void PlayScene::DrawTime()
 
 	std::string strTime = StringUtils::format("%02d:%02d.%02d", minutes, seconds, ms) ;
 	m_labelTime->setString(strTime);
+
+	if (m_isRace) this->_updateRaceHud();   // 3차: 시간 흐름에 따라 고스트 마커 전진
 	if (elapsedTime < 0)
 	{
 		MainScene* mainScene = MainScene::createScene();
@@ -1169,17 +1229,54 @@ void PlayScene::startReplay()
 	// 타이머 재생용으로 다시 표시
 	if (m_labelTime) { m_labelTime->setVisible(true); m_labelTime->setString("00:00.00"); }
 
-	// 상단바 정리: 결과 텍스트/레벨 숨기고 REPLAY 인디케이터만 표시 (타이머와 겹침 방지)
-	if (m_labelLevel) m_labelLevel->setVisible(false);
-	if (m_hudTickerLabel)
+	if (m_isRace)
 	{
-		m_hudTickerLabel->stopAllActions();
-		m_hudTickerLabel->setString("\xE2\x96\xB6 REPLAY");   // ▶ REPLAY
-		m_hudTickerLabel->setColor(Color3B(120, 200, 255));
-		m_hudTickerLabel->setOpacity(255);
-		m_hudTickerLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
-		m_hudTickerLabel->setPosition(Vec2(RESOURCE_WIDTH * 0.5f, RESOURCE_HEIGHT - 13.0f));
-		m_hudTickerLabel->setVisible(true);
+		// 레이스 리플레이: 고스트 대결 화면 그대로 재현 — 트랙 바/마커 다시 켜고 재생 클럭에 동기.
+		if (m_labelLevel)     m_labelLevel->setVisible(false);
+		if (m_hudTickerLabel) m_hudTickerLabel->setVisible(false);   // 티커가 트랙과 겹치므로 숨김
+		if (m_labelTime) {                                            // 시간은 레이스처럼 오른쪽 정렬 유지
+			m_labelTime->setAnchorPoint(Vec2(1.0f, 0.5f));
+			m_labelTime->setPosition(Vec2(RESOURCE_WIDTH - 10, RESOURCE_HEIGHT - 13.0f));
+		}
+		if (m_raceBar)       m_raceBar->setVisible(true);
+		if (m_raceYouIcon)   m_raceYouIcon->setVisible(true);
+		if (m_raceGhostIcon) m_raceGhostIcon->setVisible(true);
+		m_youTargetX = m_ghostTargetX = -1.0f;   // 첫 프레임에 시작점으로 즉시 스냅 후 스프링
+		m_youVel = m_ghostVel = 0.0f;
+		m_ghostFinishedShown = true;             // 리플레이 중에는 GHOST FINISHED 연출 생략
+		this->schedule([this](float dt){         // 마커 스프링(재스케줄, Finished에서 해제됐으므로)
+			if (dt > 0.033f) dt = 0.033f;
+			const float K = RACE_SPRING_K, D = RACE_SPRING_D;
+			if (m_raceYouIcon && m_youTargetX >= 0.0f) {
+				float x = m_raceYouIcon->getPositionX();
+				m_youVel += ((m_youTargetX - x) * K - m_youVel * D) * dt;
+				if (m_youVel >  RACE_SPRING_VMAX) m_youVel =  RACE_SPRING_VMAX;
+				if (m_youVel < -RACE_SPRING_VMAX) m_youVel = -RACE_SPRING_VMAX;
+				m_raceYouIcon->setPositionX(x + m_youVel * dt);
+			}
+			if (m_raceGhostIcon && m_ghostTargetX >= 0.0f) {
+				float x = m_raceGhostIcon->getPositionX();
+				m_ghostVel += ((m_ghostTargetX - x) * K - m_ghostVel * D) * dt;
+				if (m_ghostVel >  RACE_SPRING_VMAX) m_ghostVel =  RACE_SPRING_VMAX;
+				if (m_ghostVel < -RACE_SPRING_VMAX) m_ghostVel = -RACE_SPRING_VMAX;
+				m_raceGhostIcon->setPositionX(x + m_ghostVel * dt);
+			}
+		}, "race_anim");
+	}
+	else
+	{
+		// 상단바 정리: 결과 텍스트/레벨 숨기고 REPLAY 인디케이터만 표시 (타이머와 겹침 방지)
+		if (m_labelLevel) m_labelLevel->setVisible(false);
+		if (m_hudTickerLabel)
+		{
+			m_hudTickerLabel->stopAllActions();
+			m_hudTickerLabel->setString("\xE2\x96\xB6 REPLAY");   // ▶ REPLAY
+			m_hudTickerLabel->setColor(Color3B(120, 200, 255));
+			m_hudTickerLabel->setOpacity(255);
+			m_hudTickerLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
+			m_hudTickerLabel->setPosition(Vec2(RESOURCE_WIDTH * 0.5f, RESOURCE_HEIGHT - 13.0f));
+			m_hudTickerLabel->setVisible(true);
+		}
 	}
 
 	m_replayClock        = 0.0;
@@ -1213,6 +1310,9 @@ void PlayScene::_updateReplay(float dt)
 		RecordTime rt = getRecordTime(shown);
 		m_labelTime->setString(StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms));
 	}
+
+	// 레이스 리플레이: 트랙 바/마커를 재생 클럭에 맞춰 갱신 (고스트도 함께 달림)
+	if (m_isRace) this->_updateRaceHud();
 
 	// 모든 이벤트 소진 + 최종 시간 도달 → 종료
 	if (m_replayIndex >= m_replay.size() && m_replayClock >= (double)m_replayFinalMs)
@@ -1343,6 +1443,165 @@ void PlayScene::_stepReplaySpeed(int dir)
 	SoundFactory::Instance()->play("efs_click");
 }
 
+// ── 3차: 고스트 레이스 ────────────────────────────────────────────────
+// distance-to-solved: poleOfSize[1..N]=디스크 크기별 폴, target=목표폴 → 최소 이동수
+static int hanoiRemaining(const int* poleOfSize, int N, int target)
+{
+	int t = target, c = 0;
+	for (int k = N; k >= 1; --k) {
+		int p = poleOfSize[k];
+		if (p != t) { c += (1 << (k - 1)); t = 3 - p - t; }
+	}
+	return c;
+}
+
+int PlayScene::_movesRemaining()
+{
+	int N = m_countOfDiscus;
+	int ids[16], poles[16], n = 0;
+	for (int p = 0; p < 3; ++p)
+		for (auto d : m_pole[p]) { ids[n] = d->GetDiscusID(); poles[n] = p; ++n; }
+	int poleOfSize[16];
+	for (int i = 0; i < n; ++i) {                 // ⚠ 이 게임은 ID 클수록 작은 디스크 → 큰 ID일수록 rank 낮음
+		int rank = 1;                             // rank N = 물리적으로 가장 큰 디스크 (= 가장 작은 ID)
+		for (int j = 0; j < n; ++j) if (ids[j] > ids[i]) ++rank;
+		poleOfSize[rank] = poles[i];
+	}
+	return hanoiRemaining(poleOfSize, N, 2);      // 목표 = 폴 2
+}
+
+void PlayScene::_setupRace()
+{
+	std::vector<ReplayEvent> ev; int lvl = 0, fm = 0;
+	if (!decodeReplayBlob(m_ghostBlob, ev, lvl, fm) || ev.empty()) { m_isRace = false; return; }
+
+	// 블롭과 점수를 항상 일치시킨다. 리더보드 scoreMs는 신기록 직후 캐시 지연으로
+	// blob(구 기록)과 어긋날 수 있어 "고스트가 골 도달 전 GHOST FINISHED" 버그를 유발한다.
+	// 실제 재생되는 고스트 blob의 최종 시간을 마커/골인/승패 판정의 단일 기준으로 사용. (docs §10)
+	m_ghostScoreMs = fm;
+
+	int N = m_countOfDiscus;
+	m_raceTotalMoves = (1 << N) - 1;
+	m_ghostReach.assign(m_raceTotalMoves + 1, 0x7fffffff);
+	m_ghostReach[m_raceTotalMoves] = 0;           // 시작 시 남은수=total, t=0
+
+	// 가상 보드(크기 1..N)로 고스트 이벤트 재생 → 각 MOVE_OK 후 남은수 기록
+	std::vector<int> board[3];
+	for (int s = N; s >= 1; --s) board[0].push_back(s);   // 폴0에 큰 것부터 바닥
+	int sel = -1, minR = m_raceTotalMoves;
+	for (const auto& e : ev) {
+		if (e.type == EV_SELECT) sel = e.pole;
+		else if (e.type == EV_MOVE_OK) {
+			if (sel >= 0 && sel < 3 && !board[sel].empty() && e.pole < 3) {
+				int d = board[sel].back(); board[sel].pop_back(); board[e.pole].push_back(d);
+			}
+			sel = -1;
+			int poleOfSize[16];
+			for (int p = 0; p < 3; ++p) for (int d : board[p]) poleOfSize[d] = p;
+			int r = hanoiRemaining(poleOfSize, N, 2);
+			if (r < minR) { for (int rr = r; rr < minR; ++rr) m_ghostReach[rr] = (int)e.t_ms; minR = r; }
+		} else sel = -1;   // FAIL/DESELECT
+	}
+
+	m_ghostFinishedShown = false;
+
+	// HUD: 트랙 바를 상단 정보바 안에. 레벨 숨김 + 시간 맨 오른쪽으로 공간 확보.
+	if (m_labelLevel) m_labelLevel->setVisible(false);
+	if (m_labelRPM)   m_labelRPM->setVisible(false);
+	if (m_labelTime) {
+		m_labelTime->setAnchorPoint(Vec2(1.0f, 0.5f));
+		m_labelTime->setPosition(Vec2(RESOURCE_WIDTH - 10, RESOURCE_HEIGHT - 13.0f));
+	}
+	m_raceBar = DrawNode::create();
+	this->addChild(m_raceBar, 5);
+	m_raceGhostIcon = Label::createWithSystemFont("\xF0\x9F\x91\xBB", "Arial", 14);  // 👻
+	this->addChild(m_raceGhostIcon, 6);
+	m_raceGapLabel = Label::createWithSystemFont("", "Arial", 9);
+	this->addChild(m_raceGapLabel, 6);
+	m_raceYouIcon = Label::createWithSystemFont("\xF0\x9F\x8F\x83", "Arial", 14);    // 🏃 (항상 위)
+	this->addChild(m_raceYouIcon, 7);
+	m_raceYouIcon->setScaleX(-1.0f);     // 진행 방향(왼→오)을 보도록 좌우 반전
+	m_raceGhostIcon->setScaleX(-1.0f);
+	m_youTargetX = m_ghostTargetX = -1.0f;
+	m_youVel = m_ghostVel = 0.0f;
+
+	// 마커 스프링 이동(매 프레임, 임계감쇠) — 부드러운 가속·감속
+	this->schedule([this](float dt){
+		if (dt > 0.033f) dt = 0.033f;
+		const float K = 180.0f, D = 26.0f;
+		if (m_raceYouIcon && m_youTargetX >= 0.0f) {
+			float x = m_raceYouIcon->getPositionX();
+			m_youVel += ((m_youTargetX - x) * K - m_youVel * D) * dt;
+			m_raceYouIcon->setPositionX(x + m_youVel * dt);
+		}
+		if (m_raceGhostIcon && m_ghostTargetX >= 0.0f) {
+			float x = m_raceGhostIcon->getPositionX();
+			m_ghostVel += ((m_ghostTargetX - x) * K - m_ghostVel * D) * dt;
+			m_raceGhostIcon->setPositionX(x + m_ghostVel * dt);
+		}
+	}, "race_anim");
+
+	_updateRaceHud();
+}
+
+void PlayScene::_updateRaceHud()
+{
+	if (!m_isRace || m_ghostReach.empty() || !m_raceBar) return;
+	int R  = _movesRemaining();
+	if (R < 0) R = 0; if (R > m_raceTotalMoves) R = m_raceTotalMoves;
+	// 라이브: 벽시계 경과. 리플레이: 재생 클럭(배속 반영) — 고스트 마커를 리플레이 시간축에 맞춤.
+	int t  = m_isReplaying ? (int)m_replayClock : (getMilliCount() - m_dateTime);
+
+	// 고스트 골인 순간 연출 (내가 아직 플레이 중일 때)
+	if (!m_ghostFinishedShown && t >= m_ghostScoreMs && m_isIng == PLAY) {
+		m_ghostFinishedShown = true;
+		auto f = Label::createWithSystemFont("\xF0\x9F\x91\xBB GHOST FINISHED", "Arial", 20);  // 👻
+		f->setColor(Color3B(200, 200, 255));
+		f->setPosition(Vec2(RESOURCE_WIDTH / 2, RESOURCE_HEIGHT / 2 + 40));
+		f->setScale(0.6f); f->setOpacity(0);
+		this->addChild(f, 56);
+		f->runAction(Sequence::create(
+			Spawn::create(ScaleTo::create(0.2f, 1.0f), FadeIn::create(0.2f), nullptr),
+			DelayTime::create(0.9f), FadeOut::create(0.5f), RemoveSelf::create(), nullptr));
+		SoundFactory::Instance()->play("efs_cancel_select", 0.5f);
+	}
+
+	// 트랙(정보바 내, 최대한 넓게 — 시간 침범 안 함): |끝점|━━ 델타값 ━━
+	const float x0 = 18, x1 = 378, ty = RESOURCE_HEIGHT - 13.0f;
+	const Color4F trackCol(0.45f, 0.45f, 0.52f, 0.85f);
+	float total = (float)m_raceTotalMoves;
+	int gR = m_raceTotalMoves;
+	for (int r = 0; r <= m_raceTotalMoves; ++r) if (m_ghostReach[r] <= t) { gR = r; break; }
+	float youX = x0 + (x1 - x0) * ((total - R)  / total);
+	float ghX  = x0 + (x1 - x0) * ((total - gR) / total);
+	float mx   = (youX + ghX) * 0.5f;              // 델타값 위치(두 마커 중간)
+
+	int d  = m_ghostReach[R] - t;                  // + = 내가 더 빨리 도달 = 앞섬
+	int ad = d < 0 ? -d : d;
+	bool showDelta = (ad >= 3000);                 // 3초 이상 차이날 때만 델타값 표시
+	if (m_raceGapLabel) {
+		m_raceGapLabel->setVisible(showDelta);
+		if (showDelta) {
+			m_raceGapLabel->setString(StringUtils::format("%d.%01ds", ad / 1000, (ad % 1000) / 100));
+			m_raceGapLabel->setColor(d >= 0 ? Color3B(90, 220, 130) : Color3B(255, 100, 100));
+			m_raceGapLabel->setPosition(Vec2(mx, ty));
+		}
+	}
+	const float gap = showDelta ? 14.0f : 0.0f;    // 델타 표시 시만 라인 끊김, 아니면 연속
+
+	m_raceBar->clear();
+	m_raceBar->drawSegment(Vec2(x0, ty - 4), Vec2(x0, ty + 4), 1.0f, trackCol);  // | 시작 끝점
+	m_raceBar->drawSegment(Vec2(x1, ty - 4), Vec2(x1, ty + 4), 1.0f, trackCol);  // | 골 끝점
+	if (mx - gap > x0) m_raceBar->drawSegment(Vec2(x0, ty),       Vec2(mx - gap, ty), 1.0f, trackCol);
+	if (mx + gap < x1) m_raceBar->drawSegment(Vec2(mx + gap, ty), Vec2(x1, ty),       1.0f, trackCol);
+
+	// 마커: 목표만 설정(실제 이동은 race_anim 스프링이 매 프레임). 최초는 즉시 배치.
+	if (m_raceYouIcon   && m_youTargetX   < 0) m_raceYouIcon->setPosition(Vec2(youX, ty));
+	if (m_raceGhostIcon && m_ghostTargetX < 0) m_raceGhostIcon->setPosition(Vec2(ghX,  ty));
+	m_youTargetX   = youX;
+	m_ghostTargetX = ghX;
+}
+
 void PlayScene::endReplay()
 {
 	this->unschedule("replay_update");
@@ -1357,6 +1616,19 @@ void PlayScene::endReplay()
 	// 관전 모드: 재생 종료 → 선택 팝업(REPLAY/HOME). 바로 나가지 않음.
 	if (m_isSpectate) {
 		this->showSpectateEndPopup();
+		return;
+	}
+
+	// 레이스 리플레이: 트랙 HUD 정리 후 결과 팝업만 복원 (레벨/티커 복원 안 함 — 레이스는 원래 숨김)
+	if (m_isRace) {
+		this->unschedule("race_anim");
+		if (m_labelTime)     m_labelTime->setVisible(false);
+		if (m_raceBar)       m_raceBar->setVisible(false);
+		if (m_raceYouIcon)   m_raceYouIcon->setVisible(false);
+		if (m_raceGhostIcon) m_raceGhostIcon->setVisible(false);
+		if (m_raceGapLabel)  m_raceGapLabel->setVisible(false);
+		auto ov = this->getChildByTag(tagPopup);
+		if (ov) ov->setVisible(true);
 		return;
 	}
 
@@ -1659,6 +1931,7 @@ bool PlayScene::AttachDiscusToPole(Discus* pDiscus, int poleID)
 
 	++m_moveCount ;
 	recordReplayEvent(EV_MOVE_OK, poleID);        // 성공 이동 — 탭/드래그 양 경로가 여기 통과 (docs §6.1)
+	if (m_isRace) this->_updateRaceHud();         // 3차: 내 진행도/델타 즉시 갱신
 	
 	this->DrawDiscus();
 	this->DrawInfoText();
