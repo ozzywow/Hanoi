@@ -14,6 +14,23 @@
 using namespace cocos2d;
 
 static Point arrPosOfPole[3];
+
+// 리플레이 직렬화 헬퍼 (정의는 파일 하단 리플레이 섹션) — MessagePopup 등에서 먼저 참조
+static std::string encodeReplayBlob(const std::vector<ReplayEvent>& ev, int discus, int finalMs);
+static std::string replayKey(int level);
+
+// 120초 무입력 자동 포기 임계값 (DrawTime·인코딩 clamp 양쪽에서 사용 → 상단 정의)
+static const uint32_t REPLAY_MAX_DELTA_MS = 120000;
+
+// 리플레이 크기 안전장치 (C-6): 이 Base64 길이 초과 리플레이는 저장/업로드 안 함(서버 writeReplay와 동일값).
+static const int REPLAY_BLOB_MAX_CHARS = 10000;
+// A-1 잡음 이벤트 디바운스 임계(ms) — 이보다 빠른 FAIL/DESELECT는 녹화 스킵(봇 스팸 억제).
+static const int REPLAY_JUNK_DEBOUNCE_MS = 40;
+
+// 리플레이 배속 단계 (기본 x1 = 인덱스 1). 마지막 선택은 UserDefault "replay_speed"에 글로벌 저장.
+static const float kReplaySpeeds[]  = { 0.5f, 1.0f, 1.5f, 2.0f, 4.0f };
+static const int   kReplaySpeedCount = 5;
+
 static const float BOTTOM_PANEL_Y      = 28.0f;
 static const float BOTTOM_FONT_DEFAULT = 10.0f;
 static const int   TAG_GUIDE_ANIM      = 201;
@@ -540,6 +557,14 @@ void PlayScene::Start()
 	m_rpmStartTime = m_dateTime;
 	m_lastActivityMs = m_dateTime;   // 첫판 SKIP 무활동 판정 기준
 	m_skipShown = false;
+
+	// 리플레이 녹화 초기화 — m_dateTime 기준으로 이벤트 t_ms 기록 (docs §6.1)
+	m_replay.clear();
+	m_isReplaying        = false;
+	m_replaySelectedPole = -1;
+	m_replayOverflow     = false;
+	m_lastReplayEventMs  = 0;
+	m_idleAbandoned      = false;
 	
 	
 	
@@ -588,6 +613,7 @@ void PlayScene::Finished()
 	if (m_labelTime) m_labelTime->setVisible(false);
 	int bestRecord = UserDataManager::Instance()->GetBestRecord(m_countOfDiscus);
 	bool isNewRecord = (bestRecord == 0 || bestRecord > m_mastTime);
+	m_lastIsNewRecord = isNewRecord;   // 재생 종료 후 결과 텍스트 복원용
 	showHudResult(isNewRecord, rt);
 	if (isNewRecord)
 		SoundFactory::Instance()->play("efs_new_record");
@@ -617,6 +643,21 @@ void PlayScene::MessagePopup()
 		if (m_countOfDiscus <= MAX_PLAY_LEVEL)
 			UserDataManager::Instance()->SetLevel(m_countOfDiscus);
 		UserDataManager::Instance()->SaveUserData();
+
+		// 최고기록 리플레이 로컬 영속화 (docs §5). 비정상(캡 초과)·과대 리플레이는 저장 안 함 → 기록은 유효.
+		bool replaySaved = false;
+		if (!m_replay.empty() && !m_replayOverflow) {
+			std::string blob = encodeReplayBlob(m_replay, m_countOfDiscus, m_mastTime);
+			if ((int)blob.size() <= REPLAY_BLOB_MAX_CHARS) {   // C-6 클라측 상한
+				UserDefault::getInstance()->setStringForKey(replayKey(m_countOfDiscus).c_str(), blob);
+				replaySaved = true;
+			}
+		}
+		if (!replaySaved) {
+			// 저장 불가 → 신기록과 불일치하는 옛 저장본 제거 (틀린 리플레이 업로드 방지)
+			UserDefault::getInstance()->deleteValueForKey(replayKey(m_countOfDiscus).c_str());
+		}
+		UserDefault::getInstance()->flush();
 		if (!m_isFirstPlay) {
 			LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
 			UserDataManager::Instance()->m_justGotNewRecord = true;
@@ -630,8 +671,8 @@ void PlayScene::MessagePopup()
 	this->addChild(overlay, tagPopup, tagPopup);
 	overlay->runAction(FadeTo::create(0.25f, 160));
 
-	// 팝업 박스
-	const float PW = 280, PH = 185;
+	// 팝업 박스 (리플레이 버튼 공간 확보 위해 세로 확장)
+	const float PW = 280, PH = 218;
 	auto popupBox = LayerColor::create(Color4B(10, 15, 50, 230), PW, PH);
 	popupBox->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
 	popupBox->setScale(0.7f);
@@ -683,6 +724,21 @@ void PlayScene::MessagePopup()
 		popupBox->addChild(rpmResultLabel);
 	}
 
+	// 리플레이 보기 버튼 (1차) — 첫판 플로우는 터치 스왈로우가 있어 제외
+	if (!m_isFirstPlay && !m_replay.empty())
+	{
+		auto replayLabel = Label::createWithSystemFont("▶  REPLAY", "Arial", 13);
+		replayLabel->setColor(Color3B(120, 200, 255));
+		auto replayItem = MenuItemLabel::create(replayLabel, [this](Ref*) {
+			if (m_isReplaying) return;
+			SoundFactory::Instance()->play("efs_click");
+			this->startReplay();
+		});
+		auto replayMenu = Menu::create(replayItem, nullptr);
+		replayMenu->setPosition(Vec2(PW / 2, 48));
+		popupBox->addChild(replayMenu);
+	}
+
 	// 힌트 (깜빡임)
 	std::string hintStr = m_isFirstPlay ? "TAP TO CONTINUE" : "TAP TO PLAY AGAIN";
 	auto hintLabel = Label::createWithSystemFont(hintStr, "Arial", 11);
@@ -708,8 +764,83 @@ void PlayScene::MessagePopup()
 
 
 
+void PlayScene::abandonByIdle()
+{
+	if (m_idleAbandoned) return;
+	m_idleAbandoned = true;
+
+	m_isIng = COMPLATE;                 // 입력/판정 정지
+	this->stopAction(m_actionTimeRun);
+	stopEqualizerAnimation();
+	unschedule("cheer_start");
+	clearBottomPanels();
+	if (m_labelRPM) { m_labelRPM->stopAllActions(); m_labelRPM->setVisible(false); }
+
+	CocosDenshion::SimpleAudioEngine::getInstance()->setBackgroundMusicVolume(
+		SoundFactory::Instance()->m_mastVolume);
+	SoundFactory::Instance()->fadeOutBGM(1.0f);
+	SoundFactory::Instance()->play("efs_cancel_select");
+
+	showIdleAbandonPopup();
+}
+
+void PlayScene::showIdleAbandonPopup()
+{
+	auto overlay = LayerColor::create(Color4B(0, 0, 0, 0), RESOURCE_WIDTH, RESOURCE_HEIGHT);
+	overlay->setPosition(Vec2::ZERO);
+	this->addChild(overlay, tagPopup, tagPopup);
+	overlay->runAction(FadeTo::create(0.25f, 180));
+
+	const float PW = 280, PH = 150;
+	auto box = LayerColor::create(Color4B(40, 14, 18, 235), PW, PH);
+	box->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
+	box->setScale(0.7f);
+	overlay->addChild(box);
+	box->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+	auto title = Label::createWithSystemFont("TIME OUT", "Arial", 22);
+	title->setColor(Color3B(255, 120, 100));
+	title->setPosition(Vec2(PW / 2, PH - 34));
+	box->addChild(title);
+
+	auto msg = Label::createWithSystemFont("No input for 2 minutes.\nGame abandoned.", "Arial", 12);
+	msg->setColor(Color3B(215, 215, 215));
+	msg->setHorizontalAlignment(TextHAlignment::CENTER);
+	msg->setDimensions(PW - 30, 0);
+	msg->setAnchorPoint(Vec2(0.5f, 0.5f));
+	msg->setPosition(Vec2(PW / 2, PH / 2 - 2));
+	box->addChild(msg);
+
+	auto hint = Label::createWithSystemFont("TAP TO CONTINUE", "Arial", 11);
+	hint->setColor(Color3B(200, 200, 100));
+	hint->setPosition(Vec2(PW / 2, 20));
+	box->addChild(hint);
+	hint->runAction(RepeatForever::create(
+		Sequence::create(FadeOut::create(0.7f), FadeIn::create(0.7f), nullptr)));
+
+	// 첫판이면 재진입 강제 루프 방지
+	if (m_isFirstPlay) {
+		UserDefault::getInstance()->setBoolForKey("first_play_seen", true);
+		UserDefault::getInstance()->flush();
+	}
+
+	// 탭 → MainScene (오버레이 z=tagPopup > 터치레이어 → 먼저 소비)
+	auto listener = EventListenerTouchOneByOne::create();
+	listener->setSwallowTouches(true);
+	listener->onTouchBegan = [](Touch*, Event*) {
+		SoundFactory::Instance()->play("efs_click");
+		Director::getInstance()->replaceScene(
+			TransitionFade::create(0.3f, MainScene::createScene()));
+		return true;
+	};
+	_eventDispatcher->addEventListenerWithSceneGraphPriority(listener, overlay);
+}
+
 void PlayScene::DrawTime()
 {
+	if (m_idleAbandoned) return;   // 자동 포기됨 — 잔여 프레임 방어
+
 	int elapsedTime = getMilliCount() - m_dateTime;
 	RecordTime recordTime = getRecordTime(elapsedTime);
 	int minutes = recordTime.min;
@@ -733,6 +864,13 @@ void PlayScene::DrawTime()
 		bool flailing  = (m_moveCount >= 25);
 		if (elapsed30 || idle15 || flailing)
 			showFirstPlaySkipButton();
+	}
+
+	// 120초 무입력 → 게임 자동 포기
+	if (m_isIng == PLAY && !m_idleAbandoned &&
+	    (getMilliCount() - m_lastActivityMs) >= (int)REPLAY_MAX_DELTA_MS) {
+		abandonByIdle();
+		return;
 	}
 
 	// RPM 실시간 계산 및 BGM 볼륨 조정
@@ -849,10 +987,516 @@ void  PlayScene::DrawDiscus()
 		++i;
 	}
 
-	if (true == this->CheckSuccess())
+	// 재생 중에는 완료 판정을 하지 않는다 — DrawDiscus를 재사용하되 결과 팝업 재발생 방지 (docs §6.5)
+	if (!m_isReplaying && true == this->CheckSuccess())
 	{
 		this->Finished();
-	}	
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+// 리플레이 (1차: 내 리플레이 보기 + 로컬 영속화) — docs/replay_ghost_plan.md §5,§6
+// ---------------------------------------------------------------------------
+
+// Base64 (자체 구현 — 2차 PlayFab 저장에서도 재사용)
+static const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string b64encode(const std::vector<unsigned char>& d)
+{
+	std::string out;
+	int val = 0, bits = -6;
+	for (unsigned char c : d) {
+		val = (val << 8) + c; bits += 8;
+		while (bits >= 0) { out.push_back(kB64[(val >> bits) & 0x3F]); bits -= 6; }
+	}
+	if (bits > -6) out.push_back(kB64[((val << 8) >> (bits + 8)) & 0x3F]);
+	while (out.size() % 4) out.push_back('=');
+	return out;
+}
+
+static bool b64decode(const std::string& s, std::vector<unsigned char>& out)
+{
+	int T[256]; for (int i = 0; i < 256; ++i) T[i] = -1;
+	for (int i = 0; i < 64; ++i) T[(unsigned char)kB64[i]] = i;
+	int val = 0, bits = -8;
+	for (unsigned char c : s) {
+		if (c == '=') break;
+		if (T[c] == -1) return false;
+		val = (val << 6) + T[c]; bits += 6;
+		if (bits >= 0) { out.push_back((unsigned char)((val >> bits) & 0xFF)); bits -= 8; }
+	}
+	return true;
+}
+
+// 리플레이 직렬화 → Base64  (docs/replay_ghost_plan.md §3)
+//  헤더 6B: [u8 discus][u16 count][u24 finalMs]
+//  이벤트 (병합 delta-varint, ms 해상도):
+//    첫 바이트 = [type:2][pole:2][cont:1][Δ[0:2]:3]
+//    cont=1 이면 이어서 LEB128 로 (Δ>>3) 의 상위 비트
+//  ※ Δ = 직전 이벤트와의 시간차. 정수라 드리프트 0, 누적 합 = finalMs 로 정확 수렴.
+//    120초 무입력이면 게임 자동 포기되므로 Δ ≤ 120s → 이벤트 최대 3바이트 (인코딩 시 clamp로 보장).
+//    (REPLAY_MAX_DELTA_MS 정의는 파일 상단)
+static void putVarint(std::vector<unsigned char>& b, uint32_t v)   // LEB128 unsigned
+{
+	while (v >= 0x80) { b.push_back((unsigned char)(v | 0x80)); v >>= 7; }
+	b.push_back((unsigned char)v);
+}
+
+static std::string encodeReplayBlob(const std::vector<ReplayEvent>& ev, int discus, int finalMs)
+{
+	std::vector<unsigned char> b;
+	b.push_back((uint8_t)discus);
+	uint16_t cnt = (uint16_t)ev.size();
+	b.push_back((uint8_t)(cnt & 0xFF)); b.push_back((uint8_t)((cnt >> 8) & 0xFF));
+	uint32_t fm = (uint32_t)finalMs;
+	for (int i = 0; i < 3; ++i) b.push_back((uint8_t)((fm >> (i * 8)) & 0xFF));   // u24
+
+	uint32_t encAcc = 0;   // 인코딩 누적(= 디코딩 재현값). clamp 시에도 재현 일관성 유지.
+	for (const auto& e : ev) {
+		uint32_t d = (e.t_ms > encAcc) ? (e.t_ms - encAcc) : 0;
+		if (d > REPLAY_MAX_DELTA_MS) d = REPLAY_MAX_DELTA_MS;   // 방어적 clamp (정상 플레이엔 발생 안 함)
+		encAcc += d;
+
+		uint32_t rest = d >> 3;
+		uint8_t first = (uint8_t)(((e.type & 0x3) << 6) | ((e.pole & 0x3) << 4)
+		                          | ((rest ? 1u : 0u) << 3) | (d & 0x7));
+		b.push_back(first);
+		if (rest) putVarint(b, rest);
+	}
+	return b64encode(b);
+}
+
+static bool decodeReplayBlob(const std::string& b64, std::vector<ReplayEvent>& ev, int& discus, int& finalMs)
+{
+	std::vector<unsigned char> b;
+	if (!b64decode(b64, b) || b.size() < 6) return false;
+	size_t p = 0;
+	auto avail = [&](size_t n){ return p + n <= b.size(); };
+
+	discus = b[p++];
+	if (discus < 3 || discus > MAX_PLAY_LEVEL) return false;   // 범위 밖 → 손상/구포맷 거부(fallback)
+	uint16_t cnt = (uint16_t)(b[p] | (b[p+1] << 8)); p += 2;
+	uint32_t fm  = b[p] | (b[p+1] << 8) | ((uint32_t)b[p+2] << 16); p += 3;   // u24
+	finalMs = (int)fm;
+
+	ev.clear();
+	ev.reserve(cnt);
+	uint32_t acc = 0;
+	for (uint16_t i = 0; i < cnt; ++i) {
+		if (!avail(1)) return false;
+		uint8_t first = b[p++];
+		uint32_t d = (uint32_t)(first & 0x7);
+		if (first & 0x08) {                          // 연속 → LEB128 상위 비트
+			uint32_t leb = 0; int shift = 0;
+			while (true) {
+				if (!avail(1) || shift > 28) return false;
+				uint8_t c = b[p++];
+				leb |= (uint32_t)(c & 0x7F) << shift;
+				if (!(c & 0x80)) break;
+				shift += 7;
+			}
+			d |= leb << 3;
+		}
+		acc += d;
+		ReplayEvent e;
+		e.type = (uint8_t)((first >> 6) & 0x3);
+		e.pole = (uint8_t)((first >> 4) & 0x3);
+		e.t_ms = acc;
+		ev.push_back(e);
+	}
+	return true;
+}
+
+static std::string replayKey(int level) { return StringUtils::format("replay_L%d", level); }
+
+void PlayScene::recordReplayEvent(ReplayEventType type, int pole)
+{
+	if (m_isReplaying) return;            // 재생 중 발생 이벤트는 재녹화 안 함
+	if (pole < 0 || pole > 2) return;
+	if (m_replayOverflow) return;         // A-2: 이미 캡 초과 → 녹화 중단
+
+	int t = getMilliCount() - m_dateTime;
+
+	// A-1: 잡음 이벤트(FAIL/DESELECT)만 40ms 레이트 디바운스 — 봇 스팸 억제.
+	//      게임 동작(사운드/UX)은 그대로, 녹화만 스킵. SELECT/MOVE_OK는 재생 정합성 위해 항상 녹화.
+	if ((type == EV_MOVE_FAIL || type == EV_DESELECT) &&
+	    (t - m_lastReplayEventMs) < REPLAY_JUNK_DEBOUNCE_MS)
+		return;
+
+	// A-2: 레벨별 하드 이벤트 캡. 초과 시 녹화 중단 + 저장불가 플래그(기록은 유효).
+	//      cap = (최소이동 2^N-1)×4 + 256 → 정상 Top10(≈이동×2.1)엔 절대 안 걸림.
+	int cap = ((1 << m_countOfDiscus) - 1) * 4 + 256;
+	if ((int)m_replay.size() >= cap) { m_replayOverflow = true; return; }
+
+	ReplayEvent ev;
+	ev.type = (uint8_t)type;
+	ev.pole = (uint8_t)pole;
+	ev.t_ms = (uint32_t)t;
+	m_replay.push_back(ev);
+	m_lastReplayEventMs = t;
+}
+
+void PlayScene::startReplay()
+{
+	if (m_isReplaying) return;
+
+	// 저장된 최고기록 리플레이 우선 로드 (없거나 손상 시 현재 세션 폴백)
+	std::vector<ReplayEvent> loaded;
+	int lvl = 0, finalMs = 0;
+	std::string blob = UserDefault::getInstance()->getStringForKey(replayKey(m_countOfDiscus).c_str(), "");
+	if (!blob.empty() && decodeReplayBlob(blob, loaded, lvl, finalMs)
+	    && lvl == m_countOfDiscus && !loaded.empty()) {
+		m_replay        = loaded;         // 최고기록 리플레이로 교체
+		m_replayFinalMs = finalMs;
+	} else if (!m_replay.empty()) {
+		m_replayFinalMs = m_mastTime;     // 폴백: 방금 플레이한 세션
+	} else {
+		return;                           // 재생할 것이 없음
+	}
+
+	m_isReplaying = true;
+
+	// 결과 팝업은 제거하지 않고 숨긴다 — 제거 후 재생성 시 MessagePopup이 점수를 재제출하기 때문 (docs §6.5)
+	auto ov = this->getChildByTag(tagPopup);
+	if (ov) ov->setVisible(false);
+
+	// 보드 초기 상태 복원 (전 디스크 폴 0) 후 즉시 렌더 — 가드로 Finished 안 뜸
+	this->ResetGame();
+	this->DrawDiscus();
+	this->SelectPole(-1, false);
+
+	// 타이머 재생용으로 다시 표시
+	if (m_labelTime) { m_labelTime->setVisible(true); m_labelTime->setString("00:00.00"); }
+
+	// 상단바 정리: 결과 텍스트/레벨 숨기고 REPLAY 인디케이터만 표시 (타이머와 겹침 방지)
+	if (m_labelLevel) m_labelLevel->setVisible(false);
+	if (m_hudTickerLabel)
+	{
+		m_hudTickerLabel->stopAllActions();
+		m_hudTickerLabel->setString("\xE2\x96\xB6 REPLAY");   // ▶ REPLAY
+		m_hudTickerLabel->setColor(Color3B(120, 200, 255));
+		m_hudTickerLabel->setOpacity(255);
+		m_hudTickerLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
+		m_hudTickerLabel->setPosition(Vec2(RESOURCE_WIDTH * 0.5f, RESOURCE_HEIGHT - 13.0f));
+		m_hudTickerLabel->setVisible(true);
+	}
+
+	m_replayClock        = 0.0;
+	m_replayIndex        = 0;
+	m_replaySelectedPole = -1;
+	m_replaySpeed        = 1.0f;
+
+	// 배속 스테퍼 (◀ SPEED xN ▶, x0.5~x4, 글로벌 저장)
+	this->_buildReplaySpeedControl();
+
+	this->schedule([this](float dt){ this->_updateReplay(dt); }, 0.0f, "replay_update");
+}
+
+void PlayScene::_updateReplay(float dt)
+{
+	m_replayClock += (double)dt * 1000.0 * (double)m_replaySpeed;   // ms (배속 반영)
+
+	// playbackClock 에 도달한 이벤트를 순서대로 적용
+	while (m_replayIndex < m_replay.size() &&
+	       (double)m_replay[m_replayIndex].t_ms <= m_replayClock)
+	{
+		this->applyReplayEvent(m_replay[m_replayIndex]);
+		++m_replayIndex;
+	}
+
+	// 타이머 갱신 (재생본의 최종 시간을 넘지 않게 캡)
+	int shown = (int)m_replayClock;
+	if (shown > m_replayFinalMs) shown = m_replayFinalMs;
+	if (m_labelTime)
+	{
+		RecordTime rt = getRecordTime(shown);
+		m_labelTime->setString(StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms));
+	}
+
+	// 모든 이벤트 소진 + 최종 시간 도달 → 종료
+	if (m_replayIndex >= m_replay.size() && m_replayClock >= (double)m_replayFinalMs)
+	{
+		this->endReplay();
+	}
+}
+
+void PlayScene::applyReplayEvent(const ReplayEvent& ev, bool silent)
+{
+	// silent=true → 건너뛰기(fast-forward) 시 상태만 갱신, 소리/라이트/딜레이 생략
+	int pole = ev.pole;
+	switch (ev.type)
+	{
+	case EV_SELECT:
+		m_replaySelectedPole = pole;
+		if (!silent) {
+			this->SelectPole(pole, true);                   // 라이트 ON
+			SoundFactory::Instance()->play("efs_select_disc");
+		}
+		break;
+
+	case EV_MOVE_OK:
+		// 직전 SELECT 폴의 top 디스크를 목적 폴로 이동 (즉시 위치 변경 — 애니 없음)
+		if (m_replaySelectedPole >= 0 && m_replaySelectedPole != pole &&
+		    m_replaySelectedPole < (int)m_pole.size() && pole < (int)m_pole.size())
+		{
+			auto& src = m_pole[m_replaySelectedPole];
+			if (!src.empty())
+			{
+				Discus* d = src.back();
+				src.pop_back();
+				d->SetCurrPoleID(pole);
+				m_pole[pole].push_back(d);
+			}
+		}
+		if (!silent) {
+			this->DrawDiscus();                             // 위치 갱신 (가드로 Finished 안 뜸)
+			this->SelectPole(-1, false);                    // 라이트 OFF
+			SoundFactory::Instance()->play("efs_move_disc_ok");
+		}
+		m_replaySelectedPole = -1;
+		break;
+
+	case EV_MOVE_FAIL:
+		if (!silent) {
+			this->SelectPole(pole, false);                  // 실패 마크 (불 꺼짐 연출)
+			SoundFactory::Instance()->play("efs_cancel_select");
+			this->scheduleOnce([this](float){ this->SelectPole(-1, false); }, 0.2f, "replay_fail_off");
+		}
+		m_replaySelectedPole = -1;
+		break;
+
+	case EV_DESELECT:
+		if (!silent) {
+			this->SelectPole(-1, false);                    // 선택 취소, 라이트 OFF
+			SoundFactory::Instance()->play("efs_move_disc_ok");
+		}
+		m_replaySelectedPole = -1;
+		break;
+	}
+}
+
+void PlayScene::skipReplay()
+{
+	if (!m_isReplaying) return;
+	// 남은 이벤트를 무음으로 즉시 적용 → 최종(클리어) 상태로 점프
+	for (; m_replayIndex < m_replay.size(); ++m_replayIndex)
+		this->applyReplayEvent(m_replay[m_replayIndex], true);
+
+	this->DrawDiscus();                                     // 최종 위치 렌더 (가드로 Finished 안 뜸)
+	m_replayClock = (double)m_replayFinalMs;
+	this->endReplay();
+}
+
+// 배속 스테퍼 ◀ SPEED xN ▶ 생성 — 저장된 배속 로드, 재생/관전 공용
+void PlayScene::_buildReplaySpeedControl()
+{
+	if (m_replaySpeedMenu) { m_replaySpeedMenu->removeFromParent(); m_replaySpeedMenu = nullptr; m_replaySpeedLabel = nullptr; }
+
+	// 저장된 배속 로드 → 인덱스 매칭 (없거나 불일치 시 x1)
+	float saved = UserDefault::getInstance()->getFloatForKey("replay_speed", 1.0f);
+	m_replaySpeedIdx = 1;
+	for (int i = 0; i < kReplaySpeedCount; ++i) {
+		float d = kReplaySpeeds[i] - saved; if (d < 0) d = -d;
+		if (d < 0.01f) { m_replaySpeedIdx = i; break; }
+	}
+	m_replaySpeed = kReplaySpeeds[m_replaySpeedIdx];
+
+	const float cx = RESOURCE_WIDTH / 2, y = 26.0f;
+
+	auto leftLbl = Label::createWithSystemFont("\xE2\x97\x80", "Arial", 16);   // ◀ 감속
+	leftLbl->setColor(Color3B(180, 210, 255));
+	auto leftItem = MenuItemLabel::create(leftLbl, [this](Ref*){ this->_stepReplaySpeed(-1); });
+
+	auto rightLbl = Label::createWithSystemFont("\xE2\x96\xB6", "Arial", 16);  // ▶ 가속
+	rightLbl->setColor(Color3B(180, 210, 255));
+	auto rightItem = MenuItemLabel::create(rightLbl, [this](Ref*){ this->_stepReplaySpeed(+1); });
+
+	m_replaySpeedMenu = Menu::create(leftItem, rightItem, nullptr);
+	m_replaySpeedMenu->setPosition(Vec2::ZERO);
+	leftItem->setPosition(Vec2(cx - 52, y));
+	rightItem->setPosition(Vec2(cx + 52, y));
+
+	m_replaySpeedLabel = Label::createWithSystemFont(
+		StringUtils::format("SPEED x%g", (double)m_replaySpeed), "Arial", 14);
+	m_replaySpeedLabel->setColor(Color3B(255, 220, 120));
+	m_replaySpeedLabel->setPosition(Vec2(cx, y));
+	m_replaySpeedMenu->addChild(m_replaySpeedLabel, 1);   // 비인터랙티브 라벨
+
+	this->addChild(m_replaySpeedMenu, 200);   // 터치레이어 위 → 건너뛰기와 분리
+}
+
+void PlayScene::_stepReplaySpeed(int dir)
+{
+	int idx = m_replaySpeedIdx + dir;
+	if (idx < 0) idx = 0;
+	if (idx > kReplaySpeedCount - 1) idx = kReplaySpeedCount - 1;
+	if (idx == m_replaySpeedIdx) { SoundFactory::Instance()->play("efs_cancel_select", 0.4f); return; }  // 경계
+
+	m_replaySpeedIdx = idx;
+	m_replaySpeed    = kReplaySpeeds[idx];
+	if (m_replaySpeedLabel)
+		m_replaySpeedLabel->setString(StringUtils::format("SPEED x%g", (double)m_replaySpeed));
+
+	UserDefault::getInstance()->setFloatForKey("replay_speed", m_replaySpeed);   // 글로벌 저장
+	UserDefault::getInstance()->flush();
+	SoundFactory::Instance()->play("efs_click");
+}
+
+void PlayScene::endReplay()
+{
+	this->unschedule("replay_update");
+	this->unschedule("replay_fail_off");
+	m_isReplaying        = false;
+	m_replaySelectedPole = -1;
+	this->SelectPole(-1, false);
+
+	// 배속 스테퍼 제거 (라벨은 메뉴의 자식이라 함께 제거됨)
+	if (m_replaySpeedMenu) { m_replaySpeedMenu->removeFromParent(); m_replaySpeedMenu = nullptr; m_replaySpeedLabel = nullptr; }
+
+	// 관전 모드: 재생 종료 → 선택 팝업(REPLAY/HOME). 바로 나가지 않음.
+	if (m_isSpectate) {
+		this->showSpectateEndPopup();
+		return;
+	}
+
+	// 타이머 숨기고 상단바(레벨/결과 텍스트) 복원
+	if (m_labelTime) m_labelTime->setVisible(false);
+	if (m_labelLevel) m_labelLevel->setVisible(true);
+	showHudResult(m_lastIsNewRecord, getRecordTime(m_mastTime));   // 결과 텍스트 원복
+
+	// 결과 팝업 복원 (다시보기 재요청 가능)
+	auto ov = this->getChildByTag(tagPopup);
+	if (ov) ov->setVisible(true);
+}
+
+void PlayScene::onEnterTransitionDidFinish()
+{
+	Scene::onEnterTransitionDidFinish();
+	// 관전 모드: 씬 진입 완료 시 자동 재생 시작
+	if (m_isSpectate && !m_spectateStarted)
+		this->startSpectate();
+}
+
+void PlayScene::startSpectate()
+{
+	if (m_spectateStarted) return;
+	m_spectateStarted = true;
+
+	std::vector<ReplayEvent> loaded;
+	int lvl = 0, finalMs = 0;
+	if (!decodeReplayBlob(m_spectateBlob, loaded, lvl, finalMs) || loaded.empty()) {
+		// 손상/빈 데이터 → 랭킹보드 복귀
+		Director::getInstance()->replaceScene(
+			TransitionFade::create(0.3f, MainScene::createScene()));
+		return;
+	}
+	m_replay        = loaded;
+	m_replayFinalMs = finalMs;
+
+	// 진입 화면 정리 (카운트다운/아이들/티커 억제) + 좌측 도크 숨김(관전 중 메뉴 미표시)
+	this->removeChildByTag(tagCountDown, true);
+	stopRankTicker();
+	stopIdleAnimation();
+	if (auto dock = this->getChildByTag(1234)) dock->setVisible(false);
+
+	this->_beginSpectatePlayback();
+}
+
+// 관전 재생 시작(재호출 가능 — 종료 팝업의 REPLAY 버튼에서도 호출)
+void PlayScene::_beginSpectatePlayback()
+{
+	m_isReplaying = true;
+
+	// 보드 초기 상태 복원 + 렌더
+	this->ResetGame();
+	this->DrawDiscus();
+	this->SelectPole(-1, false);
+
+	// 상단바: 관전 인디케이터(랭커 이름) + 타이머
+	if (m_labelTime)  { m_labelTime->setVisible(true); m_labelTime->setString("00:00.00"); }
+	if (m_labelLevel) m_labelLevel->setVisible(false);
+	if (m_hudTickerLabel) {
+		m_hudTickerLabel->stopAllActions();
+		std::string ind = "\xE2\x96\xB6 " + (m_spectateName.empty() ? std::string("REPLAY") : m_spectateName);
+		m_hudTickerLabel->setString(ind);
+		m_hudTickerLabel->setColor(Color3B(120, 200, 255));
+		m_hudTickerLabel->setOpacity(255);
+		m_hudTickerLabel->setAnchorPoint(Vec2(0.5f, 0.5f));
+		m_hudTickerLabel->setPosition(Vec2(RESOURCE_WIDTH * 0.5f, RESOURCE_HEIGHT - 13.0f));
+		m_hudTickerLabel->setVisible(true);
+	}
+
+	// 배속 스테퍼 (◀ SPEED xN ▶, x0.5~x4, 글로벌 저장)
+	this->_buildReplaySpeedControl();
+
+	m_replayClock        = 0.0;
+	m_replayIndex        = 0;
+	m_replaySelectedPole = -1;
+	this->schedule([this](float dt){ this->_updateReplay(dt); }, 0.0f, "replay_update");
+}
+
+// 관전 종료 팝업 — REPLAY(다시 재생) / HOME(랭킹보드 복귀)
+void PlayScene::showSpectateEndPopup()
+{
+	auto overlay = LayerColor::create(Color4B(0, 0, 0, 0), RESOURCE_WIDTH, RESOURCE_HEIGHT);
+	overlay->setPosition(Vec2::ZERO);
+	this->addChild(overlay, tagPopup, tagPopup);
+	overlay->runAction(FadeTo::create(0.25f, 170));
+
+	const float PW = 260, PH = 152;
+	auto box = LayerColor::create(Color4B(10, 15, 50, 235), PW, PH);
+	box->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
+	box->setScale(0.7f);
+	overlay->addChild(box);
+	box->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+	// 랭커 이름
+	std::string who = m_spectateName.empty() ? "REPLAY" : m_spectateName;
+	auto title = Label::createWithSystemFont(who, "Arial", 16);
+	title->setColor(Color3B(120, 200, 255));
+	title->setPosition(Vec2(PW / 2, PH - 26));
+	box->addChild(title);
+
+	// LEVEL · RANK
+	std::string lr = StringUtils::format("LEVEL %d", m_countOfDiscus);
+	if (m_spectateRank > 0) lr += StringUtils::format("   \xC2\xB7   RANK %d", m_spectateRank);  // ·
+	auto lrLbl = Label::createWithSystemFont(lr, "Arial", 11);
+	lrLbl->setColor(Color3B(170, 175, 185));
+	lrLbl->setPosition(Vec2(PW / 2, PH - 48));
+	box->addChild(lrLbl);
+
+	// 기록 시간 (헤드라인)
+	RecordTime rt = getRecordTime(m_spectateScoreMs);
+	auto timeLbl = Label::createWithSystemFont(
+		StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 24);
+	timeLbl->setColor(Color3B::WHITE);
+	timeLbl->setPosition(Vec2(PW / 2, PH - 80));
+	box->addChild(timeLbl);
+
+	// 버튼: 🔁 REPLAY / 🏠 HOME
+	auto replayLbl = Label::createWithSystemFont("\xF0\x9F\x94\x81  REPLAY", "Arial", 14);
+	replayLbl->setColor(Color3B(120, 200, 255));
+	auto replayBtn = MenuItemLabel::create(replayLbl, [this](Ref*) {
+		SoundFactory::Instance()->play("efs_click");
+		this->removeChildByTag(tagPopup);
+		this->_beginSpectatePlayback();
+	});
+	replayBtn->setPosition(Vec2(PW * 0.30f, 30));
+
+	auto homeLbl = Label::createWithSystemFont("\xF0\x9F\x8F\xA0  HOME", "Arial", 14);
+	homeLbl->setColor(Color3B(255, 215, 120));
+	auto homeBtn = MenuItemLabel::create(homeLbl, [](Ref*) {
+		SoundFactory::Instance()->play("efs_click");
+		Director::getInstance()->replaceScene(
+			TransitionFade::create(0.3f, MainScene::createScene()));
+	});
+	homeBtn->setPosition(Vec2(PW * 0.70f, 30));
+
+	auto menu = Menu::create(replayBtn, homeBtn, nullptr);
+	menu->setPosition(Vec2::ZERO);
+	box->addChild(menu, 5);
 }
 
 
@@ -999,20 +1643,22 @@ bool PlayScene::AttachDiscusToPole(Discus* pDiscus, int poleID)
 	int currPoleID = pDiscus->GetCurrPoleID() ;
 	if( currPoleID == poleID )
 	{
+		recordReplayEvent(EV_DESELECT, poleID);   // 같은 폴 재탭 = 선택 취소 (docs §6.1)
 		return false;
 	}
-	
+
 	auto& polePrev = m_pole[currPoleID];
 	if (!polePrev.empty())
 	{
 		polePrev.pop_back();
 	}
-	
+
 	pDiscus->SetCurrPoleID(poleID);
 	auto& poleNext = m_pole[poleID];
 	poleNext.push_back(pDiscus);
-	
+
 	++m_moveCount ;
+	recordReplayEvent(EV_MOVE_OK, poleID);        // 성공 이동 — 탭/드래그 양 경로가 여기 통과 (docs §6.1)
 	
 	this->DrawDiscus();
 	this->DrawInfoText();
@@ -1147,6 +1793,7 @@ void PlayScene::callbackOnPushed_resetMenuItem(Ref* pSender)
 
 void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)
 {
+	if (m_isSpectate) return;   // 관전 중 레벨 변경(새 게임 시작) 차단
 	if (m_isIng == COUNT_DOWN || m_isIng == PLAY)
 	{
 		return ;
@@ -1170,6 +1817,7 @@ void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)
 
 void PlayScene::callbackOnPushed_nextMenuItem(Ref* sender)
 {
+	if (m_isSpectate) return;   // 관전 중 레벨 변경(새 게임 시작) 차단
 	if (m_isIng == COUNT_DOWN || m_isIng == PLAY)
 	{
 		return ;

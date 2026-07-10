@@ -931,13 +931,37 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 		}
 
 #ifdef ENABLE_AWARD_COMMENT
-		// 행 탭 → 소감 카드 (소감 있는 행) / 내 미작성 행 탭 → 입력창
+		// 행 탭 → 소감/리플레이 카드 (소감 or 리플레이 보유 행) / 내 미작성 행 탭 → 입력창
 		{
 			auto entriesCopy = entries;
+
+			// 2차: 이 레벨 리플레이 보유자 프리워밍 → 탭 게이트 + 보유 행 좌측에 ▶ 마커(관전 가능 표시)
+			auto replayOwners = std::make_shared<std::set<std::string>>();
+			if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
+				auto alive = m_aliveFlag;
+				LeaderboardManager::Instance()->fetchReplays(level,
+					[replayOwners, alive, entriesCopy, rowsNode, FIRST_ROW_Y, ROW_STEP](const std::map<std::string, std::string>& m) {
+						if (!alive || !*alive) return;
+						for (auto& kv : m) replayOwners->insert(kv.first);
+						if (!rowsNode || !rowsNode->getParent()) return;   // 보드 교체됨 → 마커 스킵
+						for (int i = 0; i < (int)entriesCopy.size(); ++i) {
+							if (!replayOwners->count(entriesCopy[i].playFabId)) continue;
+							float y = FIRST_ROW_Y - i * ROW_STEP;
+							auto mark = Label::createWithSystemFont("\xE2\x96\xB6", "Arial", 8);  // ▶
+							mark->setColor(Color3B(120, 200, 255));
+							mark->setAnchorPoint(Vec2(0.5f, 0.5f));
+							mark->setPosition(Vec2(6, y));
+							mark->setOpacity(0);
+							mark->runAction(FadeIn::create(0.2f));
+							rowsNode->addChild(mark, 3);
+						}
+					});
+			}
+
 			auto touchLs = EventListenerTouchOneByOne::create();
 			touchLs->setSwallowTouches(true);
 			touchLs->onTouchBegan =
-				[this, entriesCopy, rowsNode, FIRST_ROW_Y, ROW_STEP, PW, level](Touch* t, Event*) -> bool {
+				[this, entriesCopy, replayOwners, rowsNode, FIRST_ROW_Y, ROW_STEP, PW, level](Touch* t, Event*) -> bool {
 					Vec2 p = rowsNode->convertToNodeSpace(t->getLocation());
 					if (p.x < 10 || p.x > PW - 10) return false;
 					for (int i = 0; i < (int)entriesCopy.size(); ++i) {
@@ -945,8 +969,9 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 						if (p.y >= ry - ROW_STEP / 2 && p.y <= ry + ROW_STEP / 2) {
 							const auto& e = entriesCopy[i];
 							std::string myId = LeaderboardManager::Instance()->getPlayFabId();
-							bool isMe = !myId.empty() && e.playFabId == myId;
-							if (!e.comment.empty()) { showAwardCardDialog(e, level); return true; }
+							bool isMe      = !myId.empty() && e.playFabId == myId;
+							bool hasReplay = replayOwners->count(e.playFabId) > 0;
+							if (!e.comment.empty() || hasReplay) { showAwardCardDialog(e, level); return true; }
 							if (isMe && LeaderboardManager::Instance()->isAwardEnabled()) {
 								showAwardInputDialog(level, e.rank, e.comment); return true;
 							}
@@ -1377,8 +1402,16 @@ void MainScene::checkAndPromptAward(int level)
 			if (myId.empty()) return;
 			for (const auto& e : entries) {
 				if (e.playFabId == myId) {
-					if (e.rank >= 1 && e.rank <= 10)
+					if (e.rank >= 1 && e.rank <= 10) {
+						// 2차: level≤5 + Top10 → 로컬 최고기록 리플레이 업로드 (소스=UserDefault replay_L%d)
+						if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
+							std::string blob = UserDefault::getInstance()->getStringForKey(
+								StringUtils::format("replay_L%d", level).c_str(), "");
+							if (!blob.empty())
+								LeaderboardManager::Instance()->uploadReplay(level, blob, nullptr);
+						}
 						showAwardInputDialog(level, e.rank, e.comment);
+					}
 					return;
 				}
 			}
@@ -1542,7 +1575,7 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	SoundFactory::Instance()->play("efs_click");
 	const int TAG = 194;
 	this->removeChildByTag(TAG);
-	const float DW = 250, DH = 132;
+	const float DW = 250, DH = 152;   // ▶WATCH 행 공간 확보 위해 세로 확장
 
 	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
 	backdrop->setTag(TAG);
@@ -1596,13 +1629,43 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	divider->drawLine(Vec2(16, DH - 62), Vec2(DW - 16, DH - 62), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
 	dlg->addChild(divider);
 
-	auto cmtLbl = Label::createWithSystemFont("\"" + e.comment + "\"", "Arial", 13);
-	cmtLbl->setColor(Color3B(230, 235, 180));
-	cmtLbl->setDimensions(DW - 30, 0);
-	cmtLbl->setHorizontalAlignment(TextHAlignment::CENTER);
-	cmtLbl->setAnchorPoint(Vec2(0.5f, 1.0f));
-	cmtLbl->setPosition(Vec2(DW / 2, DH - 70));
-	dlg->addChild(cmtLbl);
+	if (!e.comment.empty()) {   // 소감 없는(리플레이만 보유) 랭커는 빈 따옴표 숨김
+		auto cmtLbl = Label::createWithSystemFont("\"" + e.comment + "\"", "Arial", 13);
+		cmtLbl->setColor(Color3B(230, 235, 180));
+		cmtLbl->setDimensions(DW - 30, 0);
+		cmtLbl->setHorizontalAlignment(TextHAlignment::CENTER);
+		cmtLbl->setAnchorPoint(Vec2(0.5f, 1.0f));
+		cmtLbl->setPosition(Vec2(DW / 2, DH - 70));
+		dlg->addChild(cmtLbl);
+	}
+
+	// ▶ WATCH — 이 랭커가 해당 레벨 리플레이 보유 시 비동기로 버튼 추가 (2차 관전)
+	if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
+		auto alive = m_aliveFlag;
+		std::string pid = e.playFabId, nm = e.displayName;
+		int lv = level, rnk = e.rank, sms = e.scoreMs;
+		LeaderboardManager::Instance()->fetchReplays(level,
+			[this, alive, TAG, pid, nm, lv, rnk, sms, dlg, DW](const std::map<std::string, std::string>& m) {
+				if (!alive || !*alive) return;
+				if (!this->getChildByTag(TAG)) return;   // 카드 닫힘 → dlg 무효
+				auto it = m.find(pid);
+				if (it == m.end() || it->second.empty()) return;
+				std::string blob = it->second;
+				auto watchLabel = Label::createWithSystemFont("\xE2\x96\xB6 WATCH", "Arial", 13);
+				watchLabel->setColor(Color3B(120, 200, 255));
+				auto watchBtn = MenuItemLabel::create(watchLabel,
+					[this, TAG, lv, blob, nm, rnk, sms](Ref*) {
+						SoundFactory::Instance()->play("efs_click");
+						this->removeChildByTag(TAG);
+						Director::getInstance()->replaceScene(
+							TransitionFade::create(0.3f, PlayScene::createSpectateScene(lv, blob, nm, rnk, sms)));
+					});
+				watchBtn->setPosition(Vec2(DW / 2, 42));
+				auto menu = Menu::create(watchBtn, nullptr);
+				menu->setPosition(Vec2::ZERO);
+				dlg->addChild(menu, 6);
+			});
+	}
 
 	// 내 항목이면 수정 버튼, 남의 항목이면 신고 버튼 (App Store 1.2 UGC 신고 수단)
 	std::string myId = LeaderboardManager::Instance()->getPlayFabId();

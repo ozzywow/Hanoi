@@ -12,7 +12,7 @@ handlers.maintainLeaderboards = function(args, context) {
     var kept         = 0;
     var cleared      = 0;
 
-    for (var lv = 3; lv < 10; lv++) {
+    for (var lv = 3; lv <= 10; lv++) {   // L10 포함 (리플레이/소감 정리 위해 전 레벨 유지)
         var pad         = lv < 10 ? "0" : "";
         var statName    = "BestTime_L" + pad + lv;
         var checkExpiry = (lv < EXPIRE_UNTIL);
@@ -76,6 +76,47 @@ handlers.maintainLeaderboards = function(args, context) {
                 cleared++;
             }
         }
+
+        // 리플레이 정리(2차): Top10 밖으로 밀려난 랭커의 리플레이 blob 삭제 → 그룹을
+        // 항상 현재 Top10(≤10개)로 유지. 없으면 고아 blob 무한 누적 → 조회 payload 폭증.
+        if (lv <= REPLAY_MAX_LEVEL) {
+            try {
+                var rg = server.GetSharedGroupData({ SharedGroupId: replayGroupId(lv) });
+                if (rg && rg.Data) {
+                    var delR = {};
+                    var nDel = 0;
+                    for (var rkey in rg.Data) {
+                        if (!keepSet[rkey]) { delR[rkey] = null; nDel++; }
+                    }
+                    if (nDel > 0) {
+                        server.UpdateSharedGroupData({
+                            SharedGroupId: replayGroupId(lv),
+                            Data:          delR,
+                            Permission:    "Public"
+                        });
+                    }
+                }
+            } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+        }
+
+        // 소감 정리: Top10 밖 랭커 소감 삭제 (리플레이와 동일 — 고아 누적 방지). L10 포함.
+        try {
+            var cg = server.GetSharedGroupData({ SharedGroupId: awardGroupId(lv) });
+            if (cg && cg.Data) {
+                var delC = {};
+                var nDelC = 0;
+                for (var ckey in cg.Data) {
+                    if (!keepSet[ckey]) { delC[ckey] = null; nDelC++; }
+                }
+                if (nDelC > 0) {
+                    server.UpdateSharedGroupData({
+                        SharedGroupId: awardGroupId(lv),
+                        Data:          delC,
+                        Permission:    "Public"
+                    });
+                }
+            }
+        } catch (e) { /* 그룹 미생성 등 — 무시 */ }
     }
 
     return { kept: kept, cleared: cleared };
@@ -245,6 +286,84 @@ handlers.deleteAwardComment = function(args, context) {
     } catch (e) {
         return { ok: false, reason: "no_group" };
     }
+    return { ok: true };
+};
+
+// ─────────────────────────────────────────────────────────────
+//  리플레이 공유 (2차) — 랭커 터치노트 관전
+//  클라: ExecuteCloudScript { FunctionName:"writeReplay",
+//                             FunctionParameter:{ level:int, blob:base64 } }
+//  저장: Shared Group "replays_L%02d", key = currentPlayerId,
+//        value = JSON { r: base64blob, ts: epochMs }, Permission=Public
+//  조회: 클라가 GetSharedGroupData(replays_L%02d) 직접 (CloudScript 불필요)
+//  서버 책임: ① 본인 키로만 저장(사칭 차단) ② 레벨≤5 + Top10 게이트 ③ 크기 상한
+// ─────────────────────────────────────────────────────────────
+var REPLAY_MIN_LEVEL = 3;
+var REPLAY_MAX_LEVEL = 10;   // 클라 LeaderboardManager::REPLAY_MAX_LEVEL과 일치 필수 (전 레벨)
+var REPLAY_MAX_CHARS = 10000;
+
+function replayGroupId(level) {
+    var pad = (level < 10 ? "0" : "");
+    return "replays_L" + pad + level;
+}
+function replayStatName(level) {
+    var pad = (level < 10 ? "0" : "");
+    return "BestTime_L" + pad + level;
+}
+
+// 리플레이 업로드 — 레벨≤5 + Top10 달성자만
+handlers.writeReplay = function(args, context) {
+    var pid   = currentPlayerId;
+    var level = parseInt(args && args.level, 10);
+    var blob  = (args && args.blob != null) ? String(args.blob) : "";
+
+    if (!(level >= REPLAY_MIN_LEVEL && level <= REPLAY_MAX_LEVEL))
+        return { ok: false, reason: "bad_level" };
+    if (!blob)                        return { ok: false, reason: "empty" };
+    if (blob.length > REPLAY_MAX_CHARS) return { ok: false, reason: "too_big" };
+
+    // 서버측 Top10 검증 (변조 클라의 비랭커 업로드 차단)
+    try {
+        var lb = server.GetLeaderboardAroundUser({
+            StatisticName:   replayStatName(level),
+            PlayFabId:       pid,
+            MaxResultsCount: 1
+        });
+        var pos = (lb && lb.Leaderboard && lb.Leaderboard.length > 0)
+                    ? lb.Leaderboard[0].Position : -1;   // 0-indexed
+        if (pos < 0 || pos > 9) return { ok: false, reason: "not_top10", pos: pos };
+    } catch (e) {
+        return { ok: false, reason: "rank_check_failed", detail: String(e) };
+    }
+
+    var data = {};
+    data[pid] = JSON.stringify({ r: blob, ts: Date.now() });
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: replayGroupId(level),
+            Data:          data,
+            Permission:    "Public"
+        });
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };
+    }
+    return { ok: true, level: level };
+};
+
+// 리플레이 삭제 (본인) — 이름/랭킹 초기화 시 함께 호출 권장
+handlers.deleteReplay = function(args, context) {
+    var pid   = currentPlayerId;
+    var level = parseInt(args && args.level, 10);
+    if (!(level >= REPLAY_MIN_LEVEL && level <= REPLAY_MAX_LEVEL))
+        return { ok: false, reason: "bad_level" };
+    var data = {}; data[pid] = null;
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: replayGroupId(level),
+            Data:          data,
+            Permission:    "Public"
+        });
+    } catch (e) { return { ok: false, reason: "no_group" }; }
     return { ok: true };
 };
 

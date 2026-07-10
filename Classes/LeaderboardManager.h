@@ -84,6 +84,23 @@ public:
 
     static std::string statName(int level);
 
+    // ── 리플레이 공유 (2차) — Shared Group replays_L%02d, award_comment 인프라 미러 ──
+    // 업로드 조건: 레벨 ≤ REPLAY_MAX_LEVEL AND Top10 (게이트는 호출측 MainScene에서 판정).
+    static constexpr int REPLAY_MAX_LEVEL = 10;   // 전 레벨(3~10) 저장
+    static std::string replayGroupId(int level);   // "replays_L%02d"
+
+    // 로그인 성공 시 replays_L03~L05 Shared Group 부트스트랩.
+    void bootstrapReplayGroups(bool force = false);
+
+    // 로컬 최고기록 리플레이 blob을 PlayFab에 업로드 (CloudScript writeReplay). 콜백(성공).
+    void uploadReplay(int level, const std::string& blob,
+                      std::function<void(bool)> callback = nullptr);
+
+    // 레벨별 리플레이 조회 → (playFabId -> Base64 blob). CACHE_TTL_HOURS 캐시.
+    void fetchReplays(int level,
+                      std::function<void(const std::map<std::string, std::string>&)> callback);
+    void invalidateReplays(int level);
+
 #ifdef ENABLE_AWARD_COMMENT
     // ── 랭킹 Top10 수상소감 (Award Comments) ──
     // Shared Group awards_L03~L10 부트스트랩. 로그인 성공 시 자동 호출.
@@ -133,6 +150,16 @@ private:
         std::time_t cachedAt;
     };
     std::map<int, CacheEntry>              m_leaderboardCache;
+
+    // 리플레이 캐시: level -> (playFabId -> Base64 blob)
+    struct ReplayCacheEntry {
+        std::map<std::string, std::string> byId;
+        std::time_t cachedAt;
+    };
+    std::map<int, ReplayCacheEntry>        m_replayCache;
+    bool                                   m_replayGroupsBootstrapped = false;
+    void doUploadReplay(int level, const std::string& blob, bool allowRetry,
+                        std::function<void(bool)> callback);
 
     // submitScore가 in-flight인 레벨 추적
     std::set<int>                          m_pendingSubmitLevels;
