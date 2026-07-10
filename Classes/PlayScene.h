@@ -4,12 +4,28 @@
 #include "LeaderboardManager.h"
 #include <vector>
 #include <memory>
+#include <cstdint>
 #include "MKStoreManagerDelegate.h"
 #include "cocos2d.h"
 using namespace cocos2d;
 
 class PlaySceneTouchHandlerLayer;
 class Discus;
+
+// --- 리플레이(터치노트) ---
+// 플레이어의 의사결정 3+1종을 타임스탬프와 함께 기록해 재생한다. (docs/replay_ghost_plan.md)
+enum ReplayEventType : uint8_t {
+	EV_SELECT    = 0,  // 폴 선택, 라이트 ON        (efs_select_disc)
+	EV_MOVE_OK   = 1,  // 성공 이동                 (efs_move_disc_ok)
+	EV_MOVE_FAIL = 2,  // 이동 실패, 라이트 OFF+실패음 (efs_cancel_select)
+	EV_DESELECT  = 3,  // 같은 폴 재탭 = 선택 취소     (efs_move_disc_ok, 이동 없음)
+};
+
+struct ReplayEvent {
+	uint8_t  type;   // ReplayEventType
+	uint8_t  pole;   // 관련 폴 (0~2)
+	uint32_t t_ms;   // m_dateTime 기준 경과 ms
+};
 
 class PlayScene : public Scene 
 #ifdef LITE_VER
@@ -64,6 +80,11 @@ public:
 	int  m_lastActivityMs = 0;
 	void showFirstPlaySkipButton();
 
+	// 120초 무입력 시 게임 자동 포기 (정상 플레이 아님 + 관전자 정지 착각 방지)
+	bool m_idleAbandoned  = false;
+	void abandonByIdle();
+	void showIdleAbandonPopup();
+
 	// RPM meter
 	int    m_rpmTouchCount = 0;
 	int    m_rpmStartTime  = 0;
@@ -78,6 +99,41 @@ public:
 	float     m_eqH[3][6]    = {};
 	float     m_eqPeak[3][6] = {};
 
+	// Replay (1차: 내 리플레이 보기)
+	std::vector<ReplayEvent> m_replay;
+	bool   m_isReplaying        = false;
+	int    m_replaySelectedPole = -1;
+	bool   m_replayOverflow     = false;  // A-2: 이벤트 캡 초과 → 저장/업로드 불가(기록은 유효)
+	int    m_lastReplayEventMs  = 0;      // A-1: 직전 녹화 이벤트 시각(잡음 디바운스용)
+	double m_replayClock        = 0.0;   // ms
+	size_t m_replayIndex        = 0;
+	int    m_replayFinalMs      = 0;     // 현재 재생 중인 리플레이의 최종 시간(저장본은 현재 기록과 다를 수 있음)
+	float  m_replaySpeed        = 1.0f;  // 배속 (x0.5~x4)
+	int    m_replaySpeedIdx     = 1;     // kReplaySpeeds 인덱스 (기본 x1)
+	Menu*  m_replaySpeedMenu    = nullptr;
+	Label* m_replaySpeedLabel   = nullptr;
+	void   _buildReplaySpeedControl();   // ◀ SPEED xN ▶ 스테퍼 생성(저장된 배속 로드)
+	void   _stepReplaySpeed(int dir);    // 배속 단계 이동(-1/+1) + 글로벌 저장
+	bool   m_lastIsNewRecord    = false; // 재생 종료 후 상단 결과 텍스트 복원용
+
+	// 관전 모드 (2차: 랭커 리플레이 관전) — 외부 blob 주입 후 즉시 재생, 종료 시 MainScene 복귀
+	bool        m_isSpectate      = false;
+	bool        m_spectateStarted = false;
+	std::string m_spectateBlob;
+	std::string m_spectateName;
+	int         m_spectateRank    = 0;   // 종료 팝업 표시용
+	int         m_spectateScoreMs = 0;   // 종료 팝업 표시용(기록 시간)
+	void startSpectate();
+	void _beginSpectatePlayback();   // 관전 재생 시작(재호출 가능)
+	void showSpectateEndPopup();     // 관전 종료 팝업(REPLAY/HOME)
+
+	void recordReplayEvent(ReplayEventType type, int pole);
+	void startReplay();
+	void _updateReplay(float dt);
+	void applyReplayEvent(const ReplayEvent& ev, bool silent = false);
+	void skipReplay();
+	void endReplay();
+
 	void startEqualizerAnimation();
 	void stopEqualizerAnimation();
 	void _updateEqualizer(float dt);
@@ -89,11 +145,27 @@ public:
 		pRes->initWithDiscusNum(numOfDiscus);
 		return pRes;
 	}
+
+	// 관전 모드 씬 생성 (2차) — 랭커 리플레이 blob 주입, 진입 시 자동 재생
+	static PlayScene* createSpectateScene(int level, const std::string& blob,
+	                                      const std::string& rankerName,
+	                                      int rank = 0, int scoreMs = 0)
+	{
+		PlayScene* pRes = PlayScene::create();
+		pRes->m_isSpectate      = true;
+		pRes->m_spectateBlob    = blob;
+		pRes->m_spectateName    = rankerName;
+		pRes->m_spectateRank    = rank;
+		pRes->m_spectateScoreMs = scoreMs;
+		pRes->initWithDiscusNum(level);
+		return pRes;
+	}
 	CREATE_FUNC(PlayScene);
 
 	~PlayScene();
 
 	virtual void onExitTransitionDidStart();
+	virtual void onEnterTransitionDidFinish() override;
 
 	bool	initWithDiscusNum(int numOfDiscus);
 	

@@ -56,11 +56,19 @@ int PlaySceneTouchHandlerLayer::GetTouchedPoleID(Point convertedLocation)
 ///////////////
 // 처음 손가락이 화면에 닿는 순간 호출됩니다.
 bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
-{	
+{
 	Point location = touch->getLocation();
-	
-	
-	if (NONE == m_pPlayScene->GetPlayState()) 
+
+	if (m_pPlayScene->m_isReplaying)                // 재생 중 탭 = 건너뛰기(최종 상태로 점프)
+	{
+		m_pPlayScene->skipReplay();
+		return true;
+	}
+	if (m_pPlayScene->m_isSpectate)                 // 관전: 재생 시작 전 카운트다운 방지
+		return true;
+
+
+	if (NONE == m_pPlayScene->GetPlayState())
 	{
 		if (m_pPlayScene->m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
 		{
@@ -120,7 +128,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 			if( touchedPoleID != -1 )
 			{
 				bool isAbleToMove = m_pPlayScene->IsAbleToMoveDiscus(m_pTouchingDiscus, touchedPoleID) ;
-				if (isAbleToMove) 
+				if (isAbleToMove)
 				{
 					m_pPlayScene->AttachDiscusToPole(m_pTouchingDiscus, touchedPoleID) ;
 					m_pPlayScene->SelectPole(touchedPoleID, isAbleToMove);
@@ -128,6 +136,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 				}
 				else
 				{
+					m_pPlayScene->recordReplayEvent(EV_MOVE_FAIL, touchedPoleID);   // 실패(탭 경로)
 					SoundFactory::Instance()->play("efs_cancel_select") ;
 				}
 			}
@@ -144,6 +153,7 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 			{
 				pTouchedDiscus->SetTouchingState(true);
 				m_pPlayScene->SelectPole(touchedPoleID, true);
+				m_pPlayScene->recordReplayEvent(EV_SELECT, touchedPoleID);   // 폴 선택
 				SoundFactory::Instance()->play("efs_select_disc");
 			}
 		}
@@ -164,7 +174,8 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 // 이벤트를 핸들링하는 애플리케이션의 Run Loop에 달려있습니다.
 
 void PlaySceneTouchHandlerLayer::onTouchMoved(Touch* touch, Event* unused_event)
-{	
+{
+	if (m_pPlayScene->m_isReplaying) return;   // 재생 중 입력 차단
 	if (PLAY != m_pPlayScene->GetPlayState())
 	{
 		return ;
@@ -196,6 +207,7 @@ void PlaySceneTouchHandlerLayer::onTouchCancelled(Touch* touch, Event* unused_ev
 
 void PlaySceneTouchHandlerLayer::onTouchEnded(Touch* touch, Event *unused_event)
 {
+	if (m_pPlayScene->m_isReplaying) return;   // 재생 중 입력 차단
 	if (PLAY != m_pPlayScene->GetPlayState())
 	{
 		return;
@@ -229,6 +241,7 @@ void PlaySceneTouchHandlerLayer::onTouchEnded(Touch* touch, Event *unused_event)
 			}
 			else
 			{
+				m_pPlayScene->recordReplayEvent(EV_MOVE_FAIL, touchedPoleID);   // 실패(드래그 경로)
 				m_pPlayScene->SelectPole(-1, false);
 				SoundFactory::Instance()->play("efs_cancel_select");
 			}

@@ -235,6 +235,9 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
             // 수상소감 Shared Group 최초 1회 생성 (기기당 1회, 이미 있으면 무시)
             bootstrapAwardGroups();
 #endif
+            // 리플레이 공유 Shared Group(replays_L03~L05) 최초 1회 생성 (2차)
+            bootstrapReplayGroups();
+
             // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
             fetchTitleConfig();
 
@@ -891,3 +894,177 @@ void LeaderboardManager::joinCommentsAndServe(int level, std::vector<Leaderboard
         });
 }
 #endif // ENABLE_AWARD_COMMENT
+
+
+// ─────────────────────────────────────────────────────────────────────────
+//  리플레이 공유 (2차) — Shared Group replays_L%02d, award_comment 인프라 미러
+// ─────────────────────────────────────────────────────────────────────────
+
+std::string LeaderboardManager::replayGroupId(int level)
+{
+    return StringUtils::format("replays_L%02d", level);
+}
+
+void LeaderboardManager::bootstrapReplayGroups(bool force)
+{
+    if (!force) {
+        if (m_replayGroupsBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("replay_groups_bootstrapped", false)) {
+            m_replayGroupsBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    for (int lv = 3; lv <= REPLAY_MAX_LEVEL; ++lv) {
+        std::string gid  = replayGroupId(lv);
+        std::string body = StringUtils::format("{\"SharedGroupId\":\"%s\"}", gid.c_str());
+        httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+            [gid](bool ok, const std::string&) {
+                log("PlayFab CreateSharedGroup %s: %s",
+                    gid.c_str(), ok ? "created" : "exists/err (ignored)");
+            });
+    }
+    m_replayGroupsBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("replay_groups_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::invalidateReplays(int level)
+{
+    m_replayCache.erase(level);
+}
+
+void LeaderboardManager::fetchReplays(int level,
+    std::function<void(const std::map<std::string, std::string>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, callback](bool ok) {
+            if (ok) fetchReplays(level, callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    // 캐시 확인
+    auto it = m_replayCache.find(level);
+    if (it != m_replayCache.end()) {
+        double elapsedH = difftime(time(nullptr), it->second.cachedAt) / 3600.0;
+        if (elapsedH < CACHE_TTL_HOURS) {
+            if (callback) {
+                auto byId = it->second.byId;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, byId]() { callback(byId); });
+            }
+            return;
+        }
+    }
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\",\"GetMembers\":false}", replayGroupId(level).c_str());
+
+    httpPost(BASE_URL + "/Client/GetSharedGroupData", body, m_sessionTicket,
+        [this, level, callback](bool ok, const std::string& resp) {
+            std::map<std::string, std::string> out;
+            if (!ok) {
+                if (callback) callback(out);   // 그룹 없음/오류 — 캐시하지 않음
+                return;
+            }
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (!doc.HasParseError() && doc.HasMember("data")) {
+                const auto& data = doc["data"];
+                if (data.HasMember("Data") && data["Data"].IsObject()) {
+                    for (auto m = data["Data"].MemberBegin(); m != data["Data"].MemberEnd(); ++m) {
+                        if (!m->value.IsObject() ||
+                            !m->value.HasMember("Value") || !m->value["Value"].IsString())
+                            continue;
+                        // Value = JSON {"r":"<base64>","ms":finalMs}
+                        rapidjson::Document inner;
+                        inner.Parse(m->value["Value"].GetString());
+                        if (!inner.HasParseError() &&
+                            inner.HasMember("r") && inner["r"].IsString()) {
+                            out[m->name.GetString()] = inner["r"].GetString();
+                        }
+                    }
+                }
+            }
+            m_replayCache[level] = ReplayCacheEntry{ out, time(nullptr) };
+            log("LeaderboardManager: cached replays L%d (%d entries)", level, (int)out.size());
+            if (callback) callback(out);
+        });
+}
+
+void LeaderboardManager::uploadReplay(int level, const std::string& blob,
+    std::function<void(bool)> callback)
+{
+    if (blob.empty() || level > REPLAY_MAX_LEVEL) {
+        if (callback) callback(false);
+        return;
+    }
+    if (!isLoggedIn()) {
+        login([this, level, blob, callback](bool ok) {
+            if (ok) doUploadReplay(level, blob, true, callback);
+            else if (callback) callback(false);
+        });
+        return;
+    }
+    doUploadReplay(level, blob, true, callback);
+}
+
+void LeaderboardManager::doUploadReplay(int level, const std::string& blob,
+    bool allowRetry, std::function<void(bool)> callback)
+{
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"writeReplay\","
+        "\"FunctionParameter\":{\"level\":%d,\"blob\":\"%s\"},"
+        "\"GeneratePlayStreamEvent\":false}",
+        level, escapeJson(blob).c_str());
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, level, blob, allowRetry, callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(false); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) { if (callback) callback(false); return; }
+            const auto& data = doc["data"];
+
+            if (data.HasMember("Error") && data["Error"].IsObject()) {
+                log("PlayFab writeReplay script error: %.300s", resp.c_str());
+                if (callback) callback(false);
+                return;
+            }
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(false);
+                return;
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+
+            if (okFlag) {
+                m_replayCache.erase(level);   // 다음 조회 시 갱신
+                log("PlayFab writeReplay L%d: OK", level);
+                if (callback) callback(true);
+                return;
+            }
+
+            // 그룹 미생성 → 부트스트랩 후 1회 재시도
+            if (reason == "no_group" && allowRetry) {
+                log("PlayFab writeReplay L%d: no_group, bootstrapping + retry", level);
+                bootstrapReplayGroups(true);
+                Director::getInstance()->getScheduler()->schedule(
+                    [this, level, blob, callback](float) {
+                        doUploadReplay(level, blob, false, callback);
+                    },
+                    (void*)this, 0.0f, 0, 1.0f, false,
+                    "replay_write_retry_" + std::to_string(level));
+                return;
+            }
+
+            log("PlayFab writeReplay L%d: FAIL reason=%s", level, reason.c_str());
+            if (callback) callback(false);
+        });
+}
