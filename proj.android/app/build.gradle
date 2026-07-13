@@ -9,7 +9,7 @@ android {
         applicationId "com.ozzywow.hanoi"
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 56
+        versionCode 57
         versionName "2.2.1"
 
         externalNativeBuild {
