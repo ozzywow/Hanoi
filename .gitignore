@@ -57,9 +57,8 @@ proj.android/build.gradle
 proj.android/.idea/misc.xml
 proj.android/app/AndroidManifest.xml
 proj.android/app/build.gradle
-proj.android/app/release/HanoiOlympic-release.aab
+*.aab
 proj.android/gradle/wrapper/gradle-wrapper.properties
 
 # Java heap dumps (auto-generated, never commit)
 *.hprof
-proj.android/app/release/HanoiOlympic-release.aab
