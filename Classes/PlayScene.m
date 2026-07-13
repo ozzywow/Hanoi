@@ -835,13 +835,13 @@ static BOOL g_isNewRecord = NO;
 			{
 				//한쿡
 				//NSURL *appStoreUrl = [NSURL URLWithString:@"http://itunes.apple.com/app/id432096485?mt=8"];
-                NSURL *appStoreUrl = [NSURL URLWithString:@"http://itunes.apple.com/app/id426632681?mt=8"];
+                NSURL *appStoreUrl = [NSURL URLWithString:@"https://apps.apple.com/app/id430261581"];
 				[[UIApplication sharedApplication] openURL:appStoreUrl];
 			}
-			else 
+			else
 			{
 				//미쿡
-				NSURL *appStoreUrl = [NSURL URLWithString:@"http://itunes.apple.com/app/id426632681?mt=8"];
+				NSURL *appStoreUrl = [NSURL URLWithString:@"https://apps.apple.com/app/id430261581"];
 				[[UIApplication sharedApplication] openURL:appStoreUrl];
 			}
 		}
