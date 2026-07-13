@@ -3,6 +3,13 @@
 // - L5~L9: 활성/비활성 구분 없이 상위 TOP_N만 유지
 // - 나머지 전원 0으로 초기화 (EXPIRED_VAL 항목 포함)
 // Scheduled Tasks: 0 * * * * (1시간마다)
+//
+// ⚠️ CloudScript는 실행 1회당 PlayFab API 호출을 25회로 하드 제한한다
+//    (CloudScriptAPIRequestCountExceeded). L3~L10 8레벨 × (리더보드 1 + 공유그룹 3)
+//    = 정리 대상이 0이어도 최소 32회 → 단일 실행에 전 레벨 처리 불가.
+//    해결: ① API 예산 가드로 한도 전에 중단(남은 작업은 다음 실행으로 이월 — 정리는
+//    idempotent라 안전) ② 시간 기반 시작-레벨 로테이션으로 매 실행 다른 지점에서 시작
+//    → 예산상 전 레벨을 못 돌려도 결국 모든 레벨이 순환 정리됨(상태 저장 불필요).
 handlers.maintainLeaderboards = function(args, context) {
     var TOP_N        = (args && args.topN) ? args.topN : 10;
     var EXPIRED_VAL  = 3599590;
@@ -12,7 +19,22 @@ handlers.maintainLeaderboards = function(args, context) {
     var kept         = 0;
     var cleared      = 0;
 
-    for (var lv = 3; lv <= 10; lv++) {   // L10 포함 (리플레이/소감 정리 위해 전 레벨 유지)
+    // ── API 호출 예산 가드 ──
+    var API_BUDGET = 23;                       // 하드 리밋 25 - 여유 2
+    var apiCalls   = 0;
+    function canCall(n) { return (apiCalls + (n || 1)) <= API_BUDGET; }
+
+    var LV_MIN = 3, LV_MAX = 10, LV_SPAN = (LV_MAX - LV_MIN + 1);  // 8
+    // 시간(시각) 기반 시작 레벨 로테이션 — 매 실행 다른 레벨부터 시작
+    var rotate    = Math.floor(now / (60 * 60 * 1000)) % LV_SPAN;
+    var processed = 0;
+    var budgetHit = false;
+
+    for (var step = 0; step < LV_SPAN; step++) {
+        // 레벨당 최소 리드(리더보드 1 + 공유그룹 3 = 4)를 확보 못 하면 중단
+        if (!canCall(4)) { budgetHit = true; break; }
+
+        var lv          = LV_MIN + ((rotate + step) % LV_SPAN);
         var pad         = lv < 10 ? "0" : "";
         var statName    = "BestTime_L" + pad + lv;
         var checkExpiry = (lv < EXPIRE_UNTIL);
@@ -20,13 +42,14 @@ handlers.maintainLeaderboards = function(args, context) {
         // 전체 항목 수집 (0 제외, EXPIRED_VAL 포함)
         var allEntries = [];
         var startPos   = 0;
-        while (true) {
+        while (canCall(1)) {
             var lb = server.GetLeaderboard({
                 StatisticName:      statName,
                 StartPosition:      startPos,
                 MaxResultsCount:    100,
                 ProfileConstraints: { ShowLastLogin: true }
             });
+            apiCalls++;
             if (!lb || !lb.Leaderboard || lb.Leaderboard.length === 0) break;
 
             for (var i = 0; i < lb.Leaderboard.length; i++) {
@@ -67,88 +90,111 @@ handlers.maintainLeaderboards = function(args, context) {
         }
 
         // 상위 TOP_N 외 전원 0으로 초기화 (EXPIRED_VAL 항목 포함)
+        // 예산 소진 시 남은 항목은 다음 실행/로테이션에서 정리 (idempotent)
         for (var k = 0; k < allEntries.length; k++) {
             if (!keepSet[allEntries[k].PlayFabId]) {
+                if (!canCall(1)) { budgetHit = true; break; }
                 server.UpdatePlayerStatistics({
                     PlayFabId:  allEntries[k].PlayFabId,
                     Statistics: [{ StatisticName: statName, Value: 0 }]
                 });
+                apiCalls++;
                 cleared++;
             }
         }
 
         // 리플레이 정리(2차): Top10 밖으로 밀려난 랭커의 리플레이 blob 삭제 → 그룹을
         // 항상 현재 Top10(≤10개)로 유지. 없으면 고아 blob 무한 누적 → 조회 payload 폭증.
-        if (lv <= REPLAY_MAX_LEVEL) {
+        if (lv <= REPLAY_MAX_LEVEL && canCall(1)) {
             try {
                 var rg = server.GetSharedGroupData({ SharedGroupId: replayGroupId(lv) });
+                apiCalls++;
                 if (rg && rg.Data) {
                     var delR = {};
                     var nDel = 0;
                     for (var rkey in rg.Data) {
                         if (!keepSet[rkey]) { delR[rkey] = null; nDel++; }
                     }
-                    if (nDel > 0) {
+                    if (nDel > 0 && canCall(1)) {
                         server.UpdateSharedGroupData({
                             SharedGroupId: replayGroupId(lv),
                             Data:          delR,
                             Permission:    "Public"
                         });
+                        apiCalls++;
                     }
                 }
             } catch (e) { /* 그룹 미생성 등 — 무시 */ }
         }
 
         // 소감 정리: Top10 밖 랭커 소감 삭제 (리플레이와 동일 — 고아 누적 방지). L10 포함.
-        try {
-            var cg = server.GetSharedGroupData({ SharedGroupId: awardGroupId(lv) });
-            if (cg && cg.Data) {
-                var delC = {};
-                var nDelC = 0;
-                for (var ckey in cg.Data) {
-                    if (!keepSet[ckey]) { delC[ckey] = null; nDelC++; }
+        if (canCall(1)) {
+            try {
+                var cg = server.GetSharedGroupData({ SharedGroupId: awardGroupId(lv) });
+                apiCalls++;
+                if (cg && cg.Data) {
+                    var delC = {};
+                    var nDelC = 0;
+                    for (var ckey in cg.Data) {
+                        if (!keepSet[ckey]) { delC[ckey] = null; nDelC++; }
+                    }
+                    if (nDelC > 0 && canCall(1)) {
+                        server.UpdateSharedGroupData({
+                            SharedGroupId: awardGroupId(lv),
+                            Data:          delC,
+                            Permission:    "Public"
+                        });
+                        apiCalls++;
+                    }
                 }
-                if (nDelC > 0) {
-                    server.UpdateSharedGroupData({
-                        SharedGroupId: awardGroupId(lv),
-                        Data:          delC,
-                        Permission:    "Public"
-                    });
-                }
-            }
-        } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+            } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+        }
 
         // 격파 낙인 정리(battle_reward): 패자(key)/격파자(by)가 Top10 밖이거나 TTL 만료 시 삭제.
-        try {
-            var xg = server.GetSharedGroupData({ SharedGroupId: battleGroupId(lv) });
-            if (xg && xg.Data) {
-                var delX = {};
-                var nDelX = 0;
-                for (var xkey in xg.Data) {
-                    var dropX = false;
-                    if (!keepSet[xkey]) {
-                        dropX = true;                       // 패자가 Top10 밖
-                    } else {
-                        try {
-                            var rvX = JSON.parse(xg.Data[xkey]);
-                            if (!rvX || !keepSet[rvX.by])              dropX = true;  // 격파자 Top10 밖
-                            else if (rvX.ts && (now - rvX.ts) > BATTLE_TTL_MS) dropX = true;  // TTL 만료
-                        } catch (pe) { dropX = true; }      // 파싱 실패 → 정리
+        if (canCall(1)) {
+            try {
+                var xg = server.GetSharedGroupData({ SharedGroupId: battleGroupId(lv) });
+                apiCalls++;
+                if (xg && xg.Data) {
+                    var delX = {};
+                    var nDelX = 0;
+                    for (var xkey in xg.Data) {
+                        var dropX = false;
+                        if (!keepSet[xkey]) {
+                            dropX = true;                       // 패자가 Top10 밖
+                        } else {
+                            try {
+                                var rvX = JSON.parse(xg.Data[xkey]);
+                                if (!rvX || !keepSet[rvX.by])              dropX = true;  // 격파자 Top10 밖
+                                else if (rvX.ts && (now - rvX.ts) > BATTLE_TTL_MS) dropX = true;  // TTL 만료
+                            } catch (pe) { dropX = true; }      // 파싱 실패 → 정리
+                        }
+                        if (dropX) { delX[xkey] = null; nDelX++; }
                     }
-                    if (dropX) { delX[xkey] = null; nDelX++; }
+                    if (nDelX > 0 && canCall(1)) {
+                        server.UpdateSharedGroupData({
+                            SharedGroupId: battleGroupId(lv),
+                            Data:          delX,
+                            Permission:    "Public"
+                        });
+                        apiCalls++;
+                    }
                 }
-                if (nDelX > 0) {
-                    server.UpdateSharedGroupData({
-                        SharedGroupId: battleGroupId(lv),
-                        Data:          delX,
-                        Permission:    "Public"
-                    });
-                }
-            }
-        } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+            } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+        }
+
+        processed++;
+        if (budgetHit) break;   // 클리어 루프에서 예산 소진 → 다음 실행으로 이월
     }
 
-    return { kept: kept, cleared: cleared };
+    return {
+        kept:      kept,
+        cleared:   cleared,
+        processed: processed,   // 이번 실행에서 처리한 레벨 수
+        startLevel: LV_MIN + rotate,
+        apiCalls:  apiCalls,
+        budgetHit: budgetHit
+    };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -599,4 +645,54 @@ handlers.resetAllLeaderboards = function(args, context) {
     }
 
     return { reset: fixed };
+};
+
+// ─────────────────────────────────────────────────────────────
+// 정크 플레이어 정리 — 이름도 점수도 없는 익명 계정 삭제.
+// 세그먼트 기반 Scheduled Task("Actions on each player in segment")에서 플레이어별로 호출됨.
+//   보존 조건: DisplayName 있음  OR  BestTime_* 통계(랭킹 점수) 있음.
+//   그 외 → server.DeletePlayer 로 삭제.
+// "오래됨/비활성" 필터는 세그먼트(예: Lapsed Players = 30일+ 미접속)가 담당하므로,
+//   이 함수는 활동 여부와 무관하게 "이름/점수" 만으로 판별(세그먼트가 이미 오래된 것만 넘김).
+// ⚠️ 사전 요구: Settings → API Features → "Allow server to delete player accounts" 활성화.
+// 테스트: ExecuteCloudScript 로 { PlayFabId:"...", dryRun:true } 넘기면 삭제 없이 판정만 반환.
+handlers.cleanupJunkPlayer = function (args, context) {
+    var id = (args && args.PlayFabId) ? args.PlayFabId : currentPlayerId;
+    if (!id) return { deleted: false, reason: "no-id" };
+
+    // 1) 이름 있으면 보존
+    var name = "";
+    try {
+        var prof = server.GetPlayerProfile({
+            PlayFabId: id,
+            ProfileConstraints: { ShowDisplayName: true }
+        });
+        if (prof && prof.PlayerProfile && prof.PlayerProfile.DisplayName)
+            name = prof.PlayerProfile.DisplayName;
+    } catch (e) {}
+    if (name && name.length > 0) return { deleted: false, reason: "name", id: id };
+
+    // 2) BestTime 점수(통계) 있으면 보존
+    var hasScore = false;
+    try {
+        var st = server.GetPlayerStatistics({ PlayFabId: id });
+        if (st && st.Statistics) {
+            for (var i = 0; i < st.Statistics.length; i++) {
+                if (st.Statistics[i].StatisticName.indexOf("BestTime_") === 0) { hasScore = true; break; }
+            }
+        }
+    } catch (e) {}
+    if (hasScore) return { deleted: false, reason: "score", id: id };
+
+    // 3) 정크 → 삭제 (dryRun 이면 판정만)
+    if (args && args.dryRun) return { deleted: false, reason: "junk-dryrun", id: id };
+    // 삭제 에러를 삼키지 않고 결과에 담아 진단 가능하게.
+    if (typeof server.DeletePlayer !== "function")
+        return { deleted: false, reason: "junk", error: "server.DeletePlayer-not-available", id: id };
+    try {
+        server.DeletePlayer({ PlayFabId: id });
+        return { deleted: true, reason: "junk", id: id };
+    } catch (e) {
+        return { deleted: false, reason: "junk", error: (e && e.message) ? e.message : String(e), id: id };
+    }
 };
