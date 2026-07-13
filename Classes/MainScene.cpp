@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include <algorithm>
 #include <sstream>
 #include "MainScene.h"
@@ -14,6 +14,8 @@
 #endif //LITE_VER
 
 static const Color3B MINT_C(80, 220, 180);
+
+static std::string appStoreUrl();   // 정의는 하단(버전 게이트 근처). init에서 먼저 참조.
 
 // c(patch) 업데이트의 소극적 안내는 앱 실행당 1회(최초 진입)만. static이라 MainScene 재진입에도 유지,
 // 앱 콜드 재시작 시 리셋. (b=권장은 진입마다, a=강제는 항상)
@@ -235,16 +237,30 @@ bool MainScene::init()
 		tDots->setPosition(TPOS);
 		this->addChild(tDots, 12);   // dots는 라벨 위에 (LED 효과)
 
-		// 앱 버전 — TopInfoBar 우측 바로 아래에 작게(중요 정보 아님, 잘 안 띄게).
+		// 앱 버전 — 타이틀 밑줄 오른쪽. "current/latest" 숫자 + [Update] 버튼(current<latest일 때만 표시/활성).
 		// win32 개발빌드는 빈 값이라 생략.
 		std::string appVer = Application::getInstance()->getVersion();
 		if (!appVer.empty()) {
-			auto verLbl = Label::createWithSystemFont("v" + appVer, "Arial", 6);
-			verLbl->setColor(Color3B(90, 100, 122));
-			verLbl->setOpacity(165);
-			verLbl->setAnchorPoint(Vec2(1.0f, 1.0f));   // 우측 상단 기준 → 바 아래로 매달림
-			verLbl->setPosition(Vec2(TPOS.x + TW / 2 - 2, TPOS.y - TH / 2 - 1));
-			this->addChild(verLbl, 13);
+			// 버전 숫자 라벨 (탭 없음). 우측 앵커 → 화면 오른쪽 끝 기준 우측정렬. 위치/문자/색은 refreshVersionLabel에서.
+			m_versionLabel = Label::createWithSystemFont(appVer, "Arial", 9);
+			m_versionLabel->setAnchorPoint(Vec2(1.0f, 0.5f));
+			this->addChild(m_versionLabel, 13);
+
+			// [Update] 버튼 (탭→스토어). current<latest일 때만 표시/활성.
+			auto upLbl = Label::createWithSystemFont("[Update]", "Arial", 10);
+			upLbl->setColor(Color3B(255, 210, 40));   // 노랑(앰버)
+			m_updateItem = MenuItemLabel::create(upLbl, [this](Ref*) {
+				SoundFactory::Instance()->play("efs_click");
+				Application::getInstance()->openURL(appStoreUrl());
+			});
+			m_updateItem->setAnchorPoint(Vec2(1.0f, 0.5f));   // 우측 앵커 → 화면 오른쪽 끝 기준 우측정렬
+			m_updateItem->setVisible(false);
+			auto upMenu = Menu::create(m_updateItem, nullptr);
+			upMenu->setPosition(Vec2::ZERO);
+			this->addChild(upMenu, 13);
+
+			refreshVersionLabel();              // 초기 상태(위치/문자/색 세팅. 최신버전 미도착이면 current만)
+			refreshVersionLabelWhenReady();     // 최신버전 지연 도착 시 확보되는 순간 갱신
 		}
 	}
 	// ── 최하단 LED 전광판 (BottomInfoBar) — 국기 스크롤 (좌→우) ──
@@ -360,7 +376,8 @@ bool MainScene::init()
 				(void)lv; (void)prevEnabled;
 #endif
 				// 공지가 바뀐 경우에만 상단 티커 갱신(네트워크 지연 도착분/변경 반영)
-				if (LeaderboardManager::Instance()->getNotice() != prevNotice)
+				refreshVersionLabel();   // latest_version 도착 → 버전 라벨을 current/latest 형태로 갱신
+					if (LeaderboardManager::Instance()->getNotice() != prevNotice)
 					startTopTicker();
 				// 버전 게이트 — 서버 조회 성공분으로만 판정(오프라인 오차단 방지).
 				// a=강제(항상, 이름창까지 닫음) / b=권장(진입마다) / c=소극적(앱 실행당 1회).
@@ -405,7 +422,7 @@ bool MainScene::init()
 			LeaderboardManager::Instance()->invalidateCache(lv);
 			drawOnlineRank(lv);
 #ifdef ENABLE_AWARD_COMMENT
-			checkAndPromptAward(lv);   // rank 확정 후 Top10이면 수상소감 입력창
+			checkAndPromptAward(lv);   // rank 확정 후 Top10이면 리플레이 업로드(수상소감 자동팝업은 제거됨)
 #endif
 		}, 2.0f, "refreshNewRecord");
 	}
@@ -637,10 +654,73 @@ static std::string appStoreUrl()
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
 	return "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi";
 #elif (CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
-	return "https://apps.apple.com/app/id504138737";
+	return "https://apps.apple.com/kr/app/tower-of-hanoi-pro/id430261581";
 #else
 	return BUY_AT_STORE_URL;
 #endif
+}
+
+// 버전 라벨 갱신 — "current/latest"(v 없음) 숫자 + [Update] 버튼. current<latest면 버튼 표시/활성(깜빡임 없음).
+// 최신 버전은 fetchTitleConfig 도착 후에만 유효 → 도착 전엔 current만, 도착 후 갱신 호출.
+void MainScene::refreshVersionLabel()
+{
+	if (!m_versionLabel || !m_updateItem) return;
+
+	// 화면 오른쪽 끝 우측정렬(약간 여백). 세로로 쌓음 — 버전 숫자 위, [Update] 아래. (앵커 (1,0.5))
+	const float BASE_X = RESOURCE_WIDTH - 8.0f;     // 우측 끝 여백 8px
+	const float BASE_Y = 280.0f;                    // 버전 숫자 높이
+	const float BTN_Y  = BASE_Y - 15.0f;            // [Update] 버튼(바로 아래)
+	std::string cur = Application::getInstance()->getVersion();
+	const std::string& latest = LeaderboardManager::Instance()->getLatestVersion();
+	bool haveBoth   = !cur.empty() && !latest.empty();
+	bool hasUpdate  = haveBoth && LeaderboardManager::compareVersion(cur, latest) < 0;
+
+	// 버전 숫자 (v 없음). 확인됐으면 current/latest, 미확인이면 current만.
+	m_versionLabel->setString(haveBoth
+		? StringUtils::format("ver %s/%s", cur.c_str(), latest.c_str())
+		: cur);
+	m_versionLabel->setColor(Color3B(185, 200, 220));   // 차분한 밝은 회청색
+	m_versionLabel->setOpacity(220);
+	m_versionLabel->setPosition(Vec2(BASE_X, BASE_Y));
+
+	// [Update] 버튼 — current<latest일 때만 표시/활성. 버전 숫자 바로 아래.
+	m_updateItem->setPosition(Vec2(BASE_X, BTN_Y));
+	if (hasUpdate) {
+		m_updateItem->setEnabled(true);
+		m_updateItem->setVisible(true);
+	} else {
+		m_updateItem->setVisible(false);
+		m_updateItem->setEnabled(false);
+	}
+}
+
+// 최신 버전이 아직 없으면(콜드 스타트 로그인/네트워크 지연) 도착할 때까지 재조회 → 확보 순간 라벨 갱신.
+// 첫 진입 fetchTitleConfig가 latest를 못 받고 끝나도(로그인 지연/씬 전환) 여기서 따라잡는다.
+void MainScene::refreshVersionLabelWhenReady(int attempt)
+{
+	if (!m_versionLabel) return;
+	// 이미 최신 버전 확보 → 갱신하고 종료.
+	if (!LeaderboardManager::Instance()->getLatestVersion().empty()) {
+		refreshVersionLabel();
+		return;
+	}
+	// 로컬 버전 불명(win32 개발빌드 등)은 비교 불가 → 재시도 의미 없음.
+	if (Application::getInstance()->getVersion().empty()) return;
+	if (attempt >= 6) return;   // 상한(약 6회 × 1.5s ≈ 9초)
+
+	auto alive = m_aliveFlag;
+	// 잠시 후 재확인: 그 사이 도착했으면 갱신, 아니면 재조회 후 재귀 재시도.
+	this->scheduleOnce([this, alive, attempt](float) {
+		if (!alive || !*alive) return;
+		if (!LeaderboardManager::Instance()->getLatestVersion().empty()) {
+			refreshVersionLabel();                 // 그새 도착 → 재조회 없이 갱신
+			return;
+		}
+		LeaderboardManager::Instance()->fetchTitleConfig([this, alive, attempt]() {
+			if (!alive || !*alive) return;
+			refreshVersionLabelWhenReady(attempt + 1);  // 도착이면 위에서 refresh+return, 아니면 재시도
+		});
+	}, 1.5f, "verRefreshRetry");
 }
 
 // 앱 버전 게이트 다이얼로그.
@@ -884,6 +964,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			// ── 격파/피격 낙인 마커(battle_reward): 시간 왼쪽에 [방향 글리프 + 상대 국가 깃발] ──
 			//    피격(💥, 나를 이긴 상대) 우선, 없으면 격파(🗡, 내가 꺾은 상대). 상대 깃발은 id맵 해소.
 			Label* bMark = nullptr;
+			bool   bDefeated = false;   // 피격(내가 짐) 여부 — 내 행이면 마커를 눈에 띄게 깜빡여 복수(탭) 유도
 			{
 				std::string bGlyph, bOppId;  Color3B bTint(255, 255, 255);
 				auto itL = battleByLoser.find(e.playFabId);
@@ -891,6 +972,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 					bGlyph = "\xF0\x9F\x92\xA5";           // 💥
 					bOppId = itL->second;
 					bTint  = Color3B(255, 100, 100);
+					bDefeated = true;
 				} else {                                   // 격파: 내가 꺾은 상대(loser)
 					for (const auto& kv : battleByLoser)
 						if (kv.second == e.playFabId) { bOppId = kv.first; break; }
@@ -960,6 +1042,18 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				makeBlink(rnk);
 				makeBlink(nm);
 				makeBlink(tm);
+				// 피격 낙인(💥)은 복수 유도용 → 행 펄스보다 더 눈에 띄게(투명도+살짝 확대) 별도 깜빡임.
+				if (bMark && bDefeated) {
+					bMark->setOpacity(255);
+					auto startPulse = CallFunc::create([bMark]() {
+						bMark->runAction(RepeatForever::create(Sequence::create(
+							Spawn::create(FadeTo::create(0.3f, 110), ScaleTo::create(0.3f, 1.18f), nullptr),
+							Spawn::create(FadeTo::create(0.3f, 255), ScaleTo::create(0.3f, 1.0f),  nullptr),
+							nullptr)));
+					});
+					bMark->runAction(Sequence::create(
+						DelayTime::create(blinkDelay), startPulse, nullptr));
+				}
 			}
 		}
 
@@ -1467,7 +1561,8 @@ void MainScene::showNameInputDialog()
 //  랭킹 Top10 수상소감
 // ─────────────────────────────────────────────────────────────
 
-// 신기록 rank 확정 후 — 내 순위가 Top10이면 입력창 표시
+// 신기록 rank 확정 후 — 내 순위가 Top10이면 로컬 리플레이 업로드(고스트/관전용).
+// (수상소감 입력창 자동 표시는 제거됨 — 유저가 랭킹에서 본인 항목을 탭할 때만 입력)
 void MainScene::checkAndPromptAward(int level)
 {
 	auto alive = m_aliveFlag;
@@ -1487,7 +1582,7 @@ void MainScene::checkAndPromptAward(int level)
 							if (!blob.empty())
 								LeaderboardManager::Instance()->uploadReplay(level, blob, nullptr);
 						}
-						showAwardInputDialog(level, e.rank, e.comment);
+						// 수상소감 입력창 자동 표시 제거 — 유저가 원할 때 직접(랭킹에서 본인 항목 탭) 입력.
 					}
 					return;
 				}
@@ -1975,7 +2070,7 @@ void MainScene::showRevengeDialog(int level, const std::string& aId, const std::
 					}
 					this->removeChildByTag(TAG);
 					Director::getInstance()->replaceScene(TransitionFade::create(0.3f,
-						PlayScene::createRaceScene(level, it->second, aName, aRank, aScore, aId)));
+						PlayScene::createRaceScene(level, it->second, aName, aRank, aScore, aId, true)));   // 복수전
 				});
 		});
 	revBtn->setPosition(Vec2(DW * 0.32f, 22));
