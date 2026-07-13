@@ -42,6 +42,14 @@ public:
     void        validateName(const std::string& name,
                              std::function<void(bool, const std::string&)> callback);
 
+    // 랭커 이름 중복 소프트 필터: 캐시된 리더보드 엔트리 이름과 대소문자 무시(+trim) 비교, 본인 제외.
+    // 캐시된 범위 한정 best-effort (PlayFab은 비유니크 허용 상태 — 명백한 랭커 중복만 차단).
+    bool isNameTakenByRanker(const std::string& name) const;
+
+    // 위 검사의 비동기판: 전 레벨 리더보드를 fresh 조회(캐시 채움)한 뒤 대조.
+    // ResetAll이 캐시를 비운 직후 같은 콜드 캐시에서도 정상 동작. 캐시 워밍 상태면 네트워크 없이 즉시.
+    void isNameTakenByRankerAsync(const std::string& name, std::function<void(bool taken)> callback);
+
     // 리더보드 조회 — submitScore 진행 중인 레벨은 완료 후 자동 서빙
     void fetchLeaderboard(int level, int maxCount,
                           std::function<void(const std::vector<LeaderboardEntry>&)> callback);
@@ -104,6 +112,28 @@ public:
                       std::function<void(const std::map<std::string, std::string>&)> callback);
     void invalidateReplays(int level);
 
+    // ── 도전모드 격파/복수 (3차, battle_reward) — Shared Group battles_L%02d ──
+    // 고스트 대결에서 상향 추월 시 격파 낙인. 표시명·깃발은 렌더 시 id 맵으로 해소(미저장).
+    static constexpr int BATTLE_MAX_LEVEL = 10;    // 서버 cloudscript BATTLE_MAX_LEVEL과 일치 필수
+    static std::string battleGroupId(int level);   // "battles_L%02d"
+
+    // 로그인 성공 시 battles_L03~L10 Shared Group 부트스트랩 (award/replay 미러).
+    void bootstrapBattleGroups(bool force = false);
+
+    // 격파 기록 — 신기록 제출 직후 호출. loserId=고스트(B) id, aValWas=A의 직전 기록(ms, 상향 판정용).
+    // 콜백: (성공, reason). 성립 실패 시 reason="not_passed"/"not_upward"/"self"/"disabled" 등.
+    void recordBattle(int level, const std::string& loserId, int aValWas,
+                      std::function<void(bool, const std::string&)> callback = nullptr);
+
+    // 내 격파 낙인 삭제 (복수 성공/이름·랭킹 초기화 시). 서버는 key=본인 id만 삭제.
+    void deleteBattle(int level, std::function<void(bool)> callback = nullptr);
+
+    // 레벨별 격파 낙인 조회 → (패자 loserId -> 격파자 winnerId). CACHE_TTL_HOURS 캐시.
+    // 표시명·깃발은 호출측이 리더보드 id 맵으로 해소(레코드엔 미저장).
+    void fetchBattles(int level,
+                      std::function<void(const std::map<std::string, std::string>&)> callback);
+    void invalidateBattles(int level);
+
 #ifdef ENABLE_AWARD_COMMENT
     // ── 랭킹 Top10 수상소감 (Award Comments) ──
     // Shared Group awards_L03~L10 부트스트랩. 로그인 성공 시 자동 호출.
@@ -163,6 +193,19 @@ private:
     bool                                   m_replayGroupsBootstrapped = false;
     void doUploadReplay(int level, const std::string& blob, bool allowRetry,
                         std::function<void(bool)> callback);
+
+    // 격파 낙인 (3차, battle_reward)
+    bool                                   m_battleGroupsBootstrapped = false;
+    // attempt: 1부터. no_group→부트스트랩 후 재시도, not_passed/no_record→전파 지연으로 보고 재시도(최대 BATTLE_MAX_ATTEMPT).
+    void doRecordBattle(int level, const std::string& loserId, int aValWas, int attempt,
+                        std::function<void(bool, const std::string&)> callback);
+    static constexpr int BATTLE_MAX_ATTEMPT = 4;   // 초기 1 + 전파 재시도 3
+    // 격파 낙인 캐시: level -> (패자 loserId -> 격파자 winnerId)
+    struct BattleCacheEntry {
+        std::map<std::string, std::string> byLoser;
+        std::time_t cachedAt;
+    };
+    std::map<int, BattleCacheEntry>        m_battleCache;
 
     // submitScore가 in-flight인 레벨 추적
     std::set<int>                          m_pendingSubmitLevels;

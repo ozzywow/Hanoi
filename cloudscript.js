@@ -117,6 +117,35 @@ handlers.maintainLeaderboards = function(args, context) {
                 }
             }
         } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+
+        // 격파 낙인 정리(battle_reward): 패자(key)/격파자(by)가 Top10 밖이거나 TTL 만료 시 삭제.
+        try {
+            var xg = server.GetSharedGroupData({ SharedGroupId: battleGroupId(lv) });
+            if (xg && xg.Data) {
+                var delX = {};
+                var nDelX = 0;
+                for (var xkey in xg.Data) {
+                    var dropX = false;
+                    if (!keepSet[xkey]) {
+                        dropX = true;                       // 패자가 Top10 밖
+                    } else {
+                        try {
+                            var rvX = JSON.parse(xg.Data[xkey]);
+                            if (!rvX || !keepSet[rvX.by])              dropX = true;  // 격파자 Top10 밖
+                            else if (rvX.ts && (now - rvX.ts) > BATTLE_TTL_MS) dropX = true;  // TTL 만료
+                        } catch (pe) { dropX = true; }      // 파싱 실패 → 정리
+                    }
+                    if (dropX) { delX[xkey] = null; nDelX++; }
+                }
+                if (nDelX > 0) {
+                    server.UpdateSharedGroupData({
+                        SharedGroupId: battleGroupId(lv),
+                        Data:          delX,
+                        Permission:    "Public"
+                    });
+                }
+            }
+        } catch (e) { /* 그룹 미생성 등 — 무시 */ }
     }
 
     return { kept: kept, cleared: cleared };
@@ -360,6 +389,127 @@ handlers.deleteReplay = function(args, context) {
     try {
         server.UpdateSharedGroupData({
             SharedGroupId: replayGroupId(level),
+            Data:          data,
+            Permission:    "Public"
+        });
+    } catch (e) { return { ok: false, reason: "no_group" }; }
+    return { ok: true };
+};
+
+// ─────────────────────────────────────────────────────────────
+//  도전모드 격파/복수 (battle_reward) — docs/battle_reward_plan.md
+//  고스트 대결에서 A(도전자)가 B(고스트)를 "상향 추월"하면 격파 낙인 기록.
+//  저장: Shared Group "battles_L%02d", key = 패자(B) playFabId,
+//        value = JSON { by:A id, aVal:A기록ms, ts }, Permission=Public
+//  조회: 클라가 GetSharedGroupData(battles_L%02d) 직접 (렌더 시 id→name/country 맵으로 이름·깃발 해소)
+//  성립 조건(모두 만족): ① A 신기록 제출됨 ② A.val<B.val(시간값 기준 A가 더 빠름) ③ 상향(aValWas>=B.val, 이전엔 느렸음) ④ A≠B
+//  ※ 리더보드 Position은 원시 ms 내림차순(느릴수록 낮음)이라 Position 비교 금지 → 반드시 시간 값(val)으로 판정.
+//    추월 게이트(A.val<B.val)는 서버 통계라 조작 불가. 상향 게이트는 클라 aValWas 기반(잔여 수용).
+// ─────────────────────────────────────────────────────────────
+var BATTLE_MIN_LEVEL = 3;
+var BATTLE_MAX_LEVEL = 10;   // 클라 LeaderboardManager와 일치 필수
+var BATTLE_TTL_MS    = 7 * 24 * 60 * 60 * 1000;  // 낙인 7일 후 페이드 (maintainLeaderboards GC)
+
+function battleGroupId(level) {
+    var pad = (level < 10 ? "0" : "");
+    return "battles_L" + pad + level;
+}
+
+// 마스터 스위치: 공개 Title Data 키 "battle_enabled" (award_enabled 패턴, fail-open)
+function battleEnabled() {
+    try {
+        var td = server.GetTitleData({ Keys: ["battle_enabled"] });
+        var v = td && td.Data && td.Data.battle_enabled;
+        if (v === "0" || v === "false" || v === "off") return false;
+    } catch (e) {}
+    return true;
+}
+
+// 해당 레벨에서 플레이어의 순위/기록 조회 → { pos:0-indexed, val:ms }. 없으면 { pos:-1, val:0 }.
+function battleRankOf(level, playFabId) {
+    try {
+        var lb = server.GetLeaderboardAroundUser({
+            StatisticName:   replayStatName(level),   // "BestTime_L%02d" (리플레이와 동일)
+            PlayFabId:       playFabId,
+            MaxResultsCount: 1
+        });
+        if (lb && lb.Leaderboard && lb.Leaderboard.length > 0) {
+            var e0 = lb.Leaderboard[0];
+            if (e0.PlayFabId === playFabId)
+                return { pos: e0.Position, val: e0.StatValue };
+        }
+    } catch (e) {}
+    return { pos: -1, val: 0 };
+}
+
+// 격파 기록 — 신기록 제출 직후 A가 호출
+//  클라: ExecuteCloudScript { FunctionName:"recordBattle",
+//                             FunctionParameter:{ level:int, loserId:string, aValWas:int } }
+//  aValWas = A의 직전 기록(ms, 신기록 갱신 전 값). 상향 판정용(0=기록없음→상향 간주).
+handlers.recordBattle = function(args, context) {
+    var pid      = currentPlayerId;                              // A (격파자)
+    var level    = parseInt(args && args.level, 10);
+    var loserId  = String((args && args.loserId) || "");        // B (패자)
+    var aValWas  = parseInt(args && args.aValWas, 10);          // A의 직전 기록(ms). 없으면 0.
+
+    if (!(level >= BATTLE_MIN_LEVEL && level <= BATTLE_MAX_LEVEL))
+        return { ok: false, reason: "bad_level" };
+    if (!loserId)            return { ok: false, reason: "empty_loser" };
+    if (loserId === pid)     return { ok: false, reason: "self" };       // 자기대결 차단
+    if (isNaN(aValWas))      aValWas = 0;
+    if (!battleEnabled())    return { ok: false, reason: "disabled" };
+
+    var A = battleRankOf(level, pid);
+    var B = battleRankOf(level, loserId);
+    if (A.pos < 0 || A.val <= 0) return { ok: false, reason: "no_a_record" };
+    if (B.pos < 0 || B.val <= 0) return { ok: false, reason: "no_b_record" };
+
+    // 추월 게이트: 시간(값) 기준 — A가 B보다 빨라야(작아야) 함.
+    // ※ 리더보드 Position은 원시 ms 내림차순(느릴수록 낮음)이라 Position 비교는 부정확 → 반드시 값으로 판정.
+    if (!(A.val < B.val))
+        return { ok: false, reason: "not_passed", aVal: A.val, bVal: B.val, aPos: A.pos, bPos: B.pos };
+
+    // 상향 게이트: A가 예전엔 B보다 느렸어야(= B 아래였어야) 함. 이미 B보다 빨랐으면 하향 도전 → 무보상.
+    // aValWas = A의 직전 기록(ms). 0/미제공이면 기록 없음 → 상향으로 간주(허용).
+    if (!(aValWas <= 0 || aValWas >= B.val))
+        return { ok: false, reason: "not_upward", aValWas: aValWas, bVal: B.val };
+
+    var rec = {};
+    rec[loserId] = JSON.stringify({ by: pid, aVal: A.val, ts: Date.now() });
+
+    // 넥서시스 플립: 방금 격파한 loserId에게 예전에 "당했던" 내(pid) 낙인이 있으면 함께 삭제.
+    // (복수 성공 → 내 피격 낙인 제거). 다른 사람(C)에게 당한 낙인은 유지. 같은 write에 원자 반영.
+    var flipped = false;
+    try {
+        var mine = server.GetSharedGroupData({ SharedGroupId: battleGroupId(level), Keys: [pid] });
+        if (mine && mine.Data && mine.Data[pid] && mine.Data[pid].Value) {
+            var mv = JSON.parse(mine.Data[pid].Value);
+            if (mv && mv.by === loserId) { rec[pid] = null; flipped = true; }
+        }
+    } catch (e) { /* 조회 실패 — 플립 생략, 기록은 진행 */ }
+
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: battleGroupId(level),
+            Data:          rec,
+            Permission:    "Public"
+        });
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };
+    }
+    return { ok: true, level: level, loserId: loserId, aVal: A.val, bVal: B.val, flipped: flipped };
+};
+
+// 격파 낙인 삭제 (본인=패자) — 복수 성공/이름·랭킹 초기화 시 호출. key=본인 id.
+handlers.deleteBattle = function(args, context) {
+    var pid   = currentPlayerId;
+    var level = parseInt(args && args.level, 10);
+    if (!(level >= BATTLE_MIN_LEVEL && level <= BATTLE_MAX_LEVEL))
+        return { ok: false, reason: "bad_level" };
+    var data = {}; data[pid] = null;
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: battleGroupId(level),
             Data:          data,
             Permission:    "Public"
         });

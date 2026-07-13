@@ -129,6 +129,7 @@ public:
 	bool        m_isRace        = false;
 	std::string m_ghostBlob;
 	std::string m_ghostName;
+	std::string m_ghostPlayFabId;               // 고스트(B) 소유자 id — 격파 기록 대상 (battle_reward P0)
 	int         m_ghostRank     = 0;
 	int         m_ghostScoreMs  = 0;
 	int         m_raceTotalMoves= 0;              // 2^N - 1
@@ -147,14 +148,16 @@ public:
 	int  _movesRemaining();     // 내 보드 distance-to-solved
 
 	static PlayScene* createRaceScene(int level, const std::string& ghostBlob,
-	                                  const std::string& name, int rank, int scoreMs)
+	                                  const std::string& name, int rank, int scoreMs,
+	                                  const std::string& playFabId = "")
 	{
 		PlayScene* p = PlayScene::create();
-		p->m_isRace       = true;
-		p->m_ghostBlob    = ghostBlob;
-		p->m_ghostName    = name;
-		p->m_ghostRank    = rank;
-		p->m_ghostScoreMs = scoreMs;
+		p->m_isRace         = true;
+		p->m_ghostBlob      = ghostBlob;
+		p->m_ghostName      = name;
+		p->m_ghostPlayFabId = playFabId;
+		p->m_ghostRank      = rank;
+		p->m_ghostScoreMs   = scoreMs;
 		p->initWithDiscusNum(level);
 		return p;
 	}
