@@ -47,6 +47,11 @@ public:
 	void showNameInputDialog();
 	void showSettingsMenu();
 
+	// 복수(battle_reward): 내 피격 낙인 탭 → 나를 이긴 상대(A) 고스트로 재도전 확인창.
+	// A 정보(이름/랭크/기록)는 현재 보드에서 해소해 전달. 리플레이 blob은 [REVENGE] 탭 시 조회.
+	void showRevengeDialog(int level, const std::string& aId, const std::string& aName,
+	                       int aRank, int aScore);
+
 	// 앱 버전 게이트 다이얼로그. force=true → 차단(닫기 불가), false → 권장(LATER로 닫힘).
 	// onClose: 권장 창을 닫을 때(LATER/바깥탭) 호출(예: 첫판 진행). force=true면 무시.
 	void showUpdateDialog(bool force, std::function<void()> onClose = nullptr);

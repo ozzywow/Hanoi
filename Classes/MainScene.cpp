@@ -810,7 +810,8 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 
 	// ── 데이터 행 빌드 헬퍼 (콜백 안에서 호출) ──
 	// ledScan=true 이면 행별 FadeIn 스캔 효과 적용
-	auto buildRows = [=](Node* panel, const std::vector<LeaderboardEntry>& entries, bool ledScan) {
+	auto buildRows = [=](Node* panel, const std::vector<LeaderboardEntry>& entries, bool ledScan,
+	                     const std::map<std::string, std::string>& battleByLoser) {
 		panel->removeChildByTag(TAG_D_ROWS);
 		auto rowsNode = Node::create();
 
@@ -834,6 +835,10 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 
 		const std::string myId = LeaderboardManager::Instance()->getPlayFabId();
 		const float FIRST_ROW_Y = DATA_H - 30, ROW_STEP = 14;
+
+		// 격파/피격 낙인용 id→국가코드 맵 (로드된 행 기준 — 상대 깃발 해소, battle_reward)
+		std::map<std::string, std::string> idCountry;
+		for (const auto& en : entries) idCountry[en.playFabId] = en.countryCode;
 
 		for (int i = 0; i < (int)entries.size(); ++i) {
 			const auto& e  = entries[i];
@@ -876,11 +881,39 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			tm->setAnchorPoint(Vec2(1.0f, 0.5f)); tm->setPosition(Vec2(PW - 10, y));
 			tm->setColor(rowCol); addLbl(tm);
 
+			// ── 격파/피격 낙인 마커(battle_reward): 시간 왼쪽에 [방향 글리프 + 상대 국가 깃발] ──
+			//    피격(💥, 나를 이긴 상대) 우선, 없으면 격파(🗡, 내가 꺾은 상대). 상대 깃발은 id맵 해소.
+			Label* bMark = nullptr;
+			{
+				std::string bGlyph, bOppId;  Color3B bTint(255, 255, 255);
+				auto itL = battleByLoser.find(e.playFabId);
+				if (itL != battleByLoser.end()) {          // 피격: 나를 이긴 상대(by)
+					bGlyph = "\xF0\x9F\x92\xA5";           // 💥
+					bOppId = itL->second;
+					bTint  = Color3B(255, 100, 100);
+				} else {                                   // 격파: 내가 꺾은 상대(loser)
+					for (const auto& kv : battleByLoser)
+						if (kv.second == e.playFabId) { bOppId = kv.first; break; }
+					if (!bOppId.empty()) { bGlyph = "\xF0\x9F\x97\xA1"; bTint = Color3B(255, 215, 0); }  // 🗡
+				}
+				if (!bGlyph.empty()) {
+					std::string bFlag;
+					auto itc = idCountry.find(bOppId);
+					if (itc != idCountry.end() && !itc->second.empty()) bFlag = countryToFlag(itc->second);
+					bMark = Label::createWithSystemFont(bGlyph + bFlag, "Arial", rowFont - 1);
+					bMark->setColor(bTint);
+					bMark->setAnchorPoint(Vec2(1.0f, 0.5f));
+					bMark->setPosition(Vec2((PW - 10.f) - tm->getContentSize().width - 4.f, y));
+					addLbl(bMark);
+				}
+			}
+
 #ifdef ENABLE_AWARD_COMMENT
 			// ── 수상소감: 이름~시간 사이. 다 들어가면 전문, 초과 시 코드포인트 말줄임 ──
 			{
 				float nameRight = 55.f + nm->getContentSize().width;
 				float timeLeft  = (PW - 10.f) - tm->getContentSize().width;
+				if (bMark) timeLeft -= (bMark->getContentSize().width + 4.f);  // 낙인 마커 공간 확보
 				float availL    = nameRight + 6.f;
 				float availW    = timeLeft - 6.f - availL;
 				if (availW > 12.f) {
@@ -961,7 +994,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			auto touchLs = EventListenerTouchOneByOne::create();
 			touchLs->setSwallowTouches(true);
 			touchLs->onTouchBegan =
-				[this, entriesCopy, replayOwners, rowsNode, FIRST_ROW_Y, ROW_STEP, PW, level](Touch* t, Event*) -> bool {
+				[this, entriesCopy, replayOwners, battleByLoser, rowsNode, FIRST_ROW_Y, ROW_STEP, PW, level](Touch* t, Event*) -> bool {
 					Vec2 p = rowsNode->convertToNodeSpace(t->getLocation());
 					if (p.x < 10 || p.x > PW - 10) return false;
 					for (int i = 0; i < (int)entriesCopy.size(); ++i) {
@@ -971,6 +1004,20 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 							std::string myId = LeaderboardManager::Instance()->getPlayFabId();
 							bool isMe      = !myId.empty() && e.playFabId == myId;
 							bool hasReplay = replayOwners->count(e.playFabId) > 0;
+							// 복수(battle_reward): 내 행이 피격 상태면 최우선 복수 창.
+							if (isMe) {
+								auto itB = battleByLoser.find(e.playFabId);
+								if (itB != battleByLoser.end()) {
+									const std::string& aId = itB->second;
+									for (const auto& en : entriesCopy) {
+										if (en.playFabId == aId) {
+											showRevengeDialog(level, aId, en.displayName, en.rank, en.scoreMs);
+											return true;
+										}
+									}
+									// A가 현재 보드에 없음(GC 지연 등) → 아래 기존 흐름으로 폴백
+								}
+							}
 							if (!e.comment.empty() || hasReplay) { showAwardCardDialog(e, level); return true; }
 							if (isMe && LeaderboardManager::Instance()->isAwardEnabled()) {
 								showAwardInputDialog(level, e.rank, e.comment); return true;
@@ -1004,11 +1051,16 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 		// 헤더 즉시 업데이트 (레벨/내비)
 		buildHeader(panel);
 
-		// 새 데이터 비동기 fetch → LED 스캔 인
+		// 새 데이터 비동기 fetch → 격파 낙인 조인 → LED 스캔 인
 		LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
 			[this, alive, gen, level, panel, buildRows](const std::vector<LeaderboardEntry>& entries) {
 				if (!alive || !*alive || gen != m_rankGeneration) return;
-				buildRows(panel, entries, true);   // ledScan = true
+				auto entriesCopy = entries;
+				LeaderboardManager::Instance()->fetchBattles(level,
+					[this, alive, gen, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
+						if (!alive || !*alive || gen != m_rankGeneration) return;
+						buildRows(panel, entriesCopy, true, bl);   // ledScan = true
+					});
 			});
 
 		return;
@@ -1090,8 +1142,13 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			// 헤더 가변 요소 (레벨 타이틀 + 내비)
 			buildHeader(panel);
 
-			// 데이터 행 (첫 진입은 스캔 없이 바로 표시)
-			buildRows(panel, entries, false);
+			// 데이터 행 (첫 진입은 스캔 없이 바로 표시) — 격파 낙인 조인 후 렌더
+			auto entriesCopy = entries;
+			LeaderboardManager::Instance()->fetchBattles(level,
+				[this, alive, gen, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
+					if (!alive || !*alive || gen != m_rankGeneration) return;
+					buildRows(panel, entriesCopy, false, bl);
+				});
 		});
 }
 
@@ -1345,18 +1402,37 @@ void MainScene::showNameInputDialog()
 					return;
 				}
 
-				std::string nameCopy = name;  // SetUserName은 non-const ref를 받음
-				UserDataManager::Instance()->SetUserName(nameCopy);
-				UserDataManager::Instance()->SaveUserData();
+				// 랭커 이름 중복(대소문자 무시) 소프트 필터. ResetAll이 리더보드 캐시를 비우므로
+				// 동기 검사 대신 전 레벨 리더보드를 fresh 조회 후 대조(비동기). 아래 updateDisplayName는
+				// 이 콜백 안에서 실행되며, 람다는 아래쪽에서 닫힌다.
+				LeaderboardManager::Instance()->isNameTakenByRankerAsync(name,
+					[alive, name, status, submitting](bool nameTaken) {
+				if (!alive || !*alive) return;
+				if (nameTaken) {
+					*submitting = false;
+					status->setColor(Color3B(255, 120, 120));
+					status->setString("Name already taken");
+					return;
+				}
 
-				auto* ud = UserDataManager::Instance();
-				int lv = ud->m_pendingSubmitLevel;
-				int tm = ud->m_pendingSubmitTime;
-				bool hasPending = ud->HasPendingSubmit();
-				ud->ClearPendingSubmit();
-
-				// updateDisplayName 완료 → submitScore 완료 → replaceScene 순서로 체이닝
-				LeaderboardManager::Instance()->updateDisplayName(name, [lv, tm, hasPending](bool) {
+				// 서버 반영(updateDisplayName) 성공 시에만 로컬 확정 + 진행.
+				// 실패 시 로컬 커밋 안 함 + 입력창 유지(로컬↔서버 불일치 방지). 이름 설정은 이미 온라인 전제.
+				LeaderboardManager::Instance()->updateDisplayName(name, [alive, name, status, submitting](bool nameOk) {
+					if (!alive || !*alive) return;
+					if (!nameOk) {
+						*submitting = false;
+						status->setColor(Color3B(255, 120, 120));
+						status->setString("Couldn't set name, try again");
+						return;
+					}
+					std::string nameCopy = name;  // SetUserName은 non-const ref를 받음
+					UserDataManager::Instance()->SetUserName(nameCopy);
+					UserDataManager::Instance()->SaveUserData();
+					auto* ud = UserDataManager::Instance();
+					int lv = ud->m_pendingSubmitLevel;
+					int tm = ud->m_pendingSubmitTime;
+					bool hasPending = ud->HasPendingSubmit();
+					ud->ClearPendingSubmit();
 					auto goToMain = []() {
 						UserDataManager::Instance()->m_justRegistered = true;
 						Director::getInstance()->replaceScene(
@@ -1369,6 +1445,7 @@ void MainScene::showNameInputDialog()
 					} else {
 						goToMain();
 					}
+				});
 				});
 			});
 	});
@@ -1666,11 +1743,11 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 				auto raceLabel = Label::createWithSystemFont("\xE2\x9A\x94 RACE", "Arial", 13);
 				raceLabel->setColor(Color3B(255, 180, 90));
 				auto raceBtn = MenuItemLabel::create(raceLabel,
-					[this, TAG, lv, blob, nm, rnk, sms](Ref*) {
+					[this, TAG, lv, blob, nm, rnk, sms, pid](Ref*) {
 						SoundFactory::Instance()->play("efs_click");
 						this->removeChildByTag(TAG);
 						Director::getInstance()->replaceScene(
-							TransitionFade::create(0.3f, PlayScene::createRaceScene(lv, blob, nm, rnk, sms)));
+							TransitionFade::create(0.3f, PlayScene::createRaceScene(lv, blob, nm, rnk, sms, pid)));
 					});
 				raceBtn->setPosition(Vec2(DW * 0.70f, 42));
 
@@ -1690,7 +1767,19 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 		auto editBtn = MenuItemLabel::create(editLabel,
 			[this, TAG, level, rank, existing](Ref*) {
 				this->removeChildByTag(TAG);
-				this->showAwardInputDialog(level, rank, existing);
+				// 격파 소감 프리필(battle_reward): 기존 소감이 없고 이번 격파 브래그가 있으면
+				// "{상대}를 짓밟고 올라왔다"를 기본값으로 주입(수정 가능). 1회 소비.
+				std::string prefill = existing;
+				if (prefill.empty()) {
+					std::string bragKey = StringUtils::format("battle_brag_L%02d", level);
+					std::string brag = UserDefault::getInstance()->getStringForKey(bragKey.c_str(), "");
+					if (!brag.empty()) {
+						prefill = brag + "\xEB\xA5\xBC \xEC\xA7\x93\xEB\xB0\x9F\xEA\xB3\xA0 \xEC\x98\xAC\xEB\x9D\xBC\xEC\x99\x94\xEB\x8B\xA4";  // "를 짓밟고 올라왔다"
+						UserDefault::getInstance()->deleteValueForKey(bragKey.c_str());
+						UserDefault::getInstance()->flush();
+					}
+				}
+				this->showAwardInputDialog(level, rank, prefill);
 			});
 		editBtn->setPosition(Vec2(DW / 2, 14));
 		auto menu = Menu::create(editBtn, nullptr);
@@ -1811,6 +1900,95 @@ void MainScene::showSettingsMenu()
 	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
 
 	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
+	menu->setPosition(Vec2::ZERO);
+	dlg->addChild(menu);
+}
+
+// 복수 다이얼로그 (battle_reward): 내 피격 낙인 탭 → 나를 이긴 상대(A) 고스트로 재도전.
+void MainScene::showRevengeDialog(int level, const std::string& aId, const std::string& aName,
+                                  int aRank, int aScore)
+{
+	const int TAG = 197;
+	if (this->getChildByTag(TAG)) return;
+	SoundFactory::Instance()->play("efs_click");
+
+	const float DW = 248, DH = 140.f;
+
+	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
+	backdrop->setTag(TAG);
+	this->addChild(backdrop, 999);
+	backdrop->runAction(FadeTo::create(0.15f, 150));
+	attachModalBlocker(backdrop);
+
+	auto dlg = LayerColor::create(Color4B(40, 12, 18, 236), DW, DH);   // 붉은 톤(피격/복수)
+	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
+	dlg->setScale(0.7f);
+	backdrop->addChild(dlg);
+	dlg->runAction(Sequence::create(
+		ScaleTo::create(0.15f, 1.05f),
+		ScaleTo::create(0.08f, 1.0f),
+		nullptr));
+
+	auto outline = DrawNode::create();
+	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.5f, 0.5f, 0.9f));
+	dlg->addChild(outline);
+
+	auto title = Label::createWithSystemFont("\xF0\x9F\x92\xA5 DEFEATED", "Arial", 15);   // 💥
+	title->setColor(Color3B(255, 110, 110));
+	title->setPosition(Vec2(DW / 2, DH - 22));
+	dlg->addChild(title);
+
+	auto divider = DrawNode::create();
+	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.4f, 0.4f, 0.8f));
+	dlg->addChild(divider);
+
+	// "{A}에게 랭킹을 빼앗겼습니다"
+	auto msg = Label::createWithSystemFont(
+		StringUtils::format("%s\xEC\x97\x90\xEA\xB2\x8C \xEB\x9E\xAD\xED\x82\xB9\xEC\x9D\x84 \xEB\xB9\xBC\xEC\x95\x97\xEA\xB2\xBC\xEC\x8A\xB5\xEB\x8B\x88\xEB\x8B\xA4",
+			utf8TruncateCP(aName, 10).c_str()),
+		"Arial", 12);
+	msg->setColor(Color3B(235, 215, 215));
+	msg->setAlignment(TextHAlignment::CENTER);
+	msg->setDimensions(DW - 28, 0);
+	msg->setPosition(Vec2(DW / 2, DH - 68));
+	dlg->addChild(msg);
+
+	auto alive = m_aliveFlag;
+
+	// [⚔ REVENGE] — A 리플레이 조회 후 고스트 레이스로 직행. 없으면 타이틀에 안내.
+	auto revLabel = Label::createWithSystemFont("\xE2\x9A\x94 REVENGE", "Arial", 14);   // ⚔
+	revLabel->setColor(Color3B(255, 180, 90));
+	auto revBtn = MenuItemLabel::create(revLabel,
+		[this, alive, TAG, title, level, aId, aName, aRank, aScore](Ref*) {
+			SoundFactory::Instance()->play("efs_click");
+			LeaderboardManager::Instance()->fetchReplays(level,
+				[this, alive, TAG, title, level, aId, aName, aRank, aScore](const std::map<std::string, std::string>& m) {
+					if (!alive || !*alive) return;
+					if (!this->getChildByTag(TAG)) return;   // 창 닫힘
+					auto it = m.find(aId);
+					if (it == m.end() || it->second.empty()) {
+						// A 리플레이 없음 → 복수 불가 안내(창 유지)
+						title->setString("NO REPLAY");
+						title->setColor(Color3B(200, 200, 200));
+						SoundFactory::Instance()->play("efs_cancel_select");
+						return;
+					}
+					this->removeChildByTag(TAG);
+					Director::getInstance()->replaceScene(TransitionFade::create(0.3f,
+						PlayScene::createRaceScene(level, it->second, aName, aRank, aScore, aId)));
+				});
+		});
+	revBtn->setPosition(Vec2(DW * 0.32f, 22));
+
+	auto laterLabel = Label::createWithSystemFont("Later", "Arial", 14);
+	laterLabel->setColor(Color3B(180, 180, 180));
+	auto laterBtn = MenuItemLabel::create(laterLabel, [this, TAG](Ref*) {
+		SoundFactory::Instance()->play("efs_click");
+		this->removeChildByTag(TAG);
+	});
+	laterBtn->setPosition(Vec2(DW * 0.70f, 22));
+
+	auto menu = Menu::create(revBtn, laterBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
 	dlg->addChild(menu);
 }

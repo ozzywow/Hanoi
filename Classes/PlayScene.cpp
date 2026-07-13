@@ -630,8 +630,30 @@ void PlayScene::Finished()
 		this->unschedule("race_anim");
 		if (m_raceBar)       m_raceBar->setVisible(false);
 		if (m_raceYouIcon)   m_raceYouIcon->setVisible(false);
-		if (m_raceGhostIcon) m_raceGhostIcon->setVisible(false);
 		if (m_raceGapLabel)  m_raceGapLabel->setVisible(false);
+		// 승리 시 고스트 K.O. 연출(battle_reward): 회전하며 추락+페이드 → 리셋(리플레이 재사용 대비).
+		// 패배 시 즉시 숨김.
+		if (m_raceGhostIcon) {
+			if (m_mastTime < m_ghostScoreMs) {
+				m_raceGhostIcon->stopAllActions();
+				m_raceGhostIcon->runAction(Sequence::create(
+					Spawn::create(
+						RotateBy::create(0.6f, 540.0f),
+						MoveBy::create(0.6f, Vec2(0, -40)),
+						FadeOut::create(0.6f),
+						nullptr),
+					CallFunc::create([this]() {
+						if (m_raceGhostIcon) {
+							m_raceGhostIcon->setVisible(false);
+							m_raceGhostIcon->setOpacity(255);
+							m_raceGhostIcon->setRotation(0);
+						}
+					}),
+					nullptr));
+			} else {
+				m_raceGhostIcon->setVisible(false);
+			}
+		}
 	} else {
 		showHudResult(isNewRecord, rt);
 	}
@@ -696,6 +718,7 @@ void PlayScene::MessagePopup()
 	auto popupBox = LayerColor::create(Color4B(10, 15, 50, 230), PW, PH);
 	popupBox->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
 	popupBox->setScale(0.7f);
+	popupBox->setTag(4242);   // battle_reward: RANK STOLEN 배너 비동기 부착용 핸들
 	overlay->addChild(popupBox);
 	popupBox->runAction(Sequence::create(
 		ScaleTo::create(0.15f, 1.05f),
@@ -729,6 +752,59 @@ void PlayScene::MessagePopup()
 		vsLbl->setColor(raceWon ? Color3B(80, 220, 120) : Color3B(255, 150, 150));
 		vsLbl->setPosition(Vec2(PW / 2, PH - 64));   // 구분선(PH-52) 아래로 → 겹침 방지
 		popupBox->addChild(vsLbl);
+	}
+
+	// ── 격파 기록 훅 (battle_reward): 레이스 승리 + 신기록 + 유효 고스트 → recordBattle.
+	//    제출(submitScore) 전파 대기 2초 후 호출. 씬을 떠나도 기록되도록 스케줄 타겟은 싱글턴.
+	//    서버가 상향 추월(격파)로 판정하면: ① 소감 프리필용 브래그 저장 ② 팝업에 RANK STOLEN 배너.
+	if (m_isRace)
+		cocos2d::log("[battle] hook check: raceWon=%d isNewRecord=%d ghostId='%s' myId='%s' ghostRank=%d",
+			(int)raceWon, (int)isNewRecord, m_ghostPlayFabId.c_str(),
+			LeaderboardManager::Instance()->getPlayFabId().c_str(), m_ghostRank);
+	if (m_isRace && raceWon && isNewRecord && !m_ghostPlayFabId.empty()
+	    && m_ghostPlayFabId != LeaderboardManager::Instance()->getPlayFabId())
+	{
+		PlayScene* self = this;
+		auto alive        = m_aliveFlag;
+		int  lvl          = m_countOfDiscus;
+		int  aValWas      = bestRecordTime;   // A의 직전 기록(ms, 신기록 갱신 전 값) — 상향 판정용
+		std::string loser = m_ghostPlayFabId;
+		std::string gname = m_ghostName;
+		cocos2d::log("[battle] hook armed: loser=%s aValWas=%d level=%d", loser.c_str(), aValWas, lvl);
+		Director::getInstance()->getScheduler()->schedule(
+			[self, alive, lvl, aValWas, loser, gname, PW, PH](float) {
+				LeaderboardManager::Instance()->recordBattle(lvl, loser, aValWas,
+					[self, alive, lvl, gname, PW, PH](bool ok, const std::string& reason) {
+						cocos2d::log("[battle] recordBattle result: ok=%d reason=%s", (int)ok, reason.c_str());
+						if (!ok) return;   // not_upward/not_passed 등 → 격파 미성립, 조용히 종료
+						Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+							[self, alive, lvl, gname, PW, PH]() {
+								// 소감 프리필용 브래그 저장(씬 생존 무관 — MainScene에서 1회 소비)
+								UserDefault::getInstance()->setStringForKey(
+									StringUtils::format("battle_brag_L%02d", lvl).c_str(), gname);
+								UserDefault::getInstance()->flush();
+								// RANK STOLEN 배너 (팝업이 아직 떠 있을 때만)
+								if (!alive || !*alive) return;
+								auto ov = self->getChildByTag(tagPopup);
+								if (!ov) return;
+								auto pb = ov->getChildByTag(4242);
+								if (!pb) return;
+								auto steal = Label::createWithSystemFont("\xF0\x9F\x97\xA1 RANK STOLEN!", "Arial", 13);  // 🗡
+								steal->setColor(Color3B(255, 215, 0));
+								steal->setPosition(Vec2(PW / 2, PH - 92));
+								steal->setOpacity(0);
+								pb->addChild(steal, 10);
+								steal->runAction(Sequence::create(
+									DelayTime::create(0.1f),
+									Spawn::create(FadeIn::create(0.25f), ScaleTo::create(0.25f, 1.15f), nullptr),
+									ScaleTo::create(0.1f, 1.0f),
+									nullptr));
+								SoundFactory::Instance()->play("efs_new_record");
+							});
+					});
+			},
+			(void*)LeaderboardManager::Instance(),   // 타겟 = 싱글턴(씬 소멸과 무관하게 존속)
+			0.0f, 0, 2.0f, false, "battle_record_delay");
 	}
 
 	// 구분선
@@ -785,11 +861,11 @@ void PlayScene::MessagePopup()
 		auto retryLabel = Label::createWithSystemFont("\xE2\x86\xBB  RETRY", "Arial", 13);   // ↻
 		retryLabel->setColor(Color3B(255, 180, 90));
 		int lvl = m_countOfDiscus, gr = m_ghostRank, gs = m_ghostScoreMs;
-		std::string gb = m_ghostBlob, gn = m_ghostName;
-		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs](Ref*) {
+		std::string gb = m_ghostBlob, gn = m_ghostName, gpid = m_ghostPlayFabId;
+		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs, gpid](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			Director::getInstance()->replaceScene(
-				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs)));
+				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs, gpid)));
 		});
 		retryItem->setPosition(Vec2(PW * 0.70f, 48));
 		auto retryMenu = Menu::create(retryItem, nullptr);
@@ -1391,7 +1467,8 @@ void PlayScene::skipReplay()
 // 배속 스테퍼 ◀ SPEED xN ▶ 생성 — 저장된 배속 로드, 재생/관전 공용
 void PlayScene::_buildReplaySpeedControl()
 {
-	if (m_replaySpeedMenu) { m_replaySpeedMenu->removeFromParent(); m_replaySpeedMenu = nullptr; m_replaySpeedLabel = nullptr; }
+	if (m_replaySpeedLabel) { m_replaySpeedLabel->removeFromParent(); m_replaySpeedLabel = nullptr; }
+	if (m_replaySpeedMenu)  { m_replaySpeedMenu->removeFromParent();  m_replaySpeedMenu  = nullptr; }
 
 	// 저장된 배속 로드 → 인덱스 매칭 (없거나 불일치 시 x1)
 	float saved = UserDefault::getInstance()->getFloatForKey("replay_speed", 1.0f);
@@ -1421,9 +1498,9 @@ void PlayScene::_buildReplaySpeedControl()
 		StringUtils::format("SPEED x%g", (double)m_replaySpeed), "Arial", 14);
 	m_replaySpeedLabel->setColor(Color3B(255, 220, 120));
 	m_replaySpeedLabel->setPosition(Vec2(cx, y));
-	m_replaySpeedMenu->addChild(m_replaySpeedLabel, 1);   // 비인터랙티브 라벨
 
 	this->addChild(m_replaySpeedMenu, 200);   // 터치레이어 위 → 건너뛰기와 분리
+	this->addChild(m_replaySpeedLabel, 201);  // 라벨은 Menu 자식 불가(MenuItem만 허용) → 씬에 직접 부착
 }
 
 void PlayScene::_stepReplaySpeed(int dir)
@@ -1610,8 +1687,9 @@ void PlayScene::endReplay()
 	m_replaySelectedPole = -1;
 	this->SelectPole(-1, false);
 
-	// 배속 스테퍼 제거 (라벨은 메뉴의 자식이라 함께 제거됨)
-	if (m_replaySpeedMenu) { m_replaySpeedMenu->removeFromParent(); m_replaySpeedMenu = nullptr; m_replaySpeedLabel = nullptr; }
+	// 배속 스테퍼 제거 (라벨은 씬에 직접 부착되므로 따로 제거)
+	if (m_replaySpeedLabel) { m_replaySpeedLabel->removeFromParent(); m_replaySpeedLabel = nullptr; }
+	if (m_replaySpeedMenu)  { m_replaySpeedMenu->removeFromParent();  m_replaySpeedMenu  = nullptr; }
 
 	// 관전 모드: 재생 종료 → 선택 팝업(REPLAY/HOME). 바로 나가지 않음.
 	if (m_isSpectate) {

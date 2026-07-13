@@ -238,6 +238,9 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
             // 리플레이 공유 Shared Group(replays_L03~L05) 최초 1회 생성 (2차)
             bootstrapReplayGroups();
 
+            // 격파 낙인 Shared Group(battles_L03~L10) 최초 1회 생성 (3차, battle_reward)
+            bootstrapBattleGroups();
+
             // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
             fetchTitleConfig();
 
@@ -369,10 +372,53 @@ void LeaderboardManager::invalidateCache(int level)
     m_leaderboardCache.erase(level);
 }
 
+bool LeaderboardManager::isNameTakenByRanker(const std::string& name) const
+{
+    // trim + ASCII 소문자 정규화 (한글은 대소문자 없음 → 영향 없음)
+    auto norm = [](const std::string& s) -> std::string {
+        size_t a = s.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) return std::string();
+        size_t b = s.find_last_not_of(" \t\r\n");
+        std::string t = s.substr(a, b - a + 1);
+        for (char& c : t) c = (char)tolower((unsigned char)c);
+        return t;
+    };
+    std::string target = norm(name);
+    if (target.empty()) return false;
+
+    // 캐시된 모든 레벨의 엔트리 이름과 대조 (본인 playFabId 제외)
+    for (const auto& kv : m_leaderboardCache) {
+        for (const auto& e : kv.second.entries) {
+            if (!m_playFabId.empty() && e.playFabId == m_playFabId) continue;
+            if (norm(e.displayName) == target) return true;
+        }
+    }
+    return false;
+}
+
+void LeaderboardManager::isNameTakenByRankerAsync(const std::string& name,
+    std::function<void(bool)> callback)
+{
+    // 전 레벨 리더보드를 조회(캐시 채움)한 뒤 동기 검사. fetchLeaderboard는 캐시 신선하면 즉시 반환.
+    auto remaining = std::make_shared<int>(MAX_PLAY_LEVEL - 3 + 1);
+    auto done      = std::make_shared<bool>(false);
+    auto finish = [this, name, callback, done]() {
+        if (*done) return;
+        *done = true;
+        if (callback) callback(isNameTakenByRanker(name));
+    };
+    for (int lv = 3; lv <= MAX_PLAY_LEVEL; ++lv) {
+        fetchLeaderboard(lv, 10, [remaining, finish](const std::vector<LeaderboardEntry>&) {
+            if (--(*remaining) <= 0) finish();
+        });
+    }
+}
+
 void LeaderboardManager::clearAllCaches()
 {
     m_leaderboardCache.clear();
     m_replayCache.clear();
+    m_battleCache.clear();
 #ifdef ENABLE_AWARD_COMMENT
     m_commentCache.clear();
 #endif
@@ -1075,5 +1121,207 @@ void LeaderboardManager::doUploadReplay(int level, const std::string& blob,
 
             log("PlayFab writeReplay L%d: FAIL reason=%s", level, reason.c_str());
             if (callback) callback(false);
+        });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+//  도전모드 격파/복수 (3차) — Shared Group battles_L%02d, replay 인프라 미러
+// ─────────────────────────────────────────────────────────────────────────
+
+std::string LeaderboardManager::battleGroupId(int level)
+{
+    return StringUtils::format("battles_L%02d", level);
+}
+
+void LeaderboardManager::bootstrapBattleGroups(bool force)
+{
+    if (!force) {
+        if (m_battleGroupsBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("battle_groups_bootstrapped", false)) {
+            m_battleGroupsBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    for (int lv = 3; lv <= BATTLE_MAX_LEVEL; ++lv) {
+        std::string gid  = battleGroupId(lv);
+        std::string body = StringUtils::format("{\"SharedGroupId\":\"%s\"}", gid.c_str());
+        httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+            [gid](bool ok, const std::string&) {
+                log("PlayFab CreateSharedGroup %s: %s",
+                    gid.c_str(), ok ? "created" : "exists/err (ignored)");
+            });
+    }
+    m_battleGroupsBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("battle_groups_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::recordBattle(int level, const std::string& loserId, int aValWas,
+    std::function<void(bool, const std::string&)> callback)
+{
+    if (loserId.empty() || level > BATTLE_MAX_LEVEL) {
+        if (callback) callback(false, "bad_args");
+        return;
+    }
+    if (!isLoggedIn()) {
+        login([this, level, loserId, aValWas, callback](bool ok) {
+            if (ok) doRecordBattle(level, loserId, aValWas, 1, callback);
+            else if (callback) callback(false, "network");
+        });
+        return;
+    }
+    doRecordBattle(level, loserId, aValWas, 1, callback);
+}
+
+void LeaderboardManager::doRecordBattle(int level, const std::string& loserId, int aValWas,
+    int attempt, std::function<void(bool, const std::string&)> callback)
+{
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"recordBattle\","
+        "\"FunctionParameter\":{\"level\":%d,\"loserId\":\"%s\",\"aValWas\":%d},"
+        "\"GeneratePlayStreamEvent\":false}",
+        level, escapeJson(loserId).c_str(), aValWas);
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, level, loserId, aValWas, attempt, callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(false, "network"); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) { if (callback) callback(false, "parse"); return; }
+            const auto& data = doc["data"];
+
+            if (data.HasMember("Error") && data["Error"].IsObject()) {
+                log("PlayFab recordBattle script error: %.300s", resp.c_str());
+                if (callback) callback(false, "script_error");
+                return;
+            }
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(false, "parse");
+                return;
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+
+            if (okFlag) {
+                m_battleCache.erase(level);   // 다음 랭킹보드 조회 시 낙인 갱신
+                log("PlayFab recordBattle L%d: OK (loser=%s, attempt=%d)", level, loserId.c_str(), attempt);
+                if (callback) callback(true, "");
+                return;
+            }
+
+            // 재시도 판단:
+            //  - no_group : Shared Group 미생성 → 부트스트랩 후 재시도(1초 뒤)
+            //  - not_passed / no_a_record / no_b_record : 신기록 리더보드 전파 지연으로 추정 → 재시도(3초 뒤)
+            bool propDelay = (reason == "not_passed" || reason == "no_a_record" || reason == "no_b_record");
+            bool noGroup   = (reason == "no_group");
+            if ((noGroup || propDelay) && attempt < BATTLE_MAX_ATTEMPT) {
+                if (noGroup) bootstrapBattleGroups(true);
+                float delay = noGroup ? 1.0f : 3.0f;
+                log("PlayFab recordBattle L%d: reason=%s → retry (attempt %d→%d, %.0fs)",
+                    level, reason.c_str(), attempt, attempt + 1, delay);
+                Director::getInstance()->getScheduler()->schedule(
+                    [this, level, loserId, aValWas, attempt, callback](float) {
+                        doRecordBattle(level, loserId, aValWas, attempt + 1, callback);
+                    },
+                    (void*)this, 0.0f, 0, delay, false,
+                    StringUtils::format("battle_write_retry_%d_%d", level, attempt));
+                return;
+            }
+
+            log("PlayFab recordBattle L%d: FAIL reason=%s (attempt=%d) raw=%.400s",
+                level, reason.c_str(), attempt, resp.c_str());
+            if (callback) callback(false, reason);
+        });
+}
+
+void LeaderboardManager::deleteBattle(int level, std::function<void(bool)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, callback](bool ok) {
+            if (ok) deleteBattle(level, callback);
+            else if (callback) callback(false);
+        });
+        return;
+    }
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"deleteBattle\","
+        "\"FunctionParameter\":{\"level\":%d},"
+        "\"GeneratePlayStreamEvent\":false}", level);
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, level, callback](bool ok, const std::string&) {
+            if (ok) m_battleCache.erase(level);
+            log("PlayFab deleteBattle L%d: %s", level, ok ? "OK" : "FAIL");
+            if (callback) callback(ok);
+        });
+}
+
+void LeaderboardManager::invalidateBattles(int level)
+{
+    m_battleCache.erase(level);
+}
+
+void LeaderboardManager::fetchBattles(int level,
+    std::function<void(const std::map<std::string, std::string>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, callback](bool ok) {
+            if (ok) fetchBattles(level, callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    // 캐시 확인
+    auto it = m_battleCache.find(level);
+    if (it != m_battleCache.end()) {
+        double elapsedH = difftime(time(nullptr), it->second.cachedAt) / 3600.0;
+        if (elapsedH < CACHE_TTL_HOURS) {
+            if (callback) {
+                auto byLoser = it->second.byLoser;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, byLoser]() { callback(byLoser); });
+            }
+            return;
+        }
+    }
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\",\"GetMembers\":false}", battleGroupId(level).c_str());
+
+    httpPost(BASE_URL + "/Client/GetSharedGroupData", body, m_sessionTicket,
+        [this, level, callback](bool ok, const std::string& resp) {
+            std::map<std::string, std::string> out;   // loserId -> winnerId(by)
+            if (!ok) {
+                if (callback) callback(out);   // 그룹 없음/오류 — 캐시하지 않음
+                return;
+            }
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (!doc.HasParseError() && doc.HasMember("data")) {
+                const auto& data = doc["data"];
+                if (data.HasMember("Data") && data["Data"].IsObject()) {
+                    for (auto m = data["Data"].MemberBegin(); m != data["Data"].MemberEnd(); ++m) {
+                        if (!m->value.IsObject() ||
+                            !m->value.HasMember("Value") || !m->value["Value"].IsString())
+                            continue;
+                        // Value = JSON {"by":"<winnerId>","aVal":..,"ts":..}
+                        rapidjson::Document inner;
+                        inner.Parse(m->value["Value"].GetString());
+                        if (!inner.HasParseError() &&
+                            inner.HasMember("by") && inner["by"].IsString()) {
+                            out[m->name.GetString()] = inner["by"].GetString();
+                        }
+                    }
+                }
+            }
+            m_battleCache[level] = BattleCacheEntry{ out, time(nullptr) };
+            log("LeaderboardManager: cached battles L%d (%d entries)", level, (int)out.size());
+            if (callback) callback(out);
         });
 }
