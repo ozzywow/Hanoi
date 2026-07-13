@@ -57,6 +57,14 @@ public:
 	void showUpdateDialog(bool force, std::function<void()> onClose = nullptr);
 	bool m_updatePromptShown = false;   // 권장 업데이트 안내 중복 방지(강제는 매번 표시)
 
+	// 앱 버전 표시(TopInfoBar 우하단). current/latest 형식, 업데이트 있으면 "(New) …" + 깜빡임 + 탭→스토어.
+	// 최신 버전은 fetchTitleConfig 도착 후에만 알 수 있어, 콜백에서 refreshVersionLabel()로 갱신.
+	void refreshVersionLabel();
+	// 최신 버전(latest_version)이 늦게 도착하는 콜드 스타트 대비 — 확보될 때까지 재조회 후 갱신(상한 있음).
+	void refreshVersionLabelWhenReady(int attempt = 0);
+	Label*          m_versionLabel = nullptr;   // 버전 숫자 "current/latest" (탭 없음)
+	MenuItemLabel*  m_updateItem   = nullptr;   // [Update] 버튼 — current<latest일 때만 표시/활성, 탭→스토어
+
 #ifdef ENABLE_AWARD_COMMENT
 	// 랭킹 Top10 수상소감
 	void checkAndPromptAward(int level);                                   // 신기록 rank 확정 후 rank≤10이면 입력창

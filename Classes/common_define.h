@@ -19,7 +19,7 @@ using namespace cocos2d;
 
 #define MASTER_VOLUME 1.0f			// 0.0~1.0
 
-#define BUY_AT_STORE_URL "https://itunes.apple.com/app/id504138737?mt=8"
+#define BUY_AT_STORE_URL "https://apps.apple.com/app/id430261581"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
 #define kProductIdTotal "com.ozzywow.nanoi.fullversion"

@@ -862,10 +862,11 @@ void PlayScene::MessagePopup()
 		retryLabel->setColor(Color3B(255, 180, 90));
 		int lvl = m_countOfDiscus, gr = m_ghostRank, gs = m_ghostScoreMs;
 		std::string gb = m_ghostBlob, gn = m_ghostName, gpid = m_ghostPlayFabId;
-		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs, gpid](Ref*) {
+		bool rev = m_isRevenge;
+		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs, gpid, rev](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			Director::getInstance()->replaceScene(
-				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs, gpid)));
+				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs, gpid, rev)));
 		});
 		retryItem->setPosition(Vec2(PW * 0.70f, 48));
 		auto retryMenu = Menu::create(retryItem, nullptr);
@@ -1852,12 +1853,24 @@ void PlayScene::showSpectateEndPopup()
 
 void PlayScene::DrawInfoText ()
 {
-	
-	std::string strLevelInfo = StringUtils::format("LV.%d / %d", m_countOfDiscus, MAX_PLAY_LEVEL);
+	// 레벨 표시 위치: 고스트대결이면 "Race", 복수전이면 "Revenge", 그 외엔 "LV.n / max".
+	std::string strLevelInfo;
+	Color3B     levelCol;
+	if (m_isRace && m_isRevenge) {
+		strLevelInfo = "Revenge";
+		levelCol     = Color3B(255, 90, 90);     // 붉은색(복수/피격 테마)
+	} else if (m_isRace) {
+		strLevelInfo = "Race";
+		levelCol     = Color3B(120, 200, 255);   // 시안(고스트 대결 테마)
+	} else {
+		strLevelInfo = StringUtils::format("LV.%d / %d", m_countOfDiscus, MAX_PLAY_LEVEL);
+		levelCol     = Color3B::WHITE;
+	}
+
 	if (NULL == m_labelLevel)
 	{
 		m_labelLevel = Label::createWithSystemFont(strLevelInfo, "Arial", 13);
-		m_labelLevel->setColor(Color3B::WHITE);
+		m_labelLevel->setColor(levelCol);
 		m_labelLevel->setPosition(Vec2(120, RESOURCE_HEIGHT - 13));
 		this->addChild(m_labelLevel, 4, tagInfoText);
 		m_labelLevel->setVisible(false);
@@ -1865,6 +1878,7 @@ void PlayScene::DrawInfoText ()
 	else
 	{
 		m_labelLevel->setString(strLevelInfo);
+		m_labelLevel->setColor(levelCol);
 	}
 
 }
@@ -2131,15 +2145,22 @@ void PlayScene::callbackOnPushed_homeMenuItem(Ref* pSender)
 
 void PlayScene::callbackOnPushed_resetMenuItem(Ref* pSender)
 {
-	if (PLAY!= m_isIng ) 
-	{
-		return;
-	}
+	if (PLAY != m_isIng) return;                // 플레이 중에만 동작
+	if (m_isReplaying || m_isSpectate) return;  // 리플레이/관전 중에는 리셋 금지
+	if (m_isTransitioning) return;
 
-	this->ResetGame();
-	this->DrawDiscus();
-	this->DrawInfoText();
+	m_isTransitioning = true;
 	SoundFactory::Instance()->play("efs_click");
+
+	// 3-2-1 카운트다운 "이전"(대기) 상태로 되돌림 → 같은 레벨 씬을 새로 생성.
+	// PLAY 중 세팅된 타이머/이퀄라이저/고스트HUD/예약콜백/BGM을 자동 정리하고,
+	// 최초 진입과 동일한 "NONE 대기(안내/아이들 연출) → 사용자가 탭하면 카운트다운 시작" 상태가 됨.
+	// (리셋 버튼은 first-play 화면엔 없으므로 isFirstPlay=false. race면 고스트 데이터 유지해 재생성)
+	PlayScene* fresh = m_isRace
+		? PlayScene::createRaceScene(m_countOfDiscus, m_ghostBlob, m_ghostName,
+		                             m_ghostRank, m_ghostScoreMs, m_ghostPlayFabId, m_isRevenge)
+		: PlayScene::createScene(m_countOfDiscus);
+	Director::getInstance()->replaceScene(TransitionFade::create(0.2f, fresh));
 }
 
 void PlayScene::callbackOnPushed_prevMenuItem(Ref* sender)

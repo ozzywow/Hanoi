@@ -127,6 +127,7 @@ public:
 
 	// 3차: 고스트 레이스 (라이브 플레이 + 진행 HUD, docs §10)
 	bool        m_isRace        = false;
+	bool        m_isRevenge     = false;          // 복수전(피격 상대에게 재도전) 여부 — 레벨표시에 Revenge/Race 구분
 	std::string m_ghostBlob;
 	std::string m_ghostName;
 	std::string m_ghostPlayFabId;               // 고스트(B) 소유자 id — 격파 기록 대상 (battle_reward P0)
@@ -149,10 +150,11 @@ public:
 
 	static PlayScene* createRaceScene(int level, const std::string& ghostBlob,
 	                                  const std::string& name, int rank, int scoreMs,
-	                                  const std::string& playFabId = "")
+	                                  const std::string& playFabId = "", bool isRevenge = false)
 	{
 		PlayScene* p = PlayScene::create();
 		p->m_isRace         = true;
+		p->m_isRevenge      = isRevenge;
 		p->m_ghostBlob      = ghostBlob;
 		p->m_ghostName      = name;
 		p->m_ghostPlayFabId = playFabId;
