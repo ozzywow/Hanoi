@@ -1445,6 +1445,11 @@ void MainScene::showNameInputDialog()
 	editBox->setPlaceholderFontColor(Color3B(180, 180, 180));
 	editBox->setPlaceHolder("3-12 chars");
 	editBox->setMaxLength(12);
+	// 이전에 사용했던 이름이 남아있으면 자동 입력 (ResetAll 후 재설정 편의).
+	{
+		std::string lastName = UserDefault::getInstance()->getStringForKey("last_player_name", "");
+		if (!lastName.empty()) editBox->setText(lastName.c_str());
+	}
 	editBox->setInputMode(cocos2d::ui::EditBox::InputMode::SINGLE_LINE);
 	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
@@ -1521,6 +1526,9 @@ void MainScene::showNameInputDialog()
 					}
 					std::string nameCopy = name;  // SetUserName은 non-const ref를 받음
 					UserDataManager::Instance()->SetUserName(nameCopy);
+					// 다음 재설정(ResetAll) 시 자동 입력용으로 마지막 이름 보관.
+					UserDefault::getInstance()->setStringForKey("last_player_name", name);
+					UserDefault::getInstance()->flush();
 					UserDataManager::Instance()->SaveUserData();
 					auto* ud = UserDataManager::Instance();
 					int lv = ud->m_pendingSubmitLevel;
