@@ -11,6 +11,7 @@ public class AppActivity extends Cocos2dxActivity {
 
     private static AppActivity sInstance;
     private BillingManager mBillingManager;
+    private AppReviewManager mReviewManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +66,17 @@ public class AppActivity extends Cocos2dxActivity {
             if (sInstance.mBillingManager != null) {
                 sInstance.mBillingManager.restorePurchases();
             }
+        });
+    }
+
+    // Called from C++ via JNI (ReviewManager::requestNative)
+    public static void requestReview() {
+        if (sInstance == null) return;
+        sInstance.runOnUiThread(() -> {
+            if (sInstance.mReviewManager == null) {
+                sInstance.mReviewManager = new AppReviewManager(sInstance);
+            }
+            sInstance.mReviewManager.requestReview();
         });
     }
 
