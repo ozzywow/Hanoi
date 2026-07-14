@@ -9,8 +9,8 @@ android {
         applicationId "com.ozzywow.hanoi"
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 57
-        versionName "2.2.1"
+        versionCode 58
+        versionName "2.2.2"
 
         externalNativeBuild {
             cmake {
@@ -77,4 +77,5 @@ dependencies {
     implementation project(':libcocos2dx')
     implementation 'com.android.billingclient:billing:9.1.0'
     implementation 'androidx.fragment:fragment:1.8.9'
+    implementation 'com.google.android.play:review:2.0.2'
 }

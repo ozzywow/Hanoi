@@ -6,6 +6,7 @@
 #include "MainScene.h"
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
+#include "ReviewManager.h"
 #include "DrawUtils.h"
 #ifdef LITE_VER
 #include "MKStoreManager_cpp.h"
@@ -674,6 +675,9 @@ void PlayScene::MessagePopup()
 	m_popupShownTime = getMilliCount();
 	SoundFactory::Instance()->play("efs_click");
 
+	// 인앱 리뷰: 매 클리어마다 누적 플레이 카운트 증가 (게이팅 재료)
+	ReviewManager::Instance()->NotifyGamePlayed();
+
 	if (m_mastTime < 100) m_mastTime = 100;
 	RecordTime recordTime = getRecordTime(m_mastTime);
 
@@ -703,6 +707,13 @@ void PlayScene::MessagePopup()
 		if (!m_isFirstPlay) {
 			LeaderboardManager::Instance()->submitScore(m_countOfDiscus, m_mastTime);
 			UserDataManager::Instance()->m_justGotNewRecord = true;
+
+			// 인앱 리뷰 유도 — 신기록이라는 긍정적 순간 직후.
+			// 게이팅(누적 3회+버전당 1회)은 ReviewManager가 판정. 결과 팝업이 먼저 뜨도록 1.6초 지연.
+			this->runAction(Sequence::create(
+				DelayTime::create(1.6f),
+				CallFunc::create([]() { ReviewManager::Instance()->MaybeRequestReview(); }),
+				nullptr));
 		}
 		isNewRecord = true;
 	}
