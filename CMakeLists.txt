@@ -63,6 +63,7 @@ set(GAME_HEADER
     Classes/SimulatorConfig.h
     Classes/LeaderboardManager.h
     Classes/AndroidBilling.h
+    Classes/ReviewManager.h
 )
 
 # ------------------------------------------------------------
@@ -82,6 +83,7 @@ set(GAME_SOURCE
     Classes/MKStoreManager_cpp.cpp
     Classes/MKStoreManagerDelegate.cpp
     Classes/LeaderboardManager.cpp
+    Classes/ReviewManager.cpp
 )
 
 # ------------------------------------------------------------
@@ -125,6 +127,7 @@ elseif(APPLE)
             Classes/MKStoreManager.mm
             Classes/MKStoreManager_mm.mm
             Classes/MKStoreObserver.mm
+            Classes/ReviewBridge_ios.mm
             ${APP_UI_RES}
         )
     elseif(MACOSX)
