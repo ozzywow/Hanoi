@@ -62,3 +62,9 @@ proj.android/gradle/wrapper/gradle-wrapper.properties
 
 # Java heap dumps (auto-generated, never commit)
 *.hprof
+
+# PlayFab 정리 도구 출력물 (플레이어ID/로그 — 커밋 금지)
+tools/junk_players.json
+tools/keep_sample.json
+tools/deleted.log
+tools/*.local.ps1
