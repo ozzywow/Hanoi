@@ -363,8 +363,9 @@ bool MainScene::init()
 		int  lv    = level;
 		bool        prevEnabled = LeaderboardManager::Instance()->isAwardEnabled();
 		std::string prevNotice  = LeaderboardManager::Instance()->getNotice();
+		std::string prevLatest  = LeaderboardManager::Instance()->getLatestVersion();
 		LeaderboardManager::Instance()->fetchTitleConfig(
-			[this, alive, lv, prevEnabled, prevNotice]() {
+			[this, alive, lv, prevEnabled, prevNotice, prevLatest]() {
 				if (!alive || !*alive) return;
 #ifdef ENABLE_AWARD_COMMENT
 				// 마스터 스위치가 바뀐 경우에만 재그리기(불필요한 재그림 방지)
@@ -375,10 +376,23 @@ bool MainScene::init()
 #else
 				(void)lv; (void)prevEnabled;
 #endif
-				// 공지가 바뀐 경우에만 상단 티커 갱신(네트워크 지연 도착분/변경 반영)
+				// 공지 변경 또는 업데이트 안내(latest_version 지연 도착)가 생기면 상단 티커 갱신.
 				refreshVersionLabel();   // latest_version 도착 → 버전 라벨을 current/latest 형태로 갱신
-					if (LeaderboardManager::Instance()->getNotice() != prevNotice)
-					startTopTicker();
+				{
+					bool noticeChanged =
+						LeaderboardManager::Instance()->getNotice() != prevNotice;
+					// latest_version이 콜드스타트 후 처음 도착(prevLatest 비었다가 채워짐)했고
+					// 공지가 없어 업데이트 안내가 티커에 떠야 하면 재시작. (warm start 중복 재시작 방지)
+					std::string        cur    = Application::getInstance()->getVersion();
+					const std::string& latest = LeaderboardManager::Instance()->getLatestVersion();
+					bool updateJustArrived =
+						prevLatest.empty() && !latest.empty()
+						&& LeaderboardManager::Instance()->getNotice().empty()
+						&& !cur.empty()
+						&& LeaderboardManager::compareVersion(cur, latest) < 0;
+					if (noticeChanged || updateJustArrived)
+						startTopTicker();
+				}
 				// 버전 게이트 — 서버 조회 성공분으로만 판정(오프라인 오차단 방지).
 				// a=강제(항상, 이름창까지 닫음) / b=권장(진입마다) / c=소극적(앱 실행당 1회).
 				auto lm = LeaderboardManager::Instance();
@@ -411,6 +425,11 @@ bool MainScene::init()
 		scheduleOnce([this, lv](float) {
 			LeaderboardManager::Instance()->invalidateCache(lv);
 			drawOnlineRank(lv);
+#ifdef ENABLE_AWARD_COMMENT
+			// 첫판/이름 등록 직후 pending 점수가 제출됐으므로, Top10이면 로컬 리플레이도 업로드.
+			// (일반 신기록은 아래 m_justGotNewRecord 분기가 담당 — 두 분기는 상호배타적)
+			checkAndPromptAward(lv);
+#endif
 		}, 2.0f, "refreshRank");
 	}
 
@@ -751,17 +770,13 @@ void MainScene::showUpdateDialog(bool force, std::function<void()> onClose)
 	// 체크박스 자리를 위해 권장/소극 창은 세로로 조금 더 크게.
 	const float DW = 264, DH = force ? 150 : 176;
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 1000);
-	backdrop->runAction(FadeTo::create(0.2f, force ? 210 : 160));
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 240), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2 + 40));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+	// 공지 톤 = 골드 테두리·타이틀. 배경 탭 처리(closeLs)라 modal=false. 강제=딤 210, 헤더 title+msg라 divider=false. 키보드 아님이나 기존 y+40 유지.
+	auto f = makePopupFrame(force ? "UPDATE REQUIRED" : "UPDATE AVAILABLE",
+		kBorderGold, kTextTitle, DW, DH, 15.f, force ? kDimForce : kDimStd, false, false);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 1000);
+	auto dlg = f.box;
+	dlg->setPositionY(dlg->getPositionY() + 40);
 
 	// 모달 — 강제면 바깥 탭도 삼키기만(닫지 않음), 권장이면 바깥 탭 시 닫힘.
 	auto closeLs = EventListenerTouchOneByOne::create();
@@ -774,17 +789,7 @@ void MainScene::showUpdateDialog(bool force, std::function<void()> onClose)
 		return true;
 	};
 	Director::getInstance()->getEventDispatcher()
-		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
-	dlg->addChild(outline);
-
-	auto titleLabel = Label::createWithSystemFont(
-		force ? "UPDATE REQUIRED" : "UPDATE AVAILABLE", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 215, 0));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 26));
-	dlg->addChild(titleLabel);
+		->addEventListenerWithSceneGraphPriority(closeLs, f.backdrop);
 
 	auto msg = Label::createWithSystemFont(
 		force ? "A new version is required to keep playing."
@@ -807,25 +812,21 @@ void MainScene::showUpdateDialog(bool force, std::function<void()> onClose)
 	}
 
 	// UPDATE 버튼 (스토어로 이동). 체크돼 있으면 이동 전에 억제 저장.
-	auto upLabel = Label::createWithSystemFont(" UPDATE ", "Arial", 14);
-	upLabel->setColor(Color3B(255, 215, 0));
-	auto upBtn = MenuItemLabel::create(upLabel, [optOut, force](Ref*) {
+	auto upBtn = makePopupChipButton("\xE2\x86\x91 UPDATE", kBtnFunc, [optOut, force](Ref*) {
 		if (!force && *optOut) LeaderboardManager::Instance()->suppressOptionalUpdate();
 		Application::getInstance()->openURL(appStoreUrl());
-	});
+	}, force ? 110.f : 88.f, 34.f);
 
 	Menu* menu = nullptr;
 	if (force) {
-		upBtn->setPosition(Vec2(DW / 2, 18));
+		upBtn->setPosition(Vec2(DW / 2, 20));
 		menu = Menu::create(upBtn, nullptr);
 	} else {
-		auto laterLabel = Label::createWithSystemFont(" LATER ", "Arial", 14);
-		laterLabel->setColor(Color3B(160, 170, 185));
-		auto laterBtn = MenuItemLabel::create(laterLabel, [dismiss](Ref*) {
+		auto laterBtn = makePopupChipButton("LATER", kBtnDismiss, [dismiss](Ref*) {
 			dismiss();
-		});
-		upBtn->setPosition(Vec2(DW / 2 + 52, 18));
-		laterBtn->setPosition(Vec2(DW / 2 - 52, 18));
+		}, 88.f, 34.f);
+		upBtn->setPosition(Vec2(DW / 2 + 52, 20));
+		laterBtn->setPosition(Vec2(DW / 2 - 52, 20));
 
 		// "다시 묻지 않기" 체크박스 (탭 시 토글 + 라벨 갱신). [  ] / [X]
 		auto cbLabel = Label::createWithSystemFont("[  ]  Don't ask again", "Arial", 11);
@@ -1248,14 +1249,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 
 // 팝업 배경에 모달 터치 차단 리스너 부착 — 뒤 영역 터치를 전부 삼켜(통과 방지),
 // 팝업 영역(버튼/EditBox 등 더 깊은 자식)만 상호작용되게 한다.
-static void attachModalBlocker(Node* backdrop)
-{
-	auto blockLs = EventListenerTouchOneByOne::create();
-	blockLs->setSwallowTouches(true);
-	blockLs->onTouchBegan = [](Touch*, Event*) -> bool { return true; };
-	Director::getInstance()->getEventDispatcher()
-		->addEventListenerWithSceneGraphPriority(blockLs, backdrop);
-}
+// attachModalBlocker 는 DrawUtils(공용)로 이동 — docs/popup_design_plan.md §2 모달 일원화.
 
 void MainScene::showResultDialog(const std::string& title, Color3B titleColor, const std::string& msg)
 {
@@ -1265,49 +1259,22 @@ void MainScene::showResultDialog(const std::string& title, Color3B titleColor, c
 
 	const float DW = 220, DH = 110;
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.15f, 150));
-	attachModalBlocker(backdrop);
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr
-	));
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(-1, -1), Vec2(DW + 1, DH + 1), Color4F(0.75f, 0.85f, 1.0f, 0.85f));
-	outline->drawRect(Vec2(0, 0),   Vec2(DW, DH),          Color4F(0.80f, 0.90f, 1.0f, 1.0f));
-	outline->drawRect(Vec2(1, 1),   Vec2(DW - 1, DH - 1),  Color4F(0.75f, 0.85f, 1.0f, 0.85f));
-	dlg->addChild(outline);
-
-	auto titleLabel = Label::createWithSystemFont(title, "Arial", 14);
-	titleLabel->setColor(titleColor);
-	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(titleLabel);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	dlg->addChild(divider);
+	// 공용 프레임 (유틸 톤 = 그레이 테두리). 제목색은 호출자 지정값 유지.
+	auto f = makePopupFrame(title, kBorderGray, titleColor, DW, DH, 14.f);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg = f.box;
 
 	auto msgLabel = Label::createWithSystemFont(msg, "Arial", 12);
-	msgLabel->setColor(Color3B(200, 200, 200));
+	msgLabel->setColor(kTextMuted);
 	msgLabel->setPosition(Vec2(DW / 2, DH - 65));
 	dlg->addChild(msgLabel);
 
-	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 13);
-	okLabel->setColor(Color3B(255, 215, 0));
-	auto okBtn = MenuItemLabel::create(okLabel, [this, TAG](Ref*) {
+	auto okBtn = makePopupChipButton("OK", kBtnFunc, [this, TAG](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
-	});
-	okBtn->setPosition(Vec2(DW / 2, 18));
+	}, 92.f, 34.f, 13.f);
+	okBtn->setPosition(Vec2(DW / 2, 20));
 
 	auto menu = Menu::create(okBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
@@ -1374,7 +1341,9 @@ static std::vector<std::string>& getRandomNamePool() {
 		while (std::getline(ss, line)) {
 			while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
 				line.pop_back();
-			if (!line.empty())
+			// EditBox 제약(3~12자)에 맞는 이름만 채택 — 14자 CAMELOPARDALIS/NEBUCHADNEZZAR 등
+			// 초과 이름은 자동 채움 시 too_long 유발하므로 풀에서 제외.
+			if (line.size() >= 3 && line.size() <= 12)
 				pool.push_back(line);
 		}
 		if (pool.empty()) {
@@ -1382,6 +1351,19 @@ static std::vector<std::string>& getRandomNamePool() {
 		}
 	}
 	return pool;
+}
+
+// 자동 추천 이름 풀은 큐레이션된 안전 목록(천문/신화/성경 이름)이므로 신뢰.
+// SCULPTOR(별자리) 등이 서버 banned_words 부분일치로 오탐되는 걸 방지하려 욕설검증을 우회할 때 사용.
+static bool isTrustedPoolName(const std::string& name) {
+	size_t a = name.find_first_not_of(" \t\r\n");
+	if (a == std::string::npos) return false;
+	size_t b = name.find_last_not_of(" \t\r\n");
+	std::string up = name.substr(a, b - a + 1);
+	for (char& c : up) if (c >= 'a' && c <= 'z') c = (char)(c - 32);  // ASCII 대문자화
+	for (const std::string& p : getRandomNamePool())
+		if (p == up) return true;
+	return false;
 }
 
 // 이름 입력 EditBox 델리게이트 — 엔터를 빈칸으로 누르면 랜덤 이름 자동 입력
@@ -1404,37 +1386,19 @@ void MainScene::showNameInputDialog()
 {
 	SoundFactory::Instance()->play("efs_click");
 	const int DIALOG_TAG = 199;
-	const float DW = 250, DH = 130;
+	const float DW = 250, DH = 158;   // 에디트박스 + 상태메시지 + OK 버튼 세로 여유 확보
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(DIALOG_TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.2f, 160));
-	attachModalBlocker(backdrop);
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2+40));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr
-	));
-
-	auto titleLabel = Label::createWithSystemFont("SET YOUR NAME FOR RANKING", "Arial", 14);
-	titleLabel->setColor(Color3B(255, 215, 0));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(titleLabel);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	dlg->addChild(divider);
+	// 유틸 톤 = 그레이 테두리, 골드 타이틀. 키보드 공간 확보 위해 박스 y +40.
+	auto f = makePopupFrame("SET YOUR NAME FOR RANKING", kBorderGray, kTextTitle, DW, DH, 14.f);
+	f.backdrop->setTag(DIALOG_TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg = f.box;
+	dlg->setPositionY(dlg->getPositionY() + 40);
 
 	auto editBoxBg = DrawNode::create();
-	editBoxBg->drawSolidRect(Vec2(8, DH - 84), Vec2(DW - 8, DH - 56),
+	editBoxBg->drawSolidRect(Vec2(8, 86), Vec2(DW - 8, 114),
 		Color4F(0.05f, 0.07f, 0.15f, 0.9f));
-	editBoxBg->drawRect(Vec2(8, DH - 84), Vec2(DW - 8, DH - 56),
+	editBoxBg->drawRect(Vec2(8, 86), Vec2(DW - 8, 114),
 		Color4F(0.4f, 0.4f, 0.6f, 0.7f));
 	dlg->addChild(editBoxBg);
 
@@ -1453,7 +1417,7 @@ void MainScene::showNameInputDialog()
 	editBox->setInputMode(cocos2d::ui::EditBox::InputMode::SINGLE_LINE);
 	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
-	editBox->setPosition(Vec2(10, DH - 70));
+	editBox->setPosition(Vec2(10, 100));
 	dlg->addChild(editBox);
 
 	// 엔터→랜덤이름 델리게이트
@@ -1471,14 +1435,12 @@ void MainScene::showNameInputDialog()
 	// 욕설/링크 필터 거부 메시지 표시용
 	auto status = Label::createWithSystemFont("", "Arial", 10);
 	status->setColor(Color3B(255, 120, 120));
-	status->setPosition(Vec2(DW / 2, 36));
+	status->setPosition(Vec2(DW / 2, 62));
 	dlg->addChild(status);
 
-	auto okLabel = Label::createWithSystemFont("  OK  ", "Arial", 15);
-	okLabel->setColor(Color3B(100, 100, 100));
 	// 재진입(더블탭) 방지 플래그 — 검증 성공 시 scene 전환하므로 중복 실행 차단
 	auto submitting = std::make_shared<bool>(false);
-	auto okBtn = MenuItemLabel::create(okLabel, [this, editBox, status, submitting](Ref*) {
+	auto okBtn = makePopupChipButton("\xE2\x9C\x93 OK", kBtnFunc, [this, editBox, status, submitting](Ref*) {
 		if (*submitting) return;
 		std::string name = editBox->getText();
 		*submitting = true;
@@ -1486,25 +1448,13 @@ void MainScene::showNameInputDialog()
 		status->setString("Checking...");
 
 		auto alive = m_aliveFlag;
-		// 클라 경량 필터 + 서버 banned_words 검증 → 통과 시에만 이름 확정
-		LeaderboardManager::Instance()->validateName(name,
-			[this, alive, name, status, submitting](bool ok, const std::string& reason) {
-				if (!alive || !*alive) return;
-				if (!ok) {
-					*submitting = false;
-					status->setColor(Color3B(255, 120, 120));
-					status->setString(
-						reason == "profanity" ? "Inappropriate name" :
-						reason == "link"      ? "Links are not allowed" :
-						reason == "too_long"  ? "Max 12 characters" :
-						                        "Please choose another name");
-					return;
-				}
-
-				// 랭커 이름 중복(대소문자 무시) 소프트 필터. ResetAll이 리더보드 캐시를 비우므로
-				// 동기 검사 대신 전 레벨 리더보드를 fresh 조회 후 대조(비동기). 아래 updateDisplayName는
-				// 이 콜백 안에서 실행되며, 람다는 아래쪽에서 닫힌다.
-				LeaderboardManager::Instance()->isNameTakenByRankerAsync(name,
+		// 검증 통과(또는 신뢰 우회) 후 실행되는 후속 처리 — 랭커 이름 중복검사 + 서버 반영.
+		auto afterValidate = [this, alive, name, status, submitting]() {
+			if (!alive || !*alive) return;
+			// 랭커 이름 중복(대소문자 무시) 소프트 필터. ResetAll이 리더보드 캐시를 비우므로
+			// 동기 검사 대신 전 레벨 리더보드를 fresh 조회 후 대조(비동기). 아래 updateDisplayName는
+			// 이 콜백 안에서 실행되며, 람다는 아래쪽에서 닫힌다.
+			LeaderboardManager::Instance()->isNameTakenByRankerAsync(name,
 					[alive, name, status, submitting](bool nameTaken) {
 				if (!alive || !*alive) return;
 				if (nameTaken) {
@@ -1549,18 +1499,40 @@ void MainScene::showNameInputDialog()
 					}
 				});
 				});
-			});
-	});
+		};
+		// 큐레이션 추천 이름은 서버 욕설검증 우회(SCULPTOR 등 별자리명이 banned_words
+		// 부분일치로 오탐되는 것 방지). 사용자가 직접 입력한 이름만 클라+서버 검증.
+		if (isTrustedPoolName(name)) {
+			afterValidate();
+		} else {
+			LeaderboardManager::Instance()->validateName(name,
+				[alive, status, submitting, afterValidate](bool ok, const std::string& reason) {
+					if (!alive || !*alive) return;
+					if (!ok) {
+						*submitting = false;
+						status->setColor(Color3B(255, 120, 120));
+						status->setString(
+							reason == "profanity" ? "Inappropriate name" :
+							reason == "link"      ? "Links are not allowed" :
+							reason == "too_long"  ? "Max 12 characters" :
+							                        "Please choose another name");
+						return;
+					}
+					afterValidate();
+				});
+		}
+	}, 100.f, 36.f, 15.f);
+	auto okLabel = (Label*)okBtn->getChildByTag(kChipLabelTag);
 	okBtn->setEnabled(false);
 
 	dlg->schedule([editBox, okBtn, okLabel](float) {
 		bool valid = strlen(editBox->getText()) >= 3;
 		okBtn->setEnabled(valid);
-		okLabel->setColor(valid ? Color3B::YELLOW : Color3B(100, 100, 100));
+		okLabel->setColor(valid ? kBtnFunc : Color3B(100, 100, 100));   // 유효=스카이블루(테두리색 일치)
 	}, 0.05f, CC_REPEAT_FOREVER, 0.f, "nameCheck");
 
 	auto menu = Menu::create(okBtn, nullptr);
-	menu->setPosition(Vec2(DW / 2, 18));
+	menu->setPosition(Vec2(DW / 2, kPopupBtnY));
 	dlg->addChild(menu);
 }
 
@@ -1587,8 +1559,15 @@ void MainScene::checkAndPromptAward(int level)
 						if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
 							std::string blob = UserDefault::getInstance()->getStringForKey(
 								StringUtils::format("replay_L%d", level).c_str(), "");
-							if (!blob.empty())
-								LeaderboardManager::Instance()->uploadReplay(level, blob, nullptr);
+							if (!blob.empty()) {
+								// 업로드 성공 시 리플레이 캐시가 비워지므로, 지금 이 레벨 보드를 보고 있으면
+								// 다시 그려 ▶ 마커가 즉시 뜨게 함(안 그러면 다른 레벨 갔다 와야 표시됨).
+								LeaderboardManager::Instance()->uploadReplay(level, blob,
+									[this, alive, level](bool ok) {
+										if (!ok || !alive || !*alive) return;
+										if (m_rankLevel == level) drawOnlineRank(level);
+									});
+							}
 						}
 						// 수상소감 입력창 자동 표시 제거 — 유저가 원할 때 직접(랭킹에서 본인 항목 탭) 입력.
 					}
@@ -1606,17 +1585,14 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 	this->removeChildByTag(TAG);
 	const float DW = 264, DH = 152;
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.2f, 160));
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 235), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2 + 40));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+	// 유틸 톤 = 그레이 테두리, 골드 타이틀. 배경 탭 닫힘(closeLs)이라 modal=false, 헤더가 title+sub라 divider=false. 키보드 공간 y+40.
+	auto f = makePopupFrame(
+		StringUtils::format("CONGRATULATIONS!  LEVEL %d  \xC2\xB7  RANK %d", level, rank),
+		kBorderGray, kTextTitle, DW, DH, 13.f, kDimStd, false, false);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg = f.box;
+	dlg->setPositionY(dlg->getPositionY() + 40);
 
 	// 모달 — 박스 안 빈 곳은 삼키기만, 박스 밖(배경) 탭하면 닫힘.
 	// (EditBox/POST 버튼은 더 깊은 자식이라 먼저 터치를 받아 정상 동작)
@@ -1631,17 +1607,7 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 		return true;       // 박스 밖(배경) — 닫기
 	};
 	Director::getInstance()->getEventDispatcher()
-		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
-	dlg->addChild(outline);
-
-	auto titleLabel = Label::createWithSystemFont(
-		StringUtils::format("CONGRATULATIONS!  LEVEL %d  ·  RANK %d", level, rank), "Arial", 13);
-	titleLabel->setColor(Color3B(255, 215, 0));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 20));
-	dlg->addChild(titleLabel);
+		->addEventListenerWithSceneGraphPriority(closeLs, f.backdrop);
 
 	auto sub = Label::createWithSystemFont("Leave your winning speech to the world", "Arial", 10);
 	sub->setColor(Color3B(180, 200, 220));
@@ -1701,9 +1667,7 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 	}, 0.1f, CC_REPEAT_FOREVER, 0.f, "awardCount");
 
 	// POST
-	auto okLabel = Label::createWithSystemFont(" POST ", "Arial", 14);
-	okLabel->setColor(Color3B(255, 215, 0));
-	auto okBtn = MenuItemLabel::create(okLabel,
+	auto okBtn = makePopupChipButton("\xE2\x9C\x93 POST", kBtnFunc,
 		[this, TAG, editBox, status, level, existing](Ref*) {
 			std::string text = editBox->getText();
 			// 변경 사항 없으면 서버 전송 없이 그냥 닫기
@@ -1741,8 +1705,8 @@ void MainScene::showAwardInputDialog(int level, int rank, const std::string& exi
 						status->setString(awardReasonMessage(r));
 					}
 				});
-		});
-	okBtn->setPosition(Vec2(DW / 2, 16));
+		}, 100.f, 34.f);
+	okBtn->setPosition(Vec2(DW / 2, 18));
 
 	auto menu = Menu::create(okBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
@@ -1757,12 +1721,14 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	this->removeChildByTag(TAG);
 	const float DW = 250, DH = 152;   // ▶WATCH 행 공간 확보 위해 세로 확장
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.2f, 150));
+	// 성취 톤 = 골드 테두리. 배경 탭 닫힘(closeLs)이라 modal=false, 헤더 2행이라 divider=false.
+	auto f = makePopupFrame(StringUtils::format("\xF0\x9F\x8F\x86  RANK %d", e.rank),
+	                        kBorderGold, kTextTitle, DW, DH, 16.f, kDimStd, false, false);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg = f.box;
 
-	// 배경 아무 곳이나 탭하면 닫힘 (수정 버튼 메뉴가 더 높은 우선순위로 먼저 처리됨)
+	// 배경 아무 곳이나 탭하면 닫힘 (소감/버튼 메뉴가 더 깊은 노드라 먼저 처리됨)
 	auto closeLs = EventListenerTouchOneByOne::create();
 	closeLs->setSwallowTouches(true);
 	closeLs->onTouchBegan = [this, TAG](Touch*, Event*) -> bool {
@@ -1771,28 +1737,11 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 		return true;
 	};
 	Director::getInstance()->getEventDispatcher()
-		->addEventListenerWithSceneGraphPriority(closeLs, backdrop);
-
-	auto dlg = LayerColor::create(Color4B(12, 16, 45, 240), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.84f, 0.0f, 0.9f));
-	dlg->addChild(outline);
-
-	auto rankLbl = Label::createWithSystemFont(
-		StringUtils::format("🏆  RANK %d", e.rank), "Arial", 16);
-	rankLbl->setColor(Color3B(255, 215, 0));
-	rankLbl->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(rankLbl);
+		->addEventListenerWithSceneGraphPriority(closeLs, f.backdrop);
 
 	std::string flag = e.countryCode.empty() ? "" : countryToFlag(e.countryCode);
 	auto nameLbl = Label::createWithSystemFont(flag + "  " + e.displayName, "Arial", 13);
-	nameLbl->setColor(Color3B::WHITE);
+	nameLbl->setColor(kTextData);
 	nameLbl->setAnchorPoint(Vec2(0, 0.5f));
 	nameLbl->setPosition(Vec2(16, DH - 50));
 	dlg->addChild(nameLbl);
@@ -1800,7 +1749,7 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	RecordTime rt = getRecordTime(e.scoreMs);
 	auto timeLbl = Label::createWithSystemFont(
 		StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 13);
-	timeLbl->setColor(Color3B(180, 220, 255));
+	timeLbl->setColor(kTextAccent);
 	timeLbl->setAnchorPoint(Vec2(1.0f, 0.5f));
 	timeLbl->setPosition(Vec2(DW - 16, DH - 50));
 	dlg->addChild(timeLbl);
@@ -1808,16 +1757,6 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	auto divider = DrawNode::create();
 	divider->drawLine(Vec2(16, DH - 62), Vec2(DW - 16, DH - 62), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
 	dlg->addChild(divider);
-
-	if (!e.comment.empty()) {   // 소감 없는(리플레이만 보유) 랭커는 빈 따옴표 숨김
-		auto cmtLbl = Label::createWithSystemFont("\"" + e.comment + "\"", "Arial", 13);
-		cmtLbl->setColor(Color3B(230, 235, 180));
-		cmtLbl->setDimensions(DW - 30, 0);
-		cmtLbl->setHorizontalAlignment(TextHAlignment::CENTER);
-		cmtLbl->setAnchorPoint(Vec2(0.5f, 1.0f));
-		cmtLbl->setPosition(Vec2(DW / 2, DH - 70));
-		dlg->addChild(cmtLbl);
-	}
 
 	// ▶ WATCH — 이 랭커가 해당 레벨 리플레이 보유 시 비동기로 버튼 추가 (2차 관전)
 	if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
@@ -1831,28 +1770,24 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 				auto it = m.find(pid);
 				if (it == m.end() || it->second.empty()) return;
 				std::string blob = it->second;
-				auto watchLabel = Label::createWithSystemFont("\xE2\x96\xB6 WATCH", "Arial", 13);
-				watchLabel->setColor(Color3B(120, 200, 255));
-				auto watchBtn = MenuItemLabel::create(watchLabel,
+				auto watchBtn = makePopupChipButton("\xF0\x9F\x91\x81 WATCH", kBtnFunc,
 					[this, TAG, lv, blob, nm, rnk, sms](Ref*) {
 						SoundFactory::Instance()->play("efs_click");
 						this->removeChildByTag(TAG);
 						Director::getInstance()->replaceScene(
 							TransitionFade::create(0.3f, PlayScene::createSpectateScene(lv, blob, nm, rnk, sms)));
-					});
-				watchBtn->setPosition(Vec2(DW * 0.30f, 42));
+					}, 100.f, 30.f, 13.f);
+				watchBtn->setPosition(Vec2(DW * 0.27f, kPopupBtnY));
 
 				// ⚔ RACE — 고스트 대결 (3차)
-				auto raceLabel = Label::createWithSystemFont("\xE2\x9A\x94 RACE", "Arial", 13);
-				raceLabel->setColor(Color3B(255, 180, 90));
-				auto raceBtn = MenuItemLabel::create(raceLabel,
+				auto raceBtn = makePopupChipButton("\xE2\x9A\x94 RACE", kBtnRace,
 					[this, TAG, lv, blob, nm, rnk, sms, pid](Ref*) {
 						SoundFactory::Instance()->play("efs_click");
 						this->removeChildByTag(TAG);
 						Director::getInstance()->replaceScene(
 							TransitionFade::create(0.3f, PlayScene::createRaceScene(lv, blob, nm, rnk, sms, pid)));
-					});
-				raceBtn->setPosition(Vec2(DW * 0.70f, 42));
+					}, 100.f, 30.f, 13.f);
+				raceBtn->setPosition(Vec2(DW * 0.73f, kPopupBtnY));
 
 				auto menu = Menu::create(watchBtn, raceBtn, nullptr);
 				menu->setPosition(Vec2::ZERO);
@@ -1860,49 +1795,50 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 			});
 	}
 
-	// 내 항목이면 수정 버튼, 남의 항목이면 신고 버튼 (App Store 1.2 UGC 신고 수단)
+	// 소감 어피던스(버튼 대체): 내 항목=끝에 ✎(수정, 소감 없으면 "Add a comment") /
+	//                          남 항목=소감 있을 때만 끝에 🚩(신고). 소감 없는 남 항목엔 아무것도 안 뜸.
 	std::string myId = LeaderboardManager::Instance()->getPlayFabId();
-	if (!myId.empty() && e.playFabId == myId) {
-		auto editLabel = Label::createWithSystemFont(" EDIT ", "Arial", 12);
-		editLabel->setColor(Color3B(120, 220, 255));
-		std::string existing = e.comment;
-		int rank = e.rank;
-		auto editBtn = MenuItemLabel::create(editLabel,
-			[this, TAG, level, rank, existing](Ref*) {
-				this->removeChildByTag(TAG);
-				// 격파 소감 프리필(battle_reward): 기존 소감이 없고 이번 격파 브래그가 있으면
-				// "{상대}를 짓밟고 올라왔다"를 기본값으로 주입(수정 가능). 1회 소비.
-				std::string prefill = existing;
-				if (prefill.empty()) {
-					std::string bragKey = StringUtils::format("battle_brag_L%02d", level);
-					std::string brag = UserDefault::getInstance()->getStringForKey(bragKey.c_str(), "");
-					if (!brag.empty()) {
-						prefill = brag + "\xEB\xA5\xBC \xEC\xA7\x93\xEB\xB0\x9F\xEA\xB3\xA0 \xEC\x98\xAC\xEB\x9D\xBC\xEC\x99\x94\xEB\x8B\xA4";  // "를 짓밟고 올라왔다"
-						UserDefault::getInstance()->deleteValueForKey(bragKey.c_str());
-						UserDefault::getInstance()->flush();
+	bool isMe = !myId.empty() && e.playFabId == myId;
+	int rank  = e.rank;
+	std::string existing = e.comment;
+	if (isMe || !existing.empty()) {
+		std::string shown;
+		if (isMe)
+			shown = existing.empty() ? "\xE2\x9C\x8E  Add a comment"          // ✎ Add a comment
+			                         : "\"" + existing + "\"  \xE2\x9C\x8E";   // "..."  ✎
+		else
+			shown = "\"" + existing + "\"  \xF0\x9F\x9A\xA9";                   // "..."  🚩 (소감 있을 때만)
+
+		auto cmtLbl = Label::createWithSystemFont(shown, "Arial", 13);
+		cmtLbl->setColor(isMe && existing.empty() ? kTextMuted : Color3B(230, 235, 180));
+		cmtLbl->setDimensions(DW - 30, 0);
+		cmtLbl->setHorizontalAlignment(TextHAlignment::CENTER);
+
+		std::string pid = e.playFabId;
+		auto cmtItem = MenuItemLabel::create(cmtLbl,
+			[this, TAG, level, rank, existing, isMe, pid](Ref*) {
+				if (isMe) {
+					this->removeChildByTag(TAG);
+					std::string prefill = existing;   // 격파 브래그 프리필(battle_reward), 1회 소비
+					if (prefill.empty()) {
+						std::string bragKey = StringUtils::format("battle_brag_L%02d", level);
+						std::string brag = UserDefault::getInstance()->getStringForKey(bragKey.c_str(), "");
+						if (!brag.empty()) {
+							prefill = "Climbed over " + brag;
+							UserDefault::getInstance()->deleteValueForKey(bragKey.c_str());
+							UserDefault::getInstance()->flush();
+						}
 					}
+					this->showAwardInputDialog(level, rank, prefill);
+				} else {
+					SoundFactory::Instance()->play("efs_click");
+					openAwardReportEmail(level, rank, pid, existing);
+					this->removeChildByTag(TAG);
 				}
-				this->showAwardInputDialog(level, rank, prefill);
 			});
-		editBtn->setPosition(Vec2(DW / 2, 14));
-		auto menu = Menu::create(editBtn, nullptr);
-		menu->setPosition(Vec2::ZERO);
-		dlg->addChild(menu, 5);
-	} else {
-		auto reportLabel = Label::createWithSystemFont("🚩 Report", "Arial", 12);
-		reportLabel->setColor(Color3B(220, 140, 140));
-		int rank = e.rank;
-		std::string pid = e.playFabId, cmt = e.comment;
-		auto reportBtn = MenuItemLabel::create(reportLabel,
-			[this, TAG, level, rank, pid, cmt](Ref*) {
-				SoundFactory::Instance()->play("efs_click");
-				openAwardReportEmail(level, rank, pid, cmt);
-				this->removeChildByTag(TAG);
-			});
-		reportBtn->setPosition(Vec2(DW / 2, 14));
-		auto menu = Menu::create(reportBtn, nullptr);
-		menu->setPosition(Vec2::ZERO);
-		dlg->addChild(menu, 5);
+		auto menu = Menu::create(cmtItem, nullptr);
+		menu->setPosition(Vec2(DW / 2, DH - 82));
+		dlg->addChild(menu, 6);
 	}
 }
 #endif // ENABLE_AWARD_COMMENT
@@ -1915,34 +1851,11 @@ void MainScene::showSettingsMenu()
 
 	const float DW = 240, DH = 130.f;
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.15f, 150));
-	attachModalBlocker(backdrop);
-
-	auto dlg = LayerColor::create(Color4B(10, 15, 50, 230), DW, DH);
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr));
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(-1, -1), Vec2(DW + 1, DH + 1), Color4F(0.75f, 0.85f, 1.0f, 0.85f));
-	outline->drawRect(Vec2(0, 0),   Vec2(DW, DH),          Color4F(0.80f, 0.90f, 1.0f, 1.0f));
-	dlg->addChild(outline);
-
-	auto titleLabel = Label::createWithSystemFont("RESET ALL?", "Arial", 15);
-	titleLabel->setColor(Color3B(255, 100, 80));
-	titleLabel->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(titleLabel);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	dlg->addChild(divider);
+	// 파괴적 위험 톤 = 레드 테두리 + 레드 타이틀
+	auto f = makePopupFrame("RESET ALL?", kBorderRed, kBorderRed, DW, DH, 15.f);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg = f.box;
 
 	auto msg = Label::createWithSystemFont(
 		"This will reset your name\nand clear your ranking.",
@@ -1985,22 +1898,18 @@ void MainScene::showSettingsMenu()
 		showNameInputDialog();
 	};
 
-	auto okLabel = Label::createWithSystemFont("OK", "Arial", 14);
-	okLabel->setColor(Color3B(255, 80, 80));
-	auto okBtn = MenuItemLabel::create(okLabel, [this, TAG, doReset](Ref*) {
+	auto okBtn = makePopupChipButton("\xE2\x9A\xA0 OK", kBtnDanger, [this, TAG, doReset](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
 		doReset();
-	});
-	okBtn->setPosition(Vec2(DW * 0.3f, 22));
+	}, 88.f, 34.f);
+	okBtn->setPosition(Vec2(DW * 0.3f, kPopupBtnY));
 
-	auto cancelLabel = Label::createWithSystemFont("Cancel", "Arial", 14);
-	cancelLabel->setColor(Color3B(180, 180, 180));
-	auto cancelBtn = MenuItemLabel::create(cancelLabel, [this, TAG](Ref*) {
+	auto cancelBtn = makePopupChipButton("\xE2\x9C\x95 CANCEL", kBtnDismiss, [this, TAG](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
-	});
-	cancelBtn->setPosition(Vec2(DW * 0.7f, 22));
+	}, 88.f, 34.f);
+	cancelBtn->setPosition(Vec2(DW * 0.7f, kPopupBtnY));
 
 	auto menu = Menu::create(okBtn, cancelBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
@@ -2017,38 +1926,16 @@ void MainScene::showRevengeDialog(int level, const std::string& aId, const std::
 
 	const float DW = 248, DH = 140.f;
 
-	auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
-	backdrop->setTag(TAG);
-	this->addChild(backdrop, 999);
-	backdrop->runAction(FadeTo::create(0.15f, 150));
-	attachModalBlocker(backdrop);
+	// 부정(패배) 톤 = 그레이 테두리 + 레드 타이틀. 배경은 네이비 강제(붉은 톤 폐기).
+	auto f = makePopupFrame("\xF0\x9F\x92\xA5 DEFEATED", kBorderGray, kTextTitleBad, DW, DH, 15.f);
+	f.backdrop->setTag(TAG);
+	this->addChild(f.backdrop, 999);
+	auto dlg   = f.box;
+	auto title = f.title;   // 리플레이 없을 때 "NO REPLAY"로 갱신
 
-	auto dlg = LayerColor::create(Color4B(40, 12, 18, 236), DW, DH);   // 붉은 톤(피격/복수)
-	dlg->setPosition(Vec2((RESOURCE_WIDTH - DW) / 2, (RESOURCE_HEIGHT - DH) / 2));
-	dlg->setScale(0.7f);
-	backdrop->addChild(dlg);
-	dlg->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr));
-
-	auto outline = DrawNode::create();
-	outline->drawRect(Vec2(0, 0), Vec2(DW, DH), Color4F(1.0f, 0.5f, 0.5f, 0.9f));
-	dlg->addChild(outline);
-
-	auto title = Label::createWithSystemFont("\xF0\x9F\x92\xA5 DEFEATED", "Arial", 15);   // 💥
-	title->setColor(Color3B(255, 110, 110));
-	title->setPosition(Vec2(DW / 2, DH - 22));
-	dlg->addChild(title);
-
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(15, DH - 40), Vec2(DW - 15, DH - 40), Color4F(0.5f, 0.4f, 0.4f, 0.8f));
-	dlg->addChild(divider);
-
-	// "{A}에게 랭킹을 빼앗겼습니다"
+	// "{A} stole your ranking!"
 	auto msg = Label::createWithSystemFont(
-		StringUtils::format("%s\xEC\x97\x90\xEA\xB2\x8C \xEB\x9E\xAD\xED\x82\xB9\xEC\x9D\x84 \xEB\xB9\xBC\xEC\x95\x97\xEA\xB2\xBC\xEC\x8A\xB5\xEB\x8B\x88\xEB\x8B\xA4",
-			utf8TruncateCP(aName, 10).c_str()),
+		StringUtils::format("%s stole your ranking!", utf8TruncateCP(aName, 10).c_str()),
 		"Arial", 12);
 	msg->setColor(Color3B(235, 215, 215));
 	msg->setAlignment(TextHAlignment::CENTER);
@@ -2059,9 +1946,7 @@ void MainScene::showRevengeDialog(int level, const std::string& aId, const std::
 	auto alive = m_aliveFlag;
 
 	// [⚔ REVENGE] — A 리플레이 조회 후 고스트 레이스로 직행. 없으면 타이틀에 안내.
-	auto revLabel = Label::createWithSystemFont("\xE2\x9A\x94 REVENGE", "Arial", 14);   // ⚔
-	revLabel->setColor(Color3B(255, 180, 90));
-	auto revBtn = MenuItemLabel::create(revLabel,
+	auto revBtn = makePopupChipButton("\xE2\x9A\x94 REVENGE", kBtnRace,
 		[this, alive, TAG, title, level, aId, aName, aRank, aScore](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			LeaderboardManager::Instance()->fetchReplays(level,
@@ -2080,16 +1965,14 @@ void MainScene::showRevengeDialog(int level, const std::string& aId, const std::
 					Director::getInstance()->replaceScene(TransitionFade::create(0.3f,
 						PlayScene::createRaceScene(level, it->second, aName, aRank, aScore, aId, true)));   // 복수전
 				});
-		});
-	revBtn->setPosition(Vec2(DW * 0.32f, 22));
+		}, 104.f, 34.f);
+	revBtn->setPosition(Vec2(DW * 0.30f, kPopupBtnY));
 
-	auto laterLabel = Label::createWithSystemFont("Later", "Arial", 14);
-	laterLabel->setColor(Color3B(180, 180, 180));
-	auto laterBtn = MenuItemLabel::create(laterLabel, [this, TAG](Ref*) {
+	auto laterBtn = makePopupChipButton("LATER", kBtnDismiss, [this, TAG](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(TAG);
-	});
-	laterBtn->setPosition(Vec2(DW * 0.70f, 22));
+	}, 80.f, 34.f);
+	laterBtn->setPosition(Vec2(DW * 0.72f, kPopupBtnY));
 
 	auto menu = Menu::create(revBtn, laterBtn, nullptr);
 	menu->setPosition(Vec2::ZERO);
@@ -2174,7 +2057,8 @@ void MainScene::startTopTicker()
 	// 세대 증가 — 이 호출 이후의 늦게 오는 랭킹 콜백은 폐기(공지가 덮이지 않게).
 	const int gen = ++m_topTickerGen;
 
-	// 공지가 있으면 랭킹 스크롤 대신 공지를 표시 (앰버 + 📢). 없으면 기존 Top Players 로직.
+	// 상단 티커 우선순위: 1)공지 notice → 2)업데이트 안내(current<latest) → 3)레벨별 랭킹.
+	// 1·2순위는 앰버 + 📢, 3순위(랭킹)는 흰색.
 	const std::string notice = LeaderboardManager::Instance()->getNotice();
 	if (!notice.empty()) {
 		m_topTickerBaseText = "\xF0\x9F\x93\xA2 " + notice;   // "📢 " (U+1F4E2) UTF-8
@@ -2184,6 +2068,24 @@ void MainScene::startTopTicker()
 		tickTopStep();
 		return;
 	}
+
+	// 2순위: 공지가 없고 current_version < latest_version → 업데이트 권장 안내.
+	// (서버 조회로 latest 확보된 경우에만. 콜드스타트 지연 도착분은 fetchTitleConfig 콜백이 재시작.)
+	{
+		std::string        cur    = Application::getInstance()->getVersion();
+		const std::string& latest = LeaderboardManager::Instance()->getLatestVersion();
+		if (!cur.empty() && !latest.empty()
+			&& LeaderboardManager::compareVersion(cur, latest) < 0) {
+			m_topTickerBaseText =
+				"\xF0\x9F\x93\xA2 A new version is now available. We recommend updating.";
+			m_topTickerLabel->setString(m_topTickerBaseText);
+			m_topTickerLabel->setColor(Color3B(255, 191, 0));   // 앰버
+			m_topTickerLabel->setVisible(true);
+			tickTopStep();
+			return;
+		}
+	}
+
 	m_topTickerLabel->setColor(Color3B::WHITE);              // 랭킹 스크롤은 흰색
 
 	auto alive = m_aliveFlag;
