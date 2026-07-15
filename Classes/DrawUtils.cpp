@@ -363,3 +363,82 @@ void drawIconPause(DrawNode* dn, float cx, float cy, float sz, const Color4F& co
     dn->drawSolidRect(Vec2(cx-gap-bw,cy-bh), Vec2(cx-gap,    cy+bh), col);
     dn->drawSolidRect(Vec2(cx+gap,   cy-bh), Vec2(cx+gap+bw, cy+bh), col);
 }
+
+// ── 팝업 칩 버튼 ─────────────────────────────────────────────────────────────
+
+static DrawNode* makeChipBg(Color3B col, float w, float h)
+{
+    auto bg = DrawNode::create();
+    bg->drawSolidRect(Vec2(2, 2), Vec2(w - 2, h - 2),
+        Color4F(col.r / 255.f * 0.20f, col.g / 255.f * 0.20f, col.b / 255.f * 0.20f, 0.92f));
+    bg->drawRect(Vec2(2, 2), Vec2(w - 2, h - 2),
+        Color4F(col.r / 255.f, col.g / 255.f, col.b / 255.f, 0.85f));
+    bg->setContentSize(Size(w, h));   // DrawNode 기본 contentSize=0 → MenuItem 히트영역 확보 위해 설정
+    return bg;
+}
+
+MenuItemSprite* makePopupChipButton(const std::string& text, Color3B col,
+    const ccMenuCallback& cb, float w, float h, float fontSize)
+{
+    auto normal = makeChipBg(col, w, h);
+    auto sel    = makeChipBg(col, w, h);   // 눌림 상태에서 버튼이 사라지지 않도록 동일 배경
+    auto item = MenuItemSprite::create(normal, sel, cb);
+    item->setContentSize(Size(w, h));
+    auto lbl = Label::createWithSystemFont(text, "Arial", fontSize);
+    lbl->setColor(col);
+    lbl->setPosition(Vec2(w / 2, h / 2));
+    lbl->setTag(kChipLabelTag);
+    item->addChild(lbl);
+    return item;
+}
+
+// ── 공용 팝업 프레임 ─────────────────────────────────────────────────────────
+
+void attachModalBlocker(Node* backdrop)
+{
+    auto ls = EventListenerTouchOneByOne::create();
+    ls->setSwallowTouches(true);
+    ls->onTouchBegan = [](Touch*, Event*) -> bool { return true; };
+    Director::getInstance()->getEventDispatcher()
+        ->addEventListenerWithSceneGraphPriority(ls, backdrop);
+}
+
+PopupFrame makePopupFrame(const std::string& title, Color3B borderCol, Color3B titleCol,
+    float w, float h, float titleSize, int dimAlpha, bool modal, bool divider)
+{
+    // 백드롭 — 전체화면 딤(LayerColor 인자 없이 생성 = 가시영역 전체)
+    auto backdrop = LayerColor::create(Color4B(0, 0, 0, 0));
+    backdrop->runAction(FadeTo::create(0.18f, dimAlpha));
+    if (modal) attachModalBlocker(backdrop);
+
+    // 박스 — 네이비 배경, 중앙 정렬 + 스케일 인
+    Size scr = backdrop->getContentSize();
+    auto box = LayerColor::create(kPopupBG, w, h);
+    box->setPosition(Vec2((scr.width - w) / 2, (scr.height - h) / 2));
+    box->setScale(0.7f);
+    backdrop->addChild(box);
+    box->runAction(Sequence::create(
+        ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
+
+    // 테두리 — 단선 1종(톤 색)
+    auto border = DrawNode::create();
+    border->drawRect(Vec2(0, 0), Vec2(w, h),
+        Color4F(borderCol.r / 255.f, borderCol.g / 255.f, borderCol.b / 255.f, 0.9f));
+    box->addChild(border);
+
+    // 타이틀
+    auto titleLabel = Label::createWithSystemFont(title, "Arial", titleSize);
+    titleLabel->setColor(titleCol);
+    titleLabel->setPosition(Vec2(w / 2, h - titleSize - 6));
+    box->addChild(titleLabel, 1);
+
+    // 구분선 (헤더가 2행 이상인 팝업은 divider=false로 끄고 직접 그림)
+    if (divider) {
+        auto div = DrawNode::create();
+        float dy = h - titleSize * 2 - 8;
+        div->drawLine(Vec2(16, dy), Vec2(w - 16, dy), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
+        box->addChild(div);
+    }
+
+    return PopupFrame{ backdrop, box, titleLabel };
+}

@@ -718,40 +718,29 @@ void PlayScene::MessagePopup()
 		isNewRecord = true;
 	}
 
-	// 딤 오버레이
-	auto overlay = LayerColor::create(Color4B(0, 0, 0, 0), RESOURCE_WIDTH, RESOURCE_HEIGHT);
-	overlay->setPosition(Vec2::ZERO);
-	this->addChild(overlay, tagPopup, tagPopup);
-	overlay->runAction(FadeTo::create(0.25f, 160));
-
-	// 팝업 박스 (리플레이 버튼 공간 확보 위해 세로 확장)
+	// 팝업 박스 크기 (리플레이 버튼 공간 확보 위해 세로 확장)
 	const float PW = 280, PH = 218;
-	auto popupBox = LayerColor::create(Color4B(10, 15, 50, 230), PW, PH);
-	popupBox->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
-	popupBox->setScale(0.7f);
-	popupBox->setTag(4242);   // battle_reward: RANK STOLEN 배너 비동기 부착용 핸들
-	overlay->addChild(popupBox);
-	popupBox->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f),
-		ScaleTo::create(0.08f, 1.0f),
-		nullptr
-	));
 
-	// 타이틀 (레이스면 승패로 교체)
+	// 톤: 성취(CLEAR/RECORD/WIN)=골드 테두리·타이틀 / 패배(LOSE)=그레이 테두리·레드 타이틀
 	bool raceWon = false;
-	std::string titleStr;  Color3B titleColor;
+	std::string titleStr;  Color3B titleColor, borderCol;
 	if (m_isRace) {
 		raceWon    = (m_mastTime < m_ghostScoreMs);
 		titleStr   = raceWon ? "YOU WIN!" : "YOU LOSE";
-		titleColor = raceWon ? Color3B(255, 215, 0) : Color3B(255, 90, 90);
+		titleColor = raceWon ? kTextTitle : kTextTitleBad;
+		borderCol  = raceWon ? kBorderGold : kBorderGray;
 	} else {
 		titleStr   = isNewRecord ? "NEW RECORD!" : "LEVEL CLEAR";
-		titleColor = isNewRecord ? Color3B(255, 215, 0) : Color3B(100, 220, 255);
+		titleColor = kTextTitle;
+		borderCol  = kBorderGold;
 	}
-	auto titleLabel = Label::createWithSystemFont(titleStr, "Arial", 22);
-	titleLabel->setColor(titleColor);
-	titleLabel->setPosition(Vec2(PW / 2, PH - 28));
-	popupBox->addChild(titleLabel);
+
+	// 공용 프레임 (모달은 아래 커스텀 스왈로우가 담당 → modal=false)
+	auto f = makePopupFrame(titleStr, borderCol, titleColor, PW, PH, 22.f, kDimStd, false, true);
+	this->addChild(f.backdrop, tagPopup, tagPopup);
+	auto overlay  = f.backdrop;
+	auto popupBox = f.box;
+	popupBox->setTag(4242);   // battle_reward: RANK STOLEN 배너 비동기 부착용 핸들
 
 	// 레이스 vs 라인 (누구를 상대로, 몇 초 차)
 	if (m_isRace) {
@@ -818,10 +807,7 @@ void PlayScene::MessagePopup()
 			0.0f, 0, 2.0f, false, "battle_record_delay");
 	}
 
-	// 구분선
-	auto divider = DrawNode::create();
-	divider->drawLine(Vec2(20, PH - 52), Vec2(PW - 20, PH - 52), Color4F(0.5f, 0.5f, 0.5f, 0.8f));
-	popupBox->addChild(divider);
+	// (구분선은 공용 프레임이 그림)
 
 	// 레벨 정보
 	auto levelLabel = Label::createWithSystemFont(
@@ -851,49 +837,62 @@ void PlayScene::MessagePopup()
 		popupBox->addChild(rpmResultLabel);
 	}
 
-	// 리플레이 보기 버튼 (1차) — 첫판 플로우는 터치 스왈로우가 있어 제외
-	if (!m_isFirstPlay && !m_replay.empty())
+	// 결과 팝업 버튼: [REPLAY][CLOSE] — 레이스 패배 시엔 [REPLAY][RETRY]. 좌우 2버튼 구성.
+	bool raceLose  = (m_isRace && !raceWon);
+	bool hasReplay = (!m_isFirstPlay && !m_replay.empty());
+	if (hasReplay)
 	{
-		auto replayLabel = Label::createWithSystemFont("▶  REPLAY", "Arial", 13);
-		replayLabel->setColor(Color3B(120, 200, 255));
-		auto replayItem = MenuItemLabel::create(replayLabel, [this](Ref*) {
+		auto replayItem = makePopupChipButton("\xE2\x96\xB6 REPLAY", kBtnFunc, [this](Ref*) {
 			if (m_isReplaying) return;
 			SoundFactory::Instance()->play("efs_click");
 			this->startReplay();
-		});
+		}, 112.f, 38.f);
 		auto replayMenu = Menu::create(replayItem, nullptr);
-		replayMenu->setPosition(Vec2((m_isRace && !raceWon) ? PW * 0.30f : PW / 2, 48));  // 패배 시 RETRY와 나란히
+		replayMenu->setPosition(Vec2(74.f, kPopupBtnY));   // 좌측
 		popupBox->addChild(replayMenu);
 	}
 
 	// 레이스 패배 시: RETRY 버튼 (같은 고스트에게 다시 도전)
 	if (m_isRace && !raceWon)
 	{
-		auto retryLabel = Label::createWithSystemFont("\xE2\x86\xBB  RETRY", "Arial", 13);   // ↻
-		retryLabel->setColor(Color3B(255, 180, 90));
 		int lvl = m_countOfDiscus, gr = m_ghostRank, gs = m_ghostScoreMs;
 		std::string gb = m_ghostBlob, gn = m_ghostName, gpid = m_ghostPlayFabId;
 		bool rev = m_isRevenge;
-		auto retryItem = MenuItemLabel::create(retryLabel, [lvl, gb, gn, gr, gs, gpid, rev](Ref*) {
+		auto retryItem = makePopupChipButton("\xE2\x86\xBB RETRY", kBtnRace, [lvl, gb, gn, gr, gs, gpid, rev](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			Director::getInstance()->replaceScene(
 				TransitionFade::create(0.3f, PlayScene::createRaceScene(lvl, gb, gn, gr, gs, gpid, rev)));
-		});
-		retryItem->setPosition(Vec2(PW * 0.70f, 48));
+		}, 112.f, 38.f);
+		retryItem->setPosition(Vec2(PW - 74.f, kPopupBtnY));
 		auto retryMenu = Menu::create(retryItem, nullptr);
 		retryMenu->setPosition(Vec2::ZERO);
 		popupBox->addChild(retryMenu);
 	}
 
-	// 힌트 (깜빡임)
-	std::string hintStr = m_isFirstPlay ? "TAP TO CONTINUE" : "TAP TO PLAY AGAIN";
-	auto hintLabel = Label::createWithSystemFont(hintStr, "Arial", 11);
-	hintLabel->setColor(Color3B(200, 200, 100));
-	hintLabel->setPosition(Vec2(PW / 2, 20));
-	popupBox->addChild(hintLabel);
-	hintLabel->runAction(RepeatForever::create(
-		Sequence::create(FadeOut::create(0.7f), FadeIn::create(0.7f), nullptr)
-	));
+	// CLOSE — 팝업만 닫기(완료 보드+도크 노출; 보드 탭 시 현재 레벨 재시작은 터치레이어가 처리).
+	//         레이스 패배는 RETRY가 우측 자리를 대신하므로 CLOSE 생략.
+	if (!m_isFirstPlay && !raceLose)
+	{
+		auto closeItem = makePopupChipButton("\xE2\x9C\x95 CLOSE", kBtnDismiss, [this](Ref*) {
+			SoundFactory::Instance()->play("efs_click");
+			this->removeChildByTag(tagPopup);
+		}, 112.f, 38.f);
+		auto closeMenu = Menu::create(closeItem, nullptr);
+		closeMenu->setPosition(Vec2(hasReplay ? (PW - 74.f) : PW / 2, kPopupBtnY));   // 우측(리플레이 없으면 중앙)
+		popupBox->addChild(closeMenu);
+	}
+
+	// 힌트 — 첫판만 "TAP TO CONTINUE"(오버레이 탭으로 진행). 그 외엔 명시 버튼이 있어 힌트 없음.
+	if (m_isFirstPlay)
+	{
+		auto hintLabel = Label::createWithSystemFont("TAP TO CONTINUE", "Arial", 11);
+		hintLabel->setColor(Color3B(200, 200, 100));
+		hintLabel->setPosition(Vec2(PW / 2, 20));
+		popupBox->addChild(hintLabel);
+		hintLabel->runAction(RepeatForever::create(
+			Sequence::create(FadeOut::create(0.7f), FadeIn::create(0.7f), nullptr)
+		));
+	}
 
 	if (m_isFirstPlay) {
 		UserDataManager::Instance()->SetPendingSubmit(m_countOfDiscus, m_mastTime);
@@ -905,6 +904,16 @@ void PlayScene::MessagePopup()
 			return true;
 		};
 		_eventDispatcher->addEventListenerWithSceneGraphPriority(listener, overlay);
+	} else {
+		// (B) 팝업이 떠 있는 동안 오버레이가 모든 터치를 흡수 — 명시 버튼([REPLAY][CLOSE])만 동작.
+		//     버튼 Menu는 더 깊은 노드라 이 리스너보다 먼저 처리되므로 버튼 탭은 정상 동작.
+		//     재생 중엔 터치레이어의 스킵 핸들러에 양보(return false).
+		auto swallow = EventListenerTouchOneByOne::create();
+		swallow->setSwallowTouches(true);
+		swallow->onTouchBegan = [this](Touch*, Event*) -> bool {
+			return !m_isReplaying;   // 재생 중=false(양보) / 그 외=true(흡수)
+		};
+		_eventDispatcher->addEventListenerWithSceneGraphPriority(swallow, overlay);
 	}
 }
 
@@ -932,23 +941,12 @@ void PlayScene::abandonByIdle()
 
 void PlayScene::showIdleAbandonPopup()
 {
-	auto overlay = LayerColor::create(Color4B(0, 0, 0, 0), RESOURCE_WIDTH, RESOURCE_HEIGHT);
-	overlay->setPosition(Vec2::ZERO);
-	this->addChild(overlay, tagPopup, tagPopup);
-	overlay->runAction(FadeTo::create(0.25f, 180));
-
 	const float PW = 280, PH = 150;
-	auto box = LayerColor::create(Color4B(40, 14, 18, 235), PW, PH);
-	box->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
-	box->setScale(0.7f);
-	overlay->addChild(box);
-	box->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
-
-	auto title = Label::createWithSystemFont("TIME OUT", "Arial", 22);
-	title->setColor(Color3B(255, 120, 100));
-	title->setPosition(Vec2(PW / 2, PH - 34));
-	box->addChild(title);
+	// 부정(비파괴) 톤 = 그레이 테두리 + 레드 타이틀, 배경 네이비(적갈색 폐기).
+	auto f = makePopupFrame("TIME OUT", kBorderGray, kTextTitleBad, PW, PH, 22.f, kDimStd, false, false);
+	this->addChild(f.backdrop, tagPopup, tagPopup);
+	auto overlay = f.backdrop;
+	auto box     = f.box;
 
 	auto msg = Label::createWithSystemFont("No input for 2 minutes.\nGame abandoned.", "Arial", 12);
 	msg->setColor(Color3B(215, 215, 215));
@@ -1801,31 +1799,18 @@ void PlayScene::_beginSpectatePlayback()
 // 관전 종료 팝업 — REPLAY(다시 재생) / HOME(랭킹보드 복귀)
 void PlayScene::showSpectateEndPopup()
 {
-	auto overlay = LayerColor::create(Color4B(0, 0, 0, 0), RESOURCE_WIDTH, RESOURCE_HEIGHT);
-	overlay->setPosition(Vec2::ZERO);
-	this->addChild(overlay, tagPopup, tagPopup);
-	overlay->runAction(FadeTo::create(0.25f, 170));
-
 	const float PW = 260, PH = 152;
-	auto box = LayerColor::create(Color4B(10, 15, 50, 235), PW, PH);
-	box->setPosition(Vec2((RESOURCE_WIDTH - PW) / 2, (RESOURCE_HEIGHT - PH) / 2));
-	box->setScale(0.7f);
-	overlay->addChild(box);
-	box->runAction(Sequence::create(
-		ScaleTo::create(0.15f, 1.05f), ScaleTo::create(0.08f, 1.0f), nullptr));
-
-	// 랭커 이름
+	// 유틸 톤 = 그레이 테두리. 타이틀 = 랭커 이름(스카이블루 강조). 헤더가 이름+LEVEL·RANK라 divider=false.
 	std::string who = m_spectateName.empty() ? "REPLAY" : m_spectateName;
-	auto title = Label::createWithSystemFont(who, "Arial", 16);
-	title->setColor(Color3B(120, 200, 255));
-	title->setPosition(Vec2(PW / 2, PH - 26));
-	box->addChild(title);
+	auto f = makePopupFrame(who, kBorderGray, kTextAccent, PW, PH, 16.f, 170, true, false);
+	this->addChild(f.backdrop, tagPopup, tagPopup);
+	auto box = f.box;
 
 	// LEVEL · RANK
 	std::string lr = StringUtils::format("LEVEL %d", m_countOfDiscus);
 	if (m_spectateRank > 0) lr += StringUtils::format("   \xC2\xB7   RANK %d", m_spectateRank);  // ·
 	auto lrLbl = Label::createWithSystemFont(lr, "Arial", 11);
-	lrLbl->setColor(Color3B(170, 175, 185));
+	lrLbl->setColor(kTextMuted);
 	lrLbl->setPosition(Vec2(PW / 2, PH - 48));
 	box->addChild(lrLbl);
 
@@ -1833,30 +1818,26 @@ void PlayScene::showSpectateEndPopup()
 	RecordTime rt = getRecordTime(m_spectateScoreMs);
 	auto timeLbl = Label::createWithSystemFont(
 		StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 24);
-	timeLbl->setColor(Color3B::WHITE);
+	timeLbl->setColor(kTextData);
 	timeLbl->setPosition(Vec2(PW / 2, PH - 80));
 	box->addChild(timeLbl);
 
-	// 버튼: 🔁 REPLAY / 🏠 HOME
-	auto replayLbl = Label::createWithSystemFont("\xF0\x9F\x94\x81  REPLAY", "Arial", 14);
-	replayLbl->setColor(Color3B(120, 200, 255));
-	auto replayBtn = MenuItemLabel::create(replayLbl, [this](Ref*) {
+	// 버튼: ▶ REPLAY / ⌂ HOME
+	auto replayItem = makePopupChipButton("\xE2\x96\xB6 REPLAY", kBtnFunc, [this](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(tagPopup);
 		this->_beginSpectatePlayback();
-	});
-	replayBtn->setPosition(Vec2(PW * 0.30f, 30));
+	}, 104.f, 34.f, 13.f);
+	replayItem->setPosition(Vec2(PW * 0.28f, kPopupBtnY));
 
-	auto homeLbl = Label::createWithSystemFont("\xF0\x9F\x8F\xA0  HOME", "Arial", 14);
-	homeLbl->setColor(Color3B(255, 215, 120));
-	auto homeBtn = MenuItemLabel::create(homeLbl, [](Ref*) {
+	auto homeItem = makePopupChipButton("\xE2\x8C\x82 HOME", kBtnDismiss, [](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		Director::getInstance()->replaceScene(
 			TransitionFade::create(0.3f, MainScene::createScene()));
-	});
-	homeBtn->setPosition(Vec2(PW * 0.70f, 30));
+	}, 104.f, 34.f, 13.f);
+	homeItem->setPosition(Vec2(PW * 0.72f, kPopupBtnY));
 
-	auto menu = Menu::create(replayBtn, homeBtn, nullptr);
+	auto menu = Menu::create(replayItem, homeItem, nullptr);
 	menu->setPosition(Vec2::ZERO);
 	box->addChild(menu, 5);
 }
