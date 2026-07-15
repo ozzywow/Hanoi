@@ -95,18 +95,10 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 		if (shownTime == 0 || (getMilliCount() - shownTime) < 2000)
 			return true;
 		SoundFactory::Instance()->play("efs_click");
-		int nextLevel = m_pPlayScene->m_countOfDiscus;
-		if (nextLevel < MAX_PLAY_LEVEL) nextLevel++;
-		if (nextLevel != m_pPlayScene->m_countOfDiscus) {
-			PlayScene* nextScene = PlayScene::createScene(nextLevel);
-			Director::getInstance()->replaceScene(TransitionFade::create(0.2f, nextScene));
-		} else {
-			// 최대 레벨 — 같은 레벨 재플레이
-			m_pPlayScene->InitGame();
-			m_pPlayScene->ResetGame();
-			m_pPlayScene->DrawDiscus();
-			m_pPlayScene->EnterWaitingState();
-		}
+		// 다음 레벨로 넘어가지 않고 현재 레벨에서 다시 시작 (힌트 "TAP TO PLAY AGAIN"과 일치).
+		// 새 씬으로 교체해 타이머/RPM/리플레이 버퍼/팝업을 전부 초기화.
+		PlayScene* sameScene = PlayScene::createScene(m_pPlayScene->m_countOfDiscus);
+		Director::getInstance()->replaceScene(TransitionFade::create(0.2f, sameScene));
 		return true;
 	}
 			
