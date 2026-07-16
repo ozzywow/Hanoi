@@ -44,7 +44,7 @@ public:
 	void callbackRankNext(Ref* pSender);
 
 	void drawOnlineRank(int level, bool retryOnEmpty = true);
-	void showNameInputDialog();
+	void showNameInputDialog(const std::string& prefill = "");
 	void showSettingsMenu();
 
 	// 복수(battle_reward): 내 피격 낙인 탭 → 나를 이긴 상대(A) 고스트로 재도전 확인창.
