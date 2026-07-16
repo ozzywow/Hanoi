@@ -1382,7 +1382,7 @@ public:
 };
 static Ref* s_nameDelegate = nullptr;
 
-void MainScene::showNameInputDialog()
+void MainScene::showNameInputDialog(const std::string& prefill)
 {
 	SoundFactory::Instance()->play("efs_click");
 	const int DIALOG_TAG = 199;
@@ -1413,6 +1413,8 @@ void MainScene::showNameInputDialog()
 	editBox->setReturnType(cocos2d::ui::EditBox::KeyboardReturnType::DONE);
 	editBox->setAnchorPoint(Vec2(0, 0.5f));
 	editBox->setPosition(Vec2(10, 100));
+	// ResetAll 등에서 마지막 사용 이름을 미리 채워 재입력 편의 제공
+	if (!prefill.empty()) editBox->setText(prefill.c_str());
 	dlg->addChild(editBox);
 
 	// 엔터→랜덤이름 델리게이트
@@ -1859,6 +1861,8 @@ void MainScene::showSettingsMenu()
 
 	auto doReset = [this]() {
 		auto* ud = UserDataManager::Instance();
+		// 이름 입력창에 미리 채울 마지막 사용 이름 — 초기화 전에 보관
+		std::string lastName = ud->GetUserName();
 		ud->ResetRecords();
 		std::string empty;
 		ud->SetUserName(empty);
@@ -1887,7 +1891,7 @@ void MainScene::showSettingsMenu()
 				m_rankBG->addChild(lbl);
 			}
 		}
-		showNameInputDialog();
+		showNameInputDialog(lastName);
 	};
 
 	auto okBtn = makePopupChipButton("\xE2\x9A\xA0 OK", kBtnDanger, [this, TAG, doReset](Ref*) {
