@@ -27,6 +27,7 @@ xcuserdata/
 *.dll
 *.dylib
 *.so
+*.pdb
 
 # Cocos2d-x runtime
 proj.win32/Debug.win32/
