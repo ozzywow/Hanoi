@@ -4,15 +4,15 @@
 #include "MKStoreManager.h"
 
 #if __cplusplus
-#include "MKStoreManagerDelegate.h"
+#include "IAPDelegate.h"
 
 
 
 @interface InterfaceMKStoreKitDelegate: NSObject<MKStoreKitDelegate>
 {
-    MKStoreManagerDelegate* cppDelegate;
+    IAPDelegate* cppDelegate;
 }
--(void)setdeletegate:(MKStoreManagerDelegate*) d;
+-(void)setdeletegate:(IAPDelegate*) d;
 -(void)productFetchComplete;
 -(void)productPurchased:(NSString *)productId;
 -(void)transactionCanceled;

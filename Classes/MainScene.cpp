@@ -10,7 +10,7 @@
 #include "DrawUtils.h"
 #include "PixelFont.h"
 #ifdef LITE_VER
-#include "MKStoreManager_cpp.h"
+#include "IAPManager.h"
 #endif //LITE_VER
 
 static const Color3B MINT_C(80, 220, 180);
@@ -462,7 +462,7 @@ void MainScene::onExitTransitionDidStart()
 #ifdef LITE_VER
 	this->isProgress = false;
 	this->isRestored = false;
-	CMKStoreManager::Instance()->ToggleIndicator(false);
+	IAPManager::Instance()->ToggleIndicator(false);
 #endif //LITE_VER
 }
 
@@ -495,8 +495,8 @@ void MainScene::callbackOnPushed_buyMenuItem(Ref* pSender)
 #ifdef LITE_VER
 	if (true == isProgress) { return; }
 	isProgress = true;
-	CMKStoreManager::Instance()->ToggleIndicator(true);
-	CMKStoreManager::Instance()->buyFeature(kProductIdTotal);
+	IAPManager::Instance()->ToggleIndicator(true);
+	IAPManager::Instance()->buyFeature(kProductIdTotal);
 #endif //LITE_VER
 
 	SoundFactory::Instance()->play("efs_click");
@@ -512,8 +512,8 @@ void MainScene::callbackLockBtn(Ref* sender)
 	if (true == isProgress) { return; }
 	isProgress = true;
 
-	CMKStoreManager::Instance()->ToggleIndicator(true);
-	CMKStoreManager::Instance()->restorePreviousTransactions();
+	IAPManager::Instance()->ToggleIndicator(true);
+	IAPManager::Instance()->restorePreviousTransactions();
 #endif //LITE_VER
 
 	SoundFactory::Instance()->play("efs_click");
@@ -525,13 +525,13 @@ void MainScene::callbackLockBtn(Ref* sender)
 void MainScene::productFetchComplete()
 {
 	cocos2d::log("productFetchComplete");
-	CMKStoreManager::Instance()->ToggleIndicator(false);
+	IAPManager::Instance()->ToggleIndicator(false);
 	isProgress = false;	
 }
 void MainScene::productPurchased(std::string productId)
 {
 	cocos2d::log("productPurchased /%s", productId.c_str());
-	CMKStoreManager::Instance()->ToggleIndicator(false);
+	IAPManager::Instance()->ToggleIndicator(false);
 	isProgress = false;
 
 	if (productId == kProductIdTotal)
@@ -546,7 +546,7 @@ void MainScene::productPurchased(std::string productId)
 void MainScene::transactionCanceled()
 {
 	cocos2d::log("transactionCanceled");
-	CMKStoreManager::Instance()->ToggleIndicator(false);
+	IAPManager::Instance()->ToggleIndicator(false);
 	isProgress = false;	
 }
 
@@ -568,7 +568,7 @@ void MainScene::restorePreviousTransactions(int count)
 
 	UserDataManager::Instance()->SetCart(true);
 	UserDataManager::Instance()->SaveUserData();
-	CMKStoreManager::Instance()->ToggleIndicator(false);
+	IAPManager::Instance()->ToggleIndicator(false);
 	drawBgmPlayer();
 
 	SoundFactory::Instance()->play("efs_click");
@@ -2345,7 +2345,7 @@ void MainScene::drawBgmPlayer()
 			iapMenu->setPosition(Vec2::ZERO);
 			root->addChild(iapMenu, 3);
 		}
-		CMKStoreManager::Instance()->SetDelegate(this);
+		IAPManager::Instance()->SetDelegate(this);
 	}
 #endif  // LITE_VER
 }
