@@ -1,12 +1,12 @@
 #include <string>
-#include "MKStoreManager_mm.h"
+#include "IAPManager.h"
+#include "IAPDelegate.h"
 #include "MKStoreManager.h"
-#include "MKStoreManagerDelegate.h"
 #include "MKDelegateCPP.h"
 
 USING_NS_CC;
 
-static MKStoreManagerDelegate* _mkdelegate;
+static IAPDelegate* _iapDelegate;
 static InterfaceMKStoreKitDelegate* _interfaceDele;
 static UIView*        _rootView;
 static UIActivityIndicatorView* _activity;
@@ -15,53 +15,50 @@ static UIActivityIndicatorView* _activity;
 UIViewController* getRootViewController();
 
 
-bool iosLink_MKStoreManager::isFeaturePurchased(std::string featureId)
+// ── IAPPlatform (구 iosLink_MKStoreManager) — StoreKit 브리지 ──
+
+bool IAPPlatform::isFeaturePurchased(std::string featureId)
 {
     NSString* obejctiveString =  [NSString stringWithUTF8String:featureId.c_str()];
     BOOL bRes = (bool)[MKStoreManager isFeaturePurchased:obejctiveString];
     return (bool)bRes;
 }
 
-void iosLink_MKStoreManager::buyFeature(std::string featureId)
+void IAPPlatform::buyFeature(std::string featureId)
 {
     NSString* obejctiveString =  [NSString stringWithUTF8String:featureId.c_str()];
 	[[MKStoreManager sharedManager] buyFeature:obejctiveString];
 }
 
-void iosLink_MKStoreManager::restorePreviousTransactions()
+void IAPPlatform::restorePreviousTransactions()
 {
 	[[MKStoreManager sharedManager] restorePreviousTransactions];
 }
 
-void iosLink_MKStoreManager::setDelegate(MKStoreManagerDelegate* delegate)
+void IAPPlatform::setDelegate(IAPDelegate* delegate)
 {
 	_interfaceDele = [InterfaceMKStoreKitDelegate alloc];
     [_interfaceDele setdeletegate:delegate];
-	_mkdelegate = delegate;    
+	_iapDelegate = delegate;
     [MKStoreManager setDelegate:_interfaceDele];
 }
 
 
+// ── IAPIndicator (구 iosUI) — 로딩 인디케이터 ──
 
-
-
-
-iosUI::iosUI() 
+IAPIndicator::IAPIndicator()
 {
 	UIViewController* uiView = [UIApplication sharedApplication].keyWindow.rootViewController;
 	_rootView = uiView.view;
 }
 
-iosUI::~iosUI() 
+IAPIndicator::~IAPIndicator()
 {
 
 }
 
-
-
-void iosUI::ToggleIndicator(bool lock)
+void IAPIndicator::ToggleIndicator(bool lock)
 {
-	
 	if (nil == _activity)
 	{
 		_activity
@@ -76,7 +73,4 @@ void iosUI::ToggleIndicator(bool lock)
 		[_activity startAnimating];
 
 	return;
-	
 }
-
-

@@ -50,6 +50,7 @@ set(GAME_HEADER
     Classes/PixelFont.h
     Classes/MainScene.h
     Classes/PlayScene.h
+    Classes/PlaySceneInternal.h
     Classes/PlaySceneTouchHandlerLayer.h
     Classes/SoundFactory.h
     Classes/UserDataManager.h
@@ -57,9 +58,8 @@ set(GAME_HEADER
     Classes/GameConfig.h
     Classes/Singleton.h
     Classes/stdafx.h
-    Classes/MKStoreManager_cpp.h
-    Classes/MKStoreManager_mm.h
-    Classes/MKStoreManagerDelegate.h
+    Classes/IAPManager.h
+    Classes/IAPDelegate.h
     Classes/SimulatorConfig.h
     Classes/LeaderboardManager.h
     Classes/AndroidBilling.h
@@ -76,12 +76,14 @@ set(GAME_SOURCE
     Classes/PixelFont.cpp
     Classes/MainScene.cpp
     Classes/PlayScene.cpp
+    Classes/PlayScene_Replay.cpp
+    Classes/PlayScene_Hud.cpp
+    Classes/PlayScene_Fx.cpp
     Classes/PlaySceneTouchHandlerLayer.cpp
     Classes/SoundFactory.cpp
     Classes/UserDataManager.cpp
     Classes/stdafx.cpp
-    Classes/MKStoreManager_cpp.cpp
-    Classes/MKStoreManagerDelegate.cpp
+    Classes/IAPManager.cpp
     Classes/LeaderboardManager.cpp
     Classes/ReviewManager.cpp
 )
@@ -125,7 +127,7 @@ elseif(APPLE)
             Classes/RootViewController.mm
             Classes/MKDelegateCPP.mm
             Classes/MKStoreManager.mm
-            Classes/MKStoreManager_mm.mm
+            Classes/IAPManager_ios.mm
             Classes/MKStoreObserver.mm
             Classes/ReviewBridge_ios.mm
             ${APP_UI_RES}

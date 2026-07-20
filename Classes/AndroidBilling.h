@@ -6,9 +6,9 @@
 
 #include <string>
 
-class MKStoreManagerDelegate;
+class IAPDelegate;
 
-void AndroidBilling_setDelegate(MKStoreManagerDelegate* delegate);
+void AndroidBilling_setDelegate(IAPDelegate* delegate);
 void AndroidBilling_buyFeature(const std::string& featureId);
 bool AndroidBilling_isFeaturePurchased(const std::string& featureId);
 void AndroidBilling_restorePreviousTransactions();

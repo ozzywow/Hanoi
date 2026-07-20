@@ -16,7 +16,13 @@ stdafx.h          공통 precompiled header → common_define.h → DrawUtils.h 
 DrawUtils.h/cpp   LED 패널, 키캡, 벡터 아이콘, BGM 카세트/스피커/전송, hsv2rgb
 PixelFont.h/cpp   5×7 픽셀 폰트 렌더링 (pixelGlyph, drawPixelGlyphs, makePixelText)
 MainScene         타이틀 / 랭킹보드 / BGM 플레이어
-PlayScene         게임 플레이 / 도크 UI
+PlayScene         게임 플레이 / 도크 UI — 클래스 하나를 4개 TU로 분할:
+  PlayScene.cpp          코어(씬 생명주기/게임플레이/카운트다운/콜백/IAP)
+  PlayScene_Replay.cpp   리플레이·고스트 레이스·관전 + 직렬화
+  PlayScene_Hud.cpp      하단 패널/랭크 티커/이퀄라이저/결과 HUD
+  PlayScene_Fx.cpp       idle/cheer/guide 연출 + 포디움
+  PlaySceneInternal.h    위 4개가 공유하는 심볼(arrPosOfPole, 리플레이 직렬화 등)
+IAPManager        크로스플랫폼 IAP 파사드(구 CMKStoreManager) — IAPManager_ios.mm(StoreKit)/AndroidBilling
 ```
 
 Include 체인: `stdafx.h → common_define.h → DrawUtils.h → cocos2d.h`

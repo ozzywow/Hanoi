@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory>
 #include "cocos2d.h"
-#include "MKStoreManagerDelegate.h"
+#include "IAPDelegate.h"
 using namespace cocos2d;
 
 struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h)
@@ -13,7 +13,7 @@ struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h
 
 class  MainScene : public Scene
 #ifdef LITE_VER
-	, public MKStoreManagerDelegate
+	, public IAPDelegate
 #endif //LITE_VER
 {
 public:

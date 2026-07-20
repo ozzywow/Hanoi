@@ -5,7 +5,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
-#include "MKStoreManagerDelegate.h"
+#include "IAPDelegate.h"
 #include "cocos2d.h"
 using namespace cocos2d;
 
@@ -27,9 +27,9 @@ struct ReplayEvent {
 	uint32_t t_ms;   // m_dateTime 기준 경과 ms
 };
 
-class PlayScene : public Scene 
+class PlayScene : public Scene
 #ifdef LITE_VER
-	, public MKStoreManagerDelegate
+	, public IAPDelegate
 #endif //LITE_VER
 {
 public:
