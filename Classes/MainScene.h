@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory>
 #include "cocos2d.h"
-#include "MKStoreManagerDelegate.h"
+#include "IAPDelegate.h"
 using namespace cocos2d;
 
 struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h)
@@ -13,7 +13,7 @@ struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h
 
 class  MainScene : public Scene
 #ifdef LITE_VER
-	, public MKStoreManagerDelegate
+	, public IAPDelegate
 #endif //LITE_VER
 {
 public:
@@ -122,6 +122,9 @@ public:
 	bool                 m_showNative       = true;
 	void showNextNameplateText();
 	void showResultDialog(const std::string& title, Color3B titleColor, const std::string& msg);
+
+	// 자동 소멸 토스트(검정 pill + 흰 글씨) — 링크 복사 등 짧은 피드백. pos 중심, 화면 안으로 클램프.
+	void showToast(const std::string& msg, Vec2 pos);
 
 #ifdef LITE_VER
 	virtual void productFetchComplete();

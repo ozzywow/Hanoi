@@ -4,17 +4,17 @@
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
 
 #include "AndroidBilling.h"
-#include "MKStoreManagerDelegate.h"
+#include "IAPDelegate.h"
 
 #include <jni.h>
 #include "platform/android/jni/JniHelper.h"
 
 #define APPACTIVITY_CLASS "org/cocos2dx/cpp/AppActivity"
 
-static MKStoreManagerDelegate* s_delegate = nullptr;
+static IAPDelegate* s_delegate = nullptr;
 static bool s_purchased = false;
 
-void AndroidBilling_setDelegate(MKStoreManagerDelegate* delegate)
+void AndroidBilling_setDelegate(IAPDelegate* delegate)
 {
     s_delegate = delegate;
 }

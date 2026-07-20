@@ -1,5 +1,5 @@
 """
-Hanoi Olympic - 사운드 생성 스크립트
+Tower of Hanoi - Speedrun 사운드 생성 스크립트
 표준 라이브러리(wave, math, struct)만 사용.
 실행하면 Resources/Sound/ 에 WAV 파일 생성.
 """

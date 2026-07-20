@@ -49,7 +49,9 @@ set(GAME_HEADER
     Classes/DrawUtils.h
     Classes/PixelFont.h
     Classes/MainScene.h
+    Classes/MainSceneInternal.h
     Classes/PlayScene.h
+    Classes/PlaySceneInternal.h
     Classes/PlaySceneTouchHandlerLayer.h
     Classes/SoundFactory.h
     Classes/UserDataManager.h
@@ -57,9 +59,9 @@ set(GAME_HEADER
     Classes/GameConfig.h
     Classes/Singleton.h
     Classes/stdafx.h
-    Classes/MKStoreManager_cpp.h
-    Classes/MKStoreManager_mm.h
-    Classes/MKStoreManagerDelegate.h
+    Classes/IAPManager.h
+    Classes/IAPDelegate.h
+    Classes/Clipboard.h
     Classes/SimulatorConfig.h
     Classes/LeaderboardManager.h
     Classes/AndroidBilling.h
@@ -75,13 +77,20 @@ set(GAME_SOURCE
     Classes/DrawUtils.cpp
     Classes/PixelFont.cpp
     Classes/MainScene.cpp
+    Classes/MainScene_Rank.cpp
+    Classes/MainScene_Dialog.cpp
+    Classes/MainScene_Bgm.cpp
     Classes/PlayScene.cpp
+    Classes/PlayScene_Replay.cpp
+    Classes/PlayScene_Hud.cpp
+    Classes/PlayScene_Fx.cpp
     Classes/PlaySceneTouchHandlerLayer.cpp
     Classes/SoundFactory.cpp
     Classes/UserDataManager.cpp
+    Classes/common_define.cpp
     Classes/stdafx.cpp
-    Classes/MKStoreManager_cpp.cpp
-    Classes/MKStoreManagerDelegate.cpp
+    Classes/IAPManager.cpp
+    Classes/Clipboard.cpp
     Classes/LeaderboardManager.cpp
     Classes/ReviewManager.cpp
 )
@@ -108,6 +117,8 @@ elseif(WINDOWS)
     )
 
 elseif(APPLE)
+    # iOS/Mac 공용 네이티브 (UIPasteboard/NSPasteboard)
+    list(APPEND GAME_SOURCE Classes/Clipboard_apple.mm)
     if(IOS)
         list(APPEND GAME_HEADER
             Classes/HanoiAppDelegate.h
@@ -125,7 +136,7 @@ elseif(APPLE)
             Classes/RootViewController.mm
             Classes/MKDelegateCPP.mm
             Classes/MKStoreManager.mm
-            Classes/MKStoreManager_mm.mm
+            Classes/IAPManager_ios.mm
             Classes/MKStoreObserver.mm
             Classes/ReviewBridge_ios.mm
             ${APP_UI_RES}
