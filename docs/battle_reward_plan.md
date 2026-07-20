@@ -1,6 +1,6 @@
 # 도전모드 격파/복수 기획안
 
-> Tower of Hanoi Olympic — 고스트 대결 승패에 낙인·뱃지·복수 루프를 얹어 경쟁 극대화
+> Tower of Hanoi - Speedrun — 고스트 대결 승패에 낙인·뱃지·복수 루프를 얹어 경쟁 극대화
 > 작성일: 2026-07-10 · 상태: 기획 (구현 전)
 > 선행: [replay_ghost_plan.md](replay_ghost_plan.md) (고스트 대결/리플레이 인프라)
 
