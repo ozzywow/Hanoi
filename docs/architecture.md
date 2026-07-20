@@ -1,6 +1,6 @@
-# Tower of Hanoi Olympic — 프로젝트 아키텍처
+# Tower of Hanoi - Speedrun — 프로젝트 아키텍처
 
-> 앱: **Tower of Hanoi Olympic** · 번들ID `com.ozzywow.TowerOfHanoiOlympic`
+> 앱: **Tower of Hanoi - Speedrun** · 번들ID `com.ozzywow.TowerOfHanoiOlympic`
 > 엔진: **Cocos2d-x 4.0 (C++)** · 빌드: **CMake** · 논리 해상도 960×640 / 리소스 480×320
 > 대상: iOS(원본) → **Windows / Mac / iOS / Android** 멀티플랫폼
 >

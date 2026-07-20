@@ -1,6 +1,6 @@
 # Hanoi Project
 
-앱: Tower of Hanoi Olympic | 번들ID: `com.ozzywow.TowerOfHanoiOlympic` | 엔진: Cocos2d-x (C++)
+앱: Tower of Hanoi - Speedrun | 번들ID: `com.ozzywow.TowerOfHanoiOlympic` | 엔진: Cocos2d-x (C++)
 목표: iOS(원본) → Windows / Mac / iOS / Android 멀티플랫폼 빌드
 
 📄 **전체 구조 문서**: [docs/architecture.md](docs/architecture.md) — 디렉터리·파일 맵·IAP 계층·빌드·리팩토링 이력 종합
