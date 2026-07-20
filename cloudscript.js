@@ -164,7 +164,7 @@ handlers.maintainLeaderboards = function(args, context) {
                             dropX = true;                       // 패자가 Top10 밖
                         } else {
                             try {
-                                var rvX = JSON.parse(xg.Data[xkey]);
+                                var rvX = JSON.parse(xg.Data[xkey].Value);
                                 if (!rvX || !keepSet[rvX.by])              dropX = true;  // 격파자 Top10 밖
                                 else if (rvX.ts && (now - rvX.ts) > BATTLE_TTL_MS) dropX = true;  // TTL 만료
                             } catch (pe) { dropX = true; }      // 파싱 실패 → 정리

@@ -272,7 +272,8 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 #ifdef LITE_VER
 	else if(m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
 	{
-		if (false == UserDataManager::Instance()->GetCart())
+		// 관전(Watch) 모드에서는 인앱결제 여부와 무관하게 자물쇠 미노출
+		if (!m_isSpectate && false == UserDataManager::Instance()->GetCart())
 		{
 			// 자물쇠 아이콘 + 8방향 검은 외곽선
 			auto lockNode = Node::create();
