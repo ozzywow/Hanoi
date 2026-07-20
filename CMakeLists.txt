@@ -86,6 +86,7 @@ set(GAME_SOURCE
     Classes/PlaySceneTouchHandlerLayer.cpp
     Classes/SoundFactory.cpp
     Classes/UserDataManager.cpp
+    Classes/common_define.cpp
     Classes/stdafx.cpp
     Classes/IAPManager.cpp
     Classes/LeaderboardManager.cpp
