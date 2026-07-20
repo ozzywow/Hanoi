@@ -49,6 +49,19 @@ public class AppActivity extends Cocos2dxActivity {
         }
     }
 
+    // Called from C++ via JNI — 설치 링크를 클립보드에 복사
+    public static void copyToClipboard(final String text) {
+        if (sInstance == null) return;
+        sInstance.runOnUiThread(() -> {
+            android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) sInstance.getSystemService(
+                    android.content.Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("install_link", text));
+            }
+        });
+    }
+
     // Called from C++ via JNI
     public static void purchaseProduct(final String productId) {
         if (sInstance == null) return;

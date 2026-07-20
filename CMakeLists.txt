@@ -61,6 +61,7 @@ set(GAME_HEADER
     Classes/stdafx.h
     Classes/IAPManager.h
     Classes/IAPDelegate.h
+    Classes/Clipboard.h
     Classes/SimulatorConfig.h
     Classes/LeaderboardManager.h
     Classes/AndroidBilling.h
@@ -89,6 +90,7 @@ set(GAME_SOURCE
     Classes/common_define.cpp
     Classes/stdafx.cpp
     Classes/IAPManager.cpp
+    Classes/Clipboard.cpp
     Classes/LeaderboardManager.cpp
     Classes/ReviewManager.cpp
 )
@@ -115,6 +117,8 @@ elseif(WINDOWS)
     )
 
 elseif(APPLE)
+    # iOS/Mac 공용 네이티브 (UIPasteboard/NSPasteboard)
+    list(APPEND GAME_SOURCE Classes/Clipboard_apple.mm)
     if(IOS)
         list(APPEND GAME_HEADER
             Classes/HanoiAppDelegate.h

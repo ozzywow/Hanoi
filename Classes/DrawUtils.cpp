@@ -192,6 +192,20 @@ void drawVecLock(DrawNode* node, float cx, float cy, float sz, const Color4F& co
     node->drawSolidRect(Vec2(cx-kr*0.55f, by0+bh*0.20f), Vec2(cx+kr*0.55f, kcy), bg);
 }
 
+void drawVecShare(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
+{
+    Vec2 pL (cx - sz * 0.55f, cy);                  // 좌측 노드
+    Vec2 pTR(cx + sz * 0.55f, cy + sz * 0.62f);     // 우상 노드
+    Vec2 pBR(cx + sz * 0.55f, cy - sz * 0.62f);     // 우하 노드
+    float lw = sz * 0.10f;                          // 연결선 두께(반지름)
+    float dr = sz * 0.28f;                          // 노드 반지름
+    node->drawSegment(pL, pTR, lw, col);
+    node->drawSegment(pL, pBR, lw, col);
+    node->drawSolidCircle(pL,  dr, 0, 16, col);
+    node->drawSolidCircle(pTR, dr, 0, 16, col);
+    node->drawSolidCircle(pBR, dr, 0, 16, col);
+}
+
 // ── 아이콘 노드 팩토리 ───────────────────────────────────────────────────────
 
 Node* makeVecCartNode(float w, float h, float sz)

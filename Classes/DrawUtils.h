@@ -17,6 +17,8 @@ void drawVecTriangle(DrawNode* node, float cx, float cy, float sz, bool leftward
 void drawVecReset(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
 void drawVecCartIcon(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
 void drawVecLock(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
+// 공유 아이콘: 세 노드(●)를 두 선으로 연결한 안드로이드식 share 글리프
+void drawVecShare(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
 
 // ── BGM 플레이어 드로우 ──────────────────────────────────────────────────────
 void drawCassetteBody(DrawNode* dn, float cx, float cy, float w, float h, bool on);
