@@ -1,7 +1,7 @@
 #import "MKDelegateCPP.h"
 
 @implementation InterfaceMKStoreKitDelegate
--(void)setdeletegate:(MKStoreManagerDelegate*) d
+-(void)setdeletegate:(IAPDelegate*) d
 {
 	self->cppDelegate = d;
 }

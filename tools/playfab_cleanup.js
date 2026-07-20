@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PlayFab 정크 플레이어 정리 도구 (Tower of Hanoi Olympic)
+ * PlayFab 정크 플레이어 정리 도구 (Tower of Hanoi - Speedrun)
  *
  * 판별 기준 — "진짜 유저"는 아래 중 하나라도 해당하면 보존(KEEP):
  *   1) DisplayName 이 있음        (이름을 입력한 유저 → UpdateUserTitleDisplayName)
