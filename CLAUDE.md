@@ -15,7 +15,12 @@ common_define.h   전역 상수, enum, 타이밍 유틸, countryToFlag 등
 stdafx.h          공통 precompiled header → common_define.h → DrawUtils.h 순 포함
 DrawUtils.h/cpp   LED 패널, 키캡, 벡터 아이콘, BGM 카세트/스피커/전송, hsv2rgb
 PixelFont.h/cpp   5×7 픽셀 폰트 렌더링 (pixelGlyph, drawPixelGlyphs, makePixelText)
-MainScene         타이틀 / 랭킹보드 / BGM 플레이어
+MainScene         타이틀 / 랭킹보드 / BGM 플레이어 — 클래스 하나를 4개 TU로 분할:
+  MainScene.cpp          코어(씬 생명주기/타이틀/START 애니/IAP/nameplate)
+  MainScene_Rank.cpp     온라인 랭킹보드(drawOnlineRank) + 페이지 콜백
+  MainScene_Dialog.cpp   이름·설정·복수·업데이트·수상소감·버전 게이트 다이얼로그
+  MainScene_Bgm.cpp      BGM 플레이어 + 상/하단 티커
+  MainSceneInternal.h    공유 심볼(appStoreUrl, utf8TruncateCP)
 PlayScene         게임 플레이 / 도크 UI — 클래스 하나를 4개 TU로 분할:
   PlayScene.cpp          코어(씬 생명주기/게임플레이/카운트다운/콜백/IAP)
   PlayScene_Replay.cpp   리플레이·고스트 레이스·관전 + 직렬화

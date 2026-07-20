@@ -49,6 +49,7 @@ set(GAME_HEADER
     Classes/DrawUtils.h
     Classes/PixelFont.h
     Classes/MainScene.h
+    Classes/MainSceneInternal.h
     Classes/PlayScene.h
     Classes/PlaySceneInternal.h
     Classes/PlaySceneTouchHandlerLayer.h
@@ -75,6 +76,9 @@ set(GAME_SOURCE
     Classes/DrawUtils.cpp
     Classes/PixelFont.cpp
     Classes/MainScene.cpp
+    Classes/MainScene_Rank.cpp
+    Classes/MainScene_Dialog.cpp
+    Classes/MainScene_Bgm.cpp
     Classes/PlayScene.cpp
     Classes/PlayScene_Replay.cpp
     Classes/PlayScene_Hud.cpp
