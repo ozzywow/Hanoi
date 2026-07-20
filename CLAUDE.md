@@ -1,12 +1,15 @@
 # Hanoi Project
 
 앱: Tower of Hanoi Olympic | 번들ID: `com.ozzywow.TowerOfHanoiOlympic` | 엔진: Cocos2d-x (C++)
-목표: iOS(원본) → Windows / Mac / iOS 멀티플랫폼 빌드
+목표: iOS(원본) → Windows / Mac / iOS / Android 멀티플랫폼 빌드
 
-## 현재 상태 (2026-06-24 기준)
+📄 **전체 구조 문서**: [docs/architecture.md](docs/architecture.md) — 디렉터리·파일 맵·IAP 계층·빌드·리팩토링 이력 종합
+
+## 현재 상태 (2026-07-20 기준)
 - Android 빌드: `proj.android/` — CMakeLists.txt 기반, 정상 빌드 확인
 - iOS/Mac 빌드: `proj.ios_mac/` — `.xcodeproj`는 Mac에만 존재 (git 미포함)
-- iOS 전용 파일: `MKStoreManager.*`, `HanoiAppDelegate.m`, `RootViewController.m`, `PlayScene.m`, `SoundFactory.m`
+- iOS 전용 파일: `MKStoreManager.*`, `IAPManager_ios.mm`, `HanoiAppDelegate.mm`, `RootViewController.mm`, `MKStoreObserver.mm`, `MKDelegateCPP.mm`, `ReviewBridge_ios.mm`
+- iOS 오리지널 `.m` 원본은 `legacy_ios/`에 참조용 보관(빌드 제외)
 
 ## 아키텍처 — Classes/ 구조
 
