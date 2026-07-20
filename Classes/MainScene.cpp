@@ -9,6 +9,7 @@
 #include "ui/CocosGUI.h"
 #include "DrawUtils.h"
 #include "PixelFont.h"
+#include "Clipboard.h"
 #ifdef LITE_VER
 #include "IAPManager.h"
 #endif //LITE_VER
@@ -237,6 +238,29 @@ bool MainScene::init()
 			refreshVersionLabelWhenReady();     // 최신버전 지연 도착 시 확보되는 순간 갱신
 		}
 	}
+	// ── 🔗 공유(링크 복사) 버튼 — 버전정보 아래 / 랭킹보드 우상단 갭 ──
+	// 스마트 링크(SHARE_URL) 클립보드 복사 → 버튼 아래 토스트. 크기는 랭킹 ◀▶ 버튼과 동일(22×22).
+	// 배치: 보드 상단(y=222)과 [Update](y=265)/버전(y=280) 사이 y=240 → [Update] 활성 시에도 비겹침.
+	{
+		const Vec2 SHARE_POS(RESOURCE_WIDTH - 21.f, 240.f);
+		auto shareKeycap = DrawNode::create();
+		drawKeycap(shareKeycap, 0, 0, 22, 22, true);
+		shareKeycap->setPosition(SHARE_POS);
+		this->addChild(shareKeycap, 13);
+		Node* shareIcon = makeVecIcon(22, 22, [](DrawNode* dn, float cx, float cy) {
+			drawVecShare(dn, cx, cy, 5.5f, Color4F(0.42f, 0.78f, 0.62f, 1.f)); // 민트
+		});
+		auto shareMenuItem = MenuItemLabel::create(shareIcon, [this, SHARE_POS](Ref*) {
+			SoundFactory::Instance()->play("efs_click");
+			Clipboard::copy(SHARE_URL);
+			this->showToast("LINK COPIED", Vec2(SHARE_POS.x, SHARE_POS.y - 20.f));
+		});
+		shareMenuItem->setPosition(SHARE_POS);
+		Menu* shareMenu = Menu::create(shareMenuItem, NULL);
+		shareMenu->setPosition(Vec2::ZERO);
+		this->addChild(shareMenu, 13);
+	}
+
 	// ── 최하단 LED 전광판 (BottomInfoBar) — 국기 스크롤 (좌→우) ──
 	{
 		const float BW = RESOURCE_WIDTH - 4, BH = 15;
@@ -553,6 +577,42 @@ void MainScene::restorePreviousTransactions(int count)
 // 팝업 배경에 모달 터치 차단 리스너 부착 — 뒤 영역 터치를 전부 삼켜(통과 방지),
 // 팝업 영역(버튼/EditBox 등 더 깊은 자식)만 상호작용되게 한다.
 // attachModalBlocker 는 DrawUtils(공용)로 이동 — docs/popup_design_plan.md §2 모달 일원화.
+
+void MainScene::showToast(const std::string& msg, Vec2 pos)
+{
+	const int TAG_TOAST = 198;
+	this->removeChildByTag(TAG_TOAST);   // 연타 시 이전 토스트 제거
+
+	auto lbl = Label::createWithSystemFont(msg, "Arial", 10);
+	lbl->setColor(Color3B::WHITE);
+	Size ts = lbl->getContentSize();
+	const float w = ts.width + 16.f, h = ts.height + 6.f;   // 작은 pill 패딩
+
+	// 화면 안으로 클램프 (우측단 버튼 아래여도 넘치지 않게)
+	pos.x = std::max(w * 0.5f + 3.f, std::min(pos.x, RESOURCE_WIDTH - w * 0.5f - 3.f));
+	pos.y = std::max(h * 0.5f + 3.f, pos.y);
+
+	auto box = Node::create();
+	box->setTag(TAG_TOAST);
+	box->setCascadeOpacityEnabled(true);
+	box->setPosition(pos);
+	box->setOpacity(0);
+
+	auto bg = LayerColor::create(Color4B(0, 0, 0, 210), w, h);   // 검정 반투명 pill
+	bg->setPosition(-w * 0.5f, -h * 0.5f);
+	box->addChild(bg, 0);
+
+	lbl->setPosition(Vec2::ZERO);   // 앵커 기본 (0.5, 0.5)
+	box->addChild(lbl, 1);
+
+	this->addChild(box, 9999);
+	box->runAction(Sequence::create(
+		FadeIn::create(0.15f),
+		DelayTime::create(1.1f),
+		FadeOut::create(0.4f),
+		RemoveSelf::create(),
+		nullptr));
+}
 
 void MainScene::showResultDialog(const std::string& title, Color3B titleColor, const std::string& msg)
 {

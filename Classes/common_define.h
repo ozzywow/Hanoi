@@ -20,6 +20,10 @@ using namespace cocos2d;
 #define MASTER_VOLUME 1.0f			// 0.0~1.0
 
 #define BUY_AT_STORE_URL "https://apps.apple.com/app/id430261581"
+
+// 설치 링크 공유용 스마트 URL — 클릭 기기(iOS/Android) 자동 판별 후 해당 스토어로 리다이렉트.
+// 소스: landing/index.html (GitHub Pages 호스팅)
+#define SHARE_URL "https://ozzywow.github.io/Hanoi/"
 #define kConsumableBaseFeatureId "com.ozzywow.TowerOfHanoiOlympic"
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
 #define kProductIdTotal "com.ozzywow.nanoi.fullversion"
