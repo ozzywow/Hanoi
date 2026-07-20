@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tower of Hanoi - Speedrun</title>
+<meta name="description" content="Tower of Hanoi - Speedrun 설치하기">
+<!-- 소셜 공유 카드 -->
+<meta property="og:title" content="Tower of Hanoi - Speedrun">
+<meta property="og:description" content="지금 설치하고 최고 기록에 도전하세요.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0e1116; --card:#161b22; --fg:#e8edf2; --sub:#9aa4af;
+    --ios:#0a84ff; --and:#34c759; --border:#2a313a;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f4f6f8; --card:#ffffff; --fg:#1a2028; --sub:#5b6672; --border:#e2e6ea; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+    -webkit-text-size-adjust:100%;
+  }
+  .card{
+    width:100%; max-width:360px; background:var(--card);
+    border:1px solid var(--border); border-radius:20px;
+    padding:32px 24px; text-align:center;
+    box-shadow:0 10px 40px rgba(0,0,0,.25);
+  }
+  .logo{font-size:44px; line-height:1; margin-bottom:14px}
+  h1{font-size:20px; margin:0 0 6px}
+  p{margin:0 0 22px; color:var(--sub); font-size:14px}
+  a.btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    text-decoration:none; color:#fff; font-weight:600; font-size:15px;
+    padding:14px 16px; border-radius:12px; margin:10px 0;
+  }
+  a.ios{background:var(--ios)}
+  a.and{background:var(--and)}
+  .note{font-size:12px; color:var(--sub); margin-top:16px}
+  .redir{display:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🗼</div>
+    <h1>Tower of Hanoi - Speedrun</h1>
+    <p id="msg">스토어로 이동 중…</p>
+    <a class="btn ios" id="ios" href="https://apps.apple.com/app/id430261581">🍎 App Store</a>
+    <a class="btn and" id="and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">▶ Google Play</a>
+    <div class="note">기기에 맞는 버튼을 눌러 설치하세요.</div>
+  </div>
+
+<script>
+(function(){
+  var IOS_URL = "https://apps.apple.com/app/id430261581";
+  var AND_URL = "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi";
+
+  var ua = navigator.userAgent || navigator.vendor || "";
+  // iPadOS 13+ 는 UA가 "Macintosh" 로 위장 → 터치 포인트로 아이패드 판별
+  var isTouchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  var isIOS = /iPhone|iPad|iPod/i.test(ua) || isTouchMac;
+  var isAndroid = /Android/i.test(ua);
+
+  var target = null;
+  if (isAndroid) target = AND_URL;
+  else if (isIOS) target = IOS_URL;
+
+  if (target){
+    // 모바일: 즉시 해당 스토어로 리다이렉트 (뒤로가기 시 이 페이지 안 남게 replace)
+    document.getElementById("msg").textContent = "잠시만요, 스토어로 이동합니다…";
+    window.location.replace(target);
+  } else {
+    // 데스크톱/미판별: 두 버튼을 그대로 노출
+    document.getElementById("msg").textContent = "설치할 스토어를 선택하세요.";
+  }
+})();
+</script>
+</body>
+</html>
