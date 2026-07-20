@@ -1,82 +1,186 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tower of Hanoi - Speedrun</title>
-<meta name="description" content="Tower of Hanoi - Speedrun 설치하기">
-<!-- 소셜 공유 카드 -->
+<meta name="description" content="The classic Tower of Hanoi, reimagined as a global speedrun. Race the clock, climb the world rankings, and challenge ghosts of the top players.">
 <meta property="og:title" content="Tower of Hanoi - Speedrun">
-<meta property="og:description" content="지금 설치하고 최고 기록에 도전하세요.">
+<meta property="og:description" content="Race the clock. Climb the world rankings. Challenge the top players.">
 <meta property="og:type" content="website">
+<meta name="theme-color" content="#0a0e1a">
 <style>
   :root{
-    --bg:#0e1116; --card:#161b22; --fg:#e8edf2; --sub:#9aa4af;
-    --ios:#0a84ff; --and:#34c759; --border:#2a313a;
+    --bg:#0a0e1a; --bg2:#0f1628; --card:#141c30; --line:#243049;
+    --fg:#eaf0f8; --sub:#98a6be; --mint:#3ecf9a; --blue:#5aa0ff; --gold:#ffcf4a;
+    --ios:#0a84ff; --and:#34c759;
   }
-  @media (prefers-color-scheme: light){
-    :root{ --bg:#f4f6f8; --card:#ffffff; --fg:#1a2028; --sub:#5b6672; --border:#e2e6ea; }
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
+  *{box-sizing:border-box; margin:0; padding:0}
+  html{scroll-behavior:smooth}
   body{
-    background:var(--bg); color:var(--fg);
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #1a2547 0%, transparent 60%),
+      radial-gradient(800px 500px at 90% 10%, #241a47 0%, transparent 55%),
+      var(--bg);
+    color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
-    display:flex; align-items:center; justify-content:center; padding:24px;
-    -webkit-text-size-adjust:100%;
+    line-height:1.55; -webkit-font-smoothing:antialiased;
   }
-  .card{
-    width:100%; max-width:360px; background:var(--card);
-    border:1px solid var(--border); border-radius:20px;
-    padding:32px 24px; text-align:center;
-    box-shadow:0 10px 40px rgba(0,0,0,.25);
+  .wrap{max-width:880px; margin:0 auto; padding:0 20px}
+  a{color:var(--blue); text-decoration:none}
+
+  /* ── Hero ── */
+  header{text-align:center; padding:64px 0 40px}
+  .logo{font-size:64px; line-height:1; filter:drop-shadow(0 6px 20px rgba(90,160,255,.4))}
+  h1{
+    font-size:clamp(28px,6vw,46px); font-weight:800; letter-spacing:-.5px; margin:14px 0 8px;
+    background:linear-gradient(120deg,#eaf0f8,#8fb8ff 60%,#a98bff);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
   }
-  .logo{font-size:44px; line-height:1; margin-bottom:14px}
-  h1{font-size:20px; margin:0 0 6px}
-  p{margin:0 0 22px; color:var(--sub); font-size:14px}
-  a.btn{
-    display:flex; align-items:center; justify-content:center; gap:8px;
-    text-decoration:none; color:#fff; font-weight:600; font-size:15px;
-    padding:14px 16px; border-radius:12px; margin:10px 0;
+  .tag{color:var(--sub); font-size:clamp(15px,2.6vw,18px); max-width:520px; margin:0 auto 28px}
+
+  .dl{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+  .btn{
+    display:inline-flex; align-items:center; gap:9px; font-weight:700; font-size:15px;
+    color:#fff; padding:13px 22px; border-radius:13px; border:1px solid transparent;
+    transition:transform .12s ease, box-shadow .12s ease; position:relative;
   }
-  a.ios{background:var(--ios)}
-  a.and{background:var(--and)}
-  .note{font-size:12px; color:var(--sub); margin-top:16px}
-  .redir{display:none}
+  .btn:hover{transform:translateY(-2px)}
+  .btn.ios{background:var(--ios); box-shadow:0 8px 24px rgba(10,132,255,.32)}
+  .btn.and{background:var(--and); box-shadow:0 8px 24px rgba(52,199,89,.30)}
+  .btn .rec{
+    position:absolute; top:-9px; right:-9px; background:var(--gold); color:#221a00;
+    font-size:10px; font-weight:800; padding:2px 7px; border-radius:20px; letter-spacing:.3px;
+    box-shadow:0 3px 10px rgba(0,0,0,.4);
+  }
+
+  /* ── Sections ── */
+  section{padding:44px 0}
+  .eyebrow{color:var(--mint); font-weight:700; font-size:13px; letter-spacing:1.5px; text-transform:uppercase; text-align:center}
+  h2{font-size:clamp(22px,4vw,30px); font-weight:800; text-align:center; margin:8px 0 30px; letter-spacing:-.3px}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px}
+  .feat{
+    background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid var(--line); border-radius:16px; padding:22px;
+  }
+  .feat .ic{font-size:26px; margin-bottom:10px}
+  .feat h3{font-size:16px; font-weight:700; margin-bottom:5px}
+  .feat p{color:var(--sub); font-size:14px}
+
+  /* ── Support / FAQ ── */
+  .faq{max-width:640px; margin:0 auto}
+  details{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:0 18px; margin-bottom:10px; overflow:hidden;
+  }
+  summary{
+    cursor:pointer; padding:15px 0; font-weight:600; font-size:15px; list-style:none;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+"; color:var(--mint); font-size:20px; font-weight:400}
+  details[open] summary::after{content:"\2212"}
+  details p{color:var(--sub); font-size:14px; padding:0 0 16px}
+
+  .contact{
+    max-width:640px; margin:26px auto 0; text-align:center;
+    background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid var(--line); border-radius:16px; padding:26px;
+  }
+  .contact h3{font-size:17px; margin-bottom:6px}
+  .contact p{color:var(--sub); font-size:14px; margin-bottom:14px}
+  .mail{
+    display:inline-block; background:#0e1524; border:1px solid var(--line);
+    color:var(--fg); font-weight:600; padding:11px 20px; border-radius:11px;
+  }
+
+  footer{border-top:1px solid var(--line); margin-top:30px; padding:26px 0 48px; text-align:center}
+  footer .links{display:flex; gap:18px; justify-content:center; flex-wrap:wrap; margin-bottom:12px}
+  footer .links a{color:var(--sub); font-size:13px}
+  footer .cp{color:#5a6580; font-size:12px}
 </style>
 </head>
 <body>
-  <div class="card">
+<div class="wrap">
+
+  <!-- Hero -->
+  <header>
     <div class="logo">🗼</div>
-    <h1>Tower of Hanoi - Speedrun</h1>
-    <p id="msg">스토어로 이동 중…</p>
-    <a class="btn ios" id="ios" href="https://apps.apple.com/app/id430261581">🍎 App Store</a>
-    <a class="btn and" id="and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">▶ Google Play</a>
-    <div class="note">기기에 맞는 버튼을 눌러 설치하세요.</div>
-  </div>
+    <h1>Tower of Hanoi<br>Speedrun</h1>
+    <p class="tag">The classic puzzle, reimagined as a global speedrun.<br>Race the clock, climb the world rankings, and challenge the ghosts of top players.</p>
+    <div class="dl">
+      <a class="btn ios" id="btn-ios" href="https://apps.apple.com/app/id430261581">
+        🍎 <span>Download on the App Store</span></a>
+      <a class="btn and" id="btn-and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
+        ▶ <span>Get it on Google Play</span></a>
+    </div>
+  </header>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="eyebrow">Why you'll get hooked</div>
+    <h2>Not just a puzzle — a race</h2>
+    <div class="grid">
+      <div class="feat"><div class="ic">🏆</div><h3>Global Rankings</h3><p>Compete level by level against players worldwide. Every millisecond counts on the leaderboard.</p></div>
+      <div class="feat"><div class="ic">👻</div><h3>Ghost Race &amp; Revenge</h3><p>Race against the recorded runs of top rankers — and get your revenge when someone beats you.</p></div>
+      <div class="feat"><div class="ic">⏱️</div><h3>Speedrun Timing</h3><p>Millisecond-precise timing with a live RPM meter that rewards fast, clean solving.</p></div>
+      <div class="feat"><div class="ic">📼</div><h3>Replays</h3><p>Watch your best runs back, or spectate the rankers to learn their fastest routes.</p></div>
+      <div class="feat"><div class="ic">🌍</div><h3>Fly Your Flag</h3><p>Represent your country on the boards — see where you stand on the world stage.</p></div>
+      <div class="feat"><div class="ic">🎵</div><h3>Chiptune BGM</h3><p>A built-in 8-bit music player sets the pace while you climb the tower.</p></div>
+    </div>
+  </section>
+
+  <!-- Support -->
+  <section id="support">
+    <div class="eyebrow">Support</div>
+    <h2>Help &amp; FAQ</h2>
+    <div class="faq">
+      <details><summary>How do I get on the online ranking?</summary>
+        <p>Set a personal best on any level and it's submitted automatically. Tap the ranking board to browse each level's world leaderboard.</p></details>
+      <details><summary>My new record isn't showing on the board</summary>
+        <p>Rankings can take a few seconds to propagate on the server. Reopen the ranking board after a moment — your record is safely stored and will appear.</p></details>
+      <details><summary>What is Ghost Race?</summary>
+        <p>You race side by side against a top player's recorded run. Beat their time to leave your mark; if you're beaten, a Revenge challenge lets you try again.</p></details>
+      <details><summary>How do I change the language?</summary>
+        <p>The game follows your device language automatically and supports many languages out of the box.</p></details>
+      <details><summary>Is the game free?</summary>
+        <p>Yes. Some higher levels can be unlocked via an optional in-app purchase.</p></details>
+    </div>
+
+    <div class="contact">
+      <h3>Still need help?</h3>
+      <p>Questions, bug reports, or feedback — we'd love to hear from you.</p>
+      <a class="mail" href="mailto:ozzywow2@gmail.com?subject=Tower%20of%20Hanoi%20-%20Speedrun%20Support">✉ ozzywow2@gmail.com</a>
+    </div>
+  </section>
+
+  <footer>
+    <div class="links">
+      <a href="https://apps.apple.com/app/id430261581">App Store</a>
+      <a href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">Google Play</a>
+      <a href="https://doc-hosting.flycricket.io/tower-of-hanoi-privacy-policy/61edab27-5059-4bdb-baff-968b60e25baf/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+    </div>
+    <div class="cp">© 2026 ozzywow · Tower of Hanoi - Speedrun</div>
+  </footer>
+
+</div>
 
 <script>
+// 방문 기기 감지 → 해당 스토어 버튼에 "Recommended" 배지 강조 (자동 이동은 하지 않음)
 (function(){
-  var IOS_URL = "https://apps.apple.com/app/id430261581";
-  var AND_URL = "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi";
-
-  var ua = navigator.userAgent || navigator.vendor || "";
-  // iPadOS 13+ 는 UA가 "Macintosh" 로 위장 → 터치 포인트로 아이패드 판별
+  var ua = navigator.userAgent || "";
   var isTouchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
   var isIOS = /iPhone|iPad|iPod/i.test(ua) || isTouchMac;
   var isAndroid = /Android/i.test(ua);
-
-  var target = null;
-  if (isAndroid) target = AND_URL;
-  else if (isIOS) target = IOS_URL;
-
-  if (target){
-    // 모바일: 즉시 해당 스토어로 리다이렉트 (뒤로가기 시 이 페이지 안 남게 replace)
-    document.getElementById("msg").textContent = "잠시만요, 스토어로 이동합니다…";
-    window.location.replace(target);
-  } else {
-    // 데스크톱/미판별: 두 버튼을 그대로 노출
-    document.getElementById("msg").textContent = "설치할 스토어를 선택하세요.";
+  var id = isAndroid ? "btn-and" : (isIOS ? "btn-ios" : null);
+  if (id){
+    var b = document.getElementById(id);
+    var tag = document.createElement("span");
+    tag.className = "rec"; tag.textContent = "YOUR DEVICE";
+    b.appendChild(tag);
+    // 추천 버튼을 맨 앞으로
+    b.parentNode.insertBefore(b, b.parentNode.firstChild);
   }
 })();
 </script>
