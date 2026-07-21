@@ -1,0 +1,9 @@
+# Tower of Hanoi - Speedrun
+# NOTE: crawlers only read robots.txt at the domain root
+# (https://ozzywow.github.io/robots.txt). This copy is effective only if a
+# custom domain is attached to this project page.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://ozzywow.github.io/Hanoi/sitemap.xml
