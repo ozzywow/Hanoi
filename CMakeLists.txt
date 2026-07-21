@@ -48,6 +48,7 @@ set(GAME_HEADER
     Classes/Discus.h
     Classes/DrawUtils.h
     Classes/PixelFont.h
+    Classes/SplashScene.h
     Classes/MainScene.h
     Classes/MainSceneInternal.h
     Classes/PlayScene.h
@@ -77,6 +78,7 @@ set(GAME_SOURCE
     Classes/Discus.cpp
     Classes/DrawUtils.cpp
     Classes/PixelFont.cpp
+    Classes/SplashScene.cpp
     Classes/MainScene.cpp
     Classes/MainScene_Rank.cpp
     Classes/MainScene_Dialog.cpp

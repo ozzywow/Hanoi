@@ -1,5 +1,6 @@
 ﻿#include "AppDelegate.h"
 //#include "HelloWorldScene.h"
+#include "SplashScene.h"
 #include "MainScene.h"
 #include "common_define.h"
 #include "SoundFactory.h"
@@ -103,9 +104,10 @@ bool AppDelegate::applicationDidFinishLaunching() {
 
     register_all_packages();
 
-    // create a scene. it's an autorelease object  
+    // create a scene. it's an autorelease object
     //auto scene = HelloWorld::createScene();
-	auto scene = MainScene::createScene();
+	// 시그니처(브랜드) 인트로 → 내부에서 MainScene으로 전환
+	auto scene = SplashScene::createScene();
 
     SoundFactory::Instance()->setMasterVolume(MASTER_VOLUME);
 

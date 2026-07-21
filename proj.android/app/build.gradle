@@ -78,4 +78,5 @@ dependencies {
     implementation 'com.android.billingclient:billing:9.1.0'
     implementation 'androidx.fragment:fragment:1.8.9'
     implementation 'com.google.android.play:review:2.0.2'
+    implementation 'androidx.core:core-splashscreen:1.0.1'
 }
