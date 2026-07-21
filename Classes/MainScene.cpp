@@ -10,6 +10,7 @@
 #include "DrawUtils.h"
 #include "PixelFont.h"
 #include "Clipboard.h"
+#include "NativeShare.h"
 #ifdef LITE_VER
 #include "IAPManager.h"
 #endif //LITE_VER
@@ -252,8 +253,13 @@ bool MainScene::init()
 		});
 		auto shareMenuItem = MenuItemLabel::create(shareIcon, [this, SHARE_POS](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
-			Clipboard::copy(SHARE_URL);
-			this->showToast("LINK COPIED", Vec2(SHARE_POS.x, SHARE_POS.y - 20.f));
+			// 모바일: 네이티브 공유 시트(카톡/메시지 등 바로 선택) / 데스크톱: 클립보드 복사 폴백
+			if (NativeShare::isSupported()) {
+				NativeShare::share(std::string("Race me on Tower of Hanoi - Speedrun!\n") + SHARE_URL);
+			} else {
+				Clipboard::copy(SHARE_URL);
+				this->showToast("LINK COPIED", Vec2(SHARE_POS.x, SHARE_POS.y - 20.f));
+			}
 		});
 		shareMenuItem->setPosition(SHARE_POS);
 		Menu* shareMenu = Menu::create(shareMenuItem, NULL);

@@ -49,6 +49,17 @@ public class AppActivity extends Cocos2dxActivity {
         }
     }
 
+    // Called from C++ via JNI — 네이티브 공유 시트 (친구 초대)
+    public static void shareText(final String text) {
+        if (sInstance == null) return;
+        sInstance.runOnUiThread(() -> {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(android.content.Intent.EXTRA_TEXT, text);
+            sInstance.startActivity(android.content.Intent.createChooser(i, null));
+        });
+    }
+
     // Called from C++ via JNI — 설치 링크를 클립보드에 복사
     public static void copyToClipboard(final String text) {
         if (sInstance == null) return;
