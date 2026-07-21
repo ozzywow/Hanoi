@@ -99,8 +99,12 @@
   .board-list li:nth-child(odd){background:rgba(255,255,255,.02)}
   .board-list .r{color:var(--sub); font-weight:700; text-align:center; font-variant-numeric:tabular-nums}
   .board-list li:first-child .r{color:var(--gold)}
-  .board-list .nm{color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .board-list .nm .fl{margin-right:7px}
+  .board-list .nm{color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center}
+  .board-list .nm .fl{width:20px; height:14px; object-fit:cover; border-radius:2px; margin-right:9px;
+    flex:0 0 auto; box-shadow:0 0 0 1px rgba(255,255,255,.12)}
+  .board-list .nm .code{display:inline-block; width:20px; margin-right:9px; flex:0 0 auto;
+    font-size:10px; font-weight:700; color:var(--sub); text-align:center}
+  .board-list .nm .fl-emoji{margin-right:9px; flex:0 0 auto; font-size:17px; line-height:1}
   .board-list .tm{color:var(--mint); font-variant-numeric:tabular-nums; font-weight:600; letter-spacing:.3px}
   .lb-msg{display:block; text-align:center; color:var(--sub); font-size:14px; padding:38px 18px}
 
@@ -248,12 +252,34 @@
 
   function p2(n){ return (n < 10 ? "0" : "") + n; }
   function fmt(ms){ return p2(Math.floor(ms/60000)) + ":" + p2(Math.floor(ms%60000/1000)) + "." + p2(Math.floor(ms%1000/10)); }
-  function flag(cc){
-    if (!cc || cc.length !== 2) return "🏳️";
-    cc = cc.toUpperCase();
-    return String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
-  }
   function esc(s){ return (s||"").replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
+
+  // 국기 이모지 지원 여부 감지 (Windows는 국기 글리프가 없어 "JP"처럼 코드로 렌더됨).
+  // canvas에 JP 국기(🇯🇵, 흰 바탕 붉은 원)를 그려 붉은 픽셀이 있으면 지원으로 판정.
+  var EMOJI_FLAGS = (function(){
+    try{
+      var cv = document.createElement("canvas"); cv.width = 30; cv.height = 20;
+      var ctx = cv.getContext("2d");
+      ctx.fillStyle = "#000"; ctx.textBaseline = "top"; ctx.font = "20px sans-serif";
+      ctx.fillText("🇯🇵", 0, 0);   // 🇯🇵
+      var d = ctx.getImageData(0, 0, 30, 20).data;
+      for (var i = 0; i < d.length; i += 4)
+        if (d[i] > 120 && d[i+1] < 90 && d[i+2] < 90 && d[i+3] > 128) return true;  // 붉은 픽셀 발견
+      return false;
+    }catch(e){ return true; }   // 감지 실패 시 이모지 가정(모바일 보호)
+  })();
+
+  // 이모지 지원(모바일/맥) → 유니코드 국기 / 미지원(Windows) → PNG 이미지(flags/xx.png)
+  function flagHTML(cc){
+    if (!cc || cc.length !== 2) return '<span class="code"></span>';
+    cc = cc.toUpperCase();
+    if (EMOJI_FLAGS){
+      var emo = String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
+      return '<span class="fl-emoji">' + emo + '</span>';
+    }
+    return '<img class="fl" src="flags/' + cc.toLowerCase() + '.png" alt="' + cc + '" loading="lazy" onerror="_flagErr(this)">';
+  }
+  window._flagErr = function(img){ var s = document.createElement("span"); s.className = "code"; s.textContent = img.alt || ""; img.replaceWith(s); };
   function msg(t){ listEl.innerHTML = '<li class="lb-msg">' + t + '</li>'; }
 
   function login(){
@@ -289,7 +315,7 @@
     if (!rows.length){ msg("No records yet on this level — be the first!"); return; }
     listEl.innerHTML = rows.map(function(r,i){
       return '<li><span class="r">'+(i+1)+'</span>'
-        + '<span class="nm"><span class="fl">'+flag(r.cc)+'</span>'+esc(r.nm)+'</span>'
+        + '<span class="nm">'+flagHTML(r.cc)+esc(r.nm)+'</span>'
         + '<span class="tm">'+fmt(r.ms)+'</span></li>';
     }).join("");
   }
