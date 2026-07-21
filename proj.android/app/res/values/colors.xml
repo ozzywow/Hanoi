@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 브랜드 네이비 — 엔진 클리어 컬러(0.04,0.04,0.15)와 동일 → 시스템 스플래시에서
+         엔진(SplashScene)으로 넘어갈 때 배경 깜빡임 없이 매끄럽게 이어진다. -->
+    <color name="splash_bg">#0A0A26</color>
+</resources>

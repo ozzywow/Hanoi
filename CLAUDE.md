@@ -46,6 +46,7 @@ Include 체인: `stdafx.h → common_define.h → DrawUtils.h → cocos2d.h`
 현재 git에는 있으나 `.xcodeproj`에 미등록 가능성이 있는 파일:
 - `Classes/DrawUtils.h` / `Classes/DrawUtils.cpp`
 - `Classes/PixelFont.h` / `Classes/PixelFont.cpp`
+- `Classes/SplashScene.h` / `Classes/SplashScene.cpp` (시그니처 인트로 씬)
 
 → Xcode에서 "Add Files to HanoiOlympic..." 로 위 4개 파일을 타겟에 추가할 것.
 → `HelloWorldScene.h/cpp`는 삭제됨 — Xcode 프로젝트에 참조가 남아있으면 제거 필요.

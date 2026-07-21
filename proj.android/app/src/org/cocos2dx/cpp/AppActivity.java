@@ -5,6 +5,8 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 
+import androidx.core.splashscreen.SplashScreen;
+
 import org.cocos2dx.lib.Cocos2dxActivity;
 
 public class AppActivity extends Cocos2dxActivity {
@@ -15,6 +17,9 @@ public class AppActivity extends Cocos2dxActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 시스템 스플래시 설치 (super.onCreate 이전 필수) — Theme.App.Splash → postSplashScreenTheme 전환
+        SplashScreen.installSplashScreen(this);
+
         sInstance = this;
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(

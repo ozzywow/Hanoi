@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 시그니처 타워 로고 (투명 배경) — 앱 아이콘의 스택 링 + 1등 메달 스타일 재현.
+     시스템 스플래시 아이콘 슬롯용. viewport 108x108.
+     Android 12+ 스플래시는 아이콘을 원형 마스킹하므로 <group>으로 축소·중앙정렬해
+     아트를 중앙 안전 원(약 2/3) 안에 넣는다(하단 잘림 방지). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:translateX="-2.8"
+        android:translateY="-3.7">
+
+        <!-- 받침대(아이스 블루) -->
+        <path
+            android:fillColor="#5AC8E8"
+            android:pathData="M21,83 L87,83 A7,7 0 0 1 87,97 L21,97 A7,7 0 0 1 21,83 Z" />
+
+        <!-- 링 (하단 넓음 → 상단 좁음) -->
+        <path
+            android:fillColor="#2E7BE0"
+            android:pathData="M28,70 L80,70 A6,6 0 0 1 80,82 L28,82 A6,6 0 0 1 28,70 Z" />
+        <path
+            android:fillColor="#F5C518"
+            android:pathData="M33,58 L75,58 A6,6 0 0 1 75,70 L33,70 A6,6 0 0 1 33,58 Z" />
+        <path
+            android:fillColor="#E53935"
+            android:pathData="M38,46 L70,46 A6,6 0 0 1 70,58 L38,58 A6,6 0 0 1 38,46 Z" />
+
+        <!-- 기둥(꼭대기 페그) -->
+        <path
+            android:fillColor="#4AA3F0"
+            android:pathData="M51,42 L51,23 A3,3 0 0 1 57,23 L57,42 Z" />
+
+        <!-- 최상단 링(퍼플) -->
+        <path
+            android:fillColor="#A24BE0"
+            android:pathData="M43,34 L65,34 A6,6 0 0 1 65,46 L43,46 A6,6 0 0 1 43,34 Z" />
+
+        <!-- 1등 메달 (우측 상단) -->
+        <path
+            android:fillColor="#C9962A"
+            android:pathData="M64,44 A16,16 0 1 0 96,44 A16,16 0 1 0 64,44 Z" />
+        <path
+            android:fillColor="#F4C542"
+            android:pathData="M67.5,44 A12.5,12.5 0 1 0 92.5,44 A12.5,12.5 0 1 0 67.5,44 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M78,51 L78,39 A2,2 0 0 1 82,39 L82,51 Z" />
+    </group>
+</vector>
