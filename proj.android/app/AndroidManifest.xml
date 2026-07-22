@@ -10,11 +10,19 @@
     <application
         android:label="@string/app_name"
         android:allowBackup="true"
+        android:appCategory="game"
         android:icon="@mipmap/ic_launcher">
 
         <property
             android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
             android:value="false" />
+
+        <!-- Android 16(API 36) 타겟부터 sw600dp 이상 화면에서 screenOrientation/
+             minAspectRatio 등이 무시된다. appCategory="game"으로 예외 대상이지만,
+             안전장치로 명시적 opt-out도 선언 (targetSdk 37부터는 무효). -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
 
         <meta-data android:name="android.app.lib_name"
                    android:value="HanoiOlympic" />

@@ -9,8 +9,8 @@ android {
         applicationId "com.ozzywow.hanoi"
         minSdk PROP_MIN_SDK_VERSION.toInteger()
         targetSdk PROP_TARGET_SDK_VERSION.toInteger()
-        versionCode 61
-        versionName "2.2.5"
+        versionCode 65
+        versionName "2.2.7"
 
         externalNativeBuild {
             cmake {
@@ -79,4 +79,5 @@ dependencies {
     implementation 'androidx.fragment:fragment:1.8.9'
     implementation 'com.google.android.play:review:2.0.2'
     implementation 'androidx.core:core-splashscreen:1.0.1'
+    implementation 'androidx.core:core:1.13.1'   // WindowCompat 인셋 컨트롤러 (몰입형 전체화면)
 }
