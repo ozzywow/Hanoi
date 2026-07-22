@@ -110,10 +110,16 @@ public:
 	int    m_replayFinalMs      = 0;     // 현재 재생 중인 리플레이의 최종 시간(저장본은 현재 기록과 다를 수 있음)
 	float  m_replaySpeed        = 1.0f;  // 배속 (x0.5~x4)
 	int    m_replaySpeedIdx     = 1;     // kReplaySpeeds 인덱스 (기본 x1)
-	Menu*  m_replaySpeedMenu    = nullptr;
+	Menu*  m_replaySpeedMenu    = nullptr;   // 하단 컨트롤 바 전체(일시정지·배속·홈)
 	Label* m_replaySpeedLabel   = nullptr;
-	void   _buildReplaySpeedControl();   // ◀ SPEED xN ▶ 스테퍼 생성(저장된 배속 로드)
+	Label* m_replaySpeedArrowL  = nullptr;   // 배속 감속 화살표 (경계에서 속 빈 ◁)
+	Label* m_replaySpeedArrowR  = nullptr;   // 배속 가속 화살표 (경계에서 속 빈 ▷)
+	MenuItemSprite* m_replayPauseItem = nullptr;   // ❚❚PAUSE ↔ ▶PLAY 토글 칩
+	bool   m_replayPaused       = false;     // 일시정지 중 → _updateReplay 정지
+	void   _buildReplayControlBar();     // 하단 바 [❚❚PAUSE][◀ SPEED xN ▶][■ STOP] 생성
 	void   _stepReplaySpeed(int dir);    // 배속 단계 이동(-1/+1) + 글로벌 저장
+	void   _updateReplaySpeedArrows();   // 배속 경계에 따라 화살표 채움/비움 갱신
+	void   _toggleReplayPause();         // 일시정지 ↔ 재개 토글 (칩 라벨 교체)
 	bool   m_lastIsNewRecord    = false; // 재생 종료 후 상단 결과 텍스트 복원용
 
 	// 관전 모드 (2차: 랭커 리플레이 관전) — 외부 blob 주입 후 즉시 재생, 종료 시 MainScene 복귀
@@ -214,6 +220,11 @@ public:
 	void	ResetGame();
 	void	InitGame();
 	void	EnterWaitingState();
+
+	// 중앙 START 버튼 (NONE 상태 CTA) — 빈 화면 탭으로는 시작되지 않는다
+	Menu*	m_startMenu = nullptr;
+	void	_buildStartButton();
+	void	_removeStartButton();
 
 	Discus*	GetTopDiscus(int poleID);
 	bool IsAbleToMoveDiscus(Discus* pDiscus, int poleID);

@@ -31,9 +31,10 @@ void PlayScene::startRankTicker(int level)
     std::string prefix = greeting + "!  " + playerName + ".          ";
 
     LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
-        [this, alive, prefix, level](const std::vector<LeaderboardEntry>& entries) {
+        [this, alive, prefix](const std::vector<LeaderboardEntry>& entries) {
             if (!alive || !*alive) return;
             if (m_isIng != NONE) return;
+            if (m_isReplaying) return;   // 재생 중 — 하단 바가 컨트롤 버튼을 쓰므로 시상대 금지
 
             // 상단 티커
             std::string rankText;
@@ -54,8 +55,9 @@ void PlayScene::startRankTicker(int level)
                 tickerScrollStep();
             }
 
-            // 하단 전광판 — Level 4 이상: 올림픽 시상대
-            if (level >= 4) {
+            // 하단 전광판 — 전 레벨 공통: 올림픽 시상대
+            // (첫 플레이 튜토리얼만 예외 — 그때는 가이드 연출이 하단 바를 쓴다)
+            if (!m_isFirstPlay) {
                 stopIdleAnimation();
                 showPodiumRanking(entries);
             }
@@ -140,8 +142,8 @@ void PlayScene::clearBottomPanels()
         stopBottomPanel(i);
         setBottomPanel(i, "");
     }
-    // 시상대 동적 레이블 제거
-    for (int t = TAG_PODIUM_BASE; t < TAG_PODIUM_BASE + 6; ++t)
+    // 시상대 동적 레이블 제거 (+0~4: 3칸 배치 깃발, +5~8: START 배치의 패널C 2·3위 줄)
+    for (int t = TAG_PODIUM_BASE; t < TAG_PODIUM_BASE + 9; ++t)
         this->removeChildByTag(t, true);
 }
 

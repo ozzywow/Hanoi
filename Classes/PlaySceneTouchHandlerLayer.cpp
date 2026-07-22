@@ -59,9 +59,9 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 {
 	Point location = touch->getLocation();
 
-	if (m_pPlayScene->m_isReplaying)                // 재생 중 탭 = 건너뛰기(최종 상태로 점프)
+	if (m_pPlayScene->m_isReplaying)                // 재생 중 빈 화면 탭은 무시
 	{
-		m_pPlayScene->skipReplay();
+		// 절전 방지용 탭으로 재생이 끊기지 않도록, 정지/배속/종료는 하단 컨트롤 바 버튼으로만.
 		return true;
 	}
 	if (m_pPlayScene->m_isSpectate)                 // 관전: 재생 시작 전 카운트다운 방지
@@ -70,22 +70,8 @@ bool PlaySceneTouchHandlerLayer::onTouchBegan(Touch* touch, Event* unused_event)
 
 	if (NONE == m_pPlayScene->GetPlayState())
 	{
-		if (m_pPlayScene->m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
-		{
-			if (false == UserDataManager::Instance()->GetCart())
-			{
-				SoundFactory::Instance()->play("efs_cancel_select");
-				return true;
-			}
-		}
-		
-
-		
-		if (location.x > 50 )
-		{
-			m_pPlayScene->CountDown();			
-		}
-		
+		// 빈 화면 탭은 무반응 — 게임 시작은 화면 중앙 START 버튼으로만.
+		// (미스터치, 그리고 절전모드 진입을 막으려는 탭으로 판이 시작되는 것을 방지)
 		return true;
 	}
 

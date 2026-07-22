@@ -8,6 +8,7 @@
 #include "LeaderboardManager.h"
 #include "ReviewManager.h"
 #include "DrawUtils.h"
+#include "PixelFont.h"
 #ifdef LITE_VER
 #include "IAPManager.h"
 #endif
@@ -237,7 +238,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 		this->addChild(imgCount, tagCountDown, tagCountDown);
 		imgCount->setAnchorPoint(Vec2(0.5, 0.5));
 		imgCount->setPosition(Vec2(480 / 2, 220));
-		
+
 		Sprite* text = NULL;		
 		text = Sprite::create("NewUI/text_en.png");
 		text->setAnchorPoint(Vec2(0.5, 0.5));
@@ -245,38 +246,7 @@ bool PlayScene::initWithDiscusNum(int numOfDiscus)
 		imgCount->addChild(text);
 	}
 
-#ifdef LITE_VER
-	else if(m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE)
-	{
-		// 관전(Watch) 모드에서는 인앱결제 여부와 무관하게 자물쇠 미노출
-		if (!m_isSpectate && false == UserDataManager::Instance()->GetCart())
-		{
-			// 자물쇠 아이콘 + 8방향 검은 외곽선
-			auto lockNode = Node::create();
-			lockNode->setContentSize(Size(90.f, 90.f));
-			lockNode->setCascadeOpacityEnabled(true);
-			static const float lox[8] = { 1,-1, 0, 0, 1, 1,-1,-1 };
-			static const float loy[8] = { 0, 0, 1,-1, 1,-1, 1,-1 };
-			auto lockShadow = DrawNode::create();
-			// 3단계 그라데이션: 안→밖으로 alpha 감소 → 부드러운 글로우 테두리
-			static const struct { float d; float a; } rings[] = {{1.f,0.45f},{2.f,0.25f},{3.f,0.10f}};
-			for (auto& r : rings)
-				for (int i = 0; i < 8; ++i)
-					drawVecLock(lockShadow, 45.f + lox[i]*r.d, 45.f + loy[i]*r.d, 60.f, Color4F(0,0,0,r.a));
-			lockNode->addChild(lockShadow, 0);
-			auto lockMain = DrawNode::create();
-			drawVecLock(lockMain, 45.f, 45.f, 60.f, Color4F(80/255.f, 220/255.f, 180/255.f, 1.f));
-			lockNode->addChild(lockMain, 1);
-			auto cartMenuItem = MenuItemLabel::create(lockNode, CC_CALLBACK_1(PlayScene::callbackLockBtn, this));
-			Menu* pMenu = Menu::create(cartMenuItem, NULL);
-			pMenu->setPosition(Vec2(105, 200));
-			this->addChild(pMenu, tagCart, tagCart);
-
-			auto action = Blink::create(10, 10);
-			pMenu->runAction(action);
-		}
-	}
-#endif //LITE_VER
+	// (구 폴대 자물쇠 아이콘 제거 — 잠금 안내는 START 자리의 🔒 버튼이 대신한다. _buildStartButton 참조)
 
 	return true;
 }
@@ -467,11 +437,89 @@ void	PlayScene::EnterWaitingState()
 	m_rpmSmoothed  = 0.0f;
 
 	this->DrawInfoText();
+
+	// 시상대(showPodiumRanking)가 중앙 셀 점유 여부를 보고 2칸/3칸을 고르므로,
+	// 랭킹 조회보다 먼저 만든다 (캐시 히트로 콜백이 즉시 도는 경우 대비). 관전은 자동 재생 → 생략.
+	if (!m_isSpectate) this->_buildStartButton();
+
 	this->startRankTicker(m_countOfDiscus);
-	if (m_countOfDiscus == 3)
+	// 하단 바 연출은 전 레벨 동일(아이들 → 시상대). 규칙 가이드는 첫 플레이 튜토리얼에서만.
+	if (m_isFirstPlay && m_countOfDiscus == 3)
 		this->startGuideAnimation();
 	else
 		this->startIdleAnimation();
+}
+
+
+// ─── START / 🔒 버튼 (NONE 상태 CTA, BottomInfoBar 중앙 셀 오버레이) ─────────
+// 빈 화면 탭으로 게임이 시작되면 미스터치·절전 해제 탭과 겹치므로, 시작은 이 버튼으로만 받는다.
+// 디자인: 타이틀과 같은 시그니처 키캡 + 픽셀 START. 색은 카운트다운 "GO!"와 같은 네온 민트로
+//        맞춰 [START] → [GO!] 가 하나의 흐름으로 읽히게 한다.
+// 연출: 심박(두근-쿵 후 쉼) 스케일 루프 — 키캡·글자를 한 노드에 담아 통째로 뛰게 한다.
+void PlayScene::_buildStartButton()
+{
+	this->_removeStartButton();
+
+	// BottomInfoBar 중앙 셀(디바이더 사이 폭 136, 바 높이 50)에 오버레이.
+	// 심박 최대(1.09배)에도 셀 안에 머물도록 126×42로 잡았다.
+	const float BW = 126.f, BH = 42.f;
+	const Vec2  POS(RESOURCE_WIDTH * 0.5f, BOTTOM_PANEL_Y);
+
+	auto face = Node::create();
+	face->setContentSize(Size(BW, BH));
+	face->setCascadeOpacityEnabled(true);
+
+	// 미구매 잠금 레벨이면 같은 자리에 🔒 버튼 — 누르면 구매 플로우, 해제되면 START로 교체된다.
+	const bool locked = (m_countOfDiscus > MAX_LIMIT_LEVEL_FOR_LITE &&
+	                     false == UserDataManager::Instance()->GetCart());
+
+	auto keycap = DrawNode::create();
+	drawKeycap(keycap, BW * 0.5f, BH * 0.5f, BW, BH, locked);   // 잠금은 회색 키캡
+	face->addChild(keycap, 0);
+
+	if (locked)
+	{
+		// 자물쇠: 어두운 그림자 한 겹 + 민트 본체 (픽셀 텍스트의 음영 처리와 톤 통일)
+		auto lock = DrawNode::create();
+		drawVecLock(lock, BW * 0.5f + 1.5f, BH * 0.5f - 1.5f, 36.f, Color4F(0, 0, 0, 0.6f));
+		drawVecLock(lock, BW * 0.5f,        BH * 0.5f,        36.f,
+		            Color4F(80 / 255.f, 220 / 255.f, 180 / 255.f, 1.f));
+		face->addChild(lock, 1);
+	}
+	else
+	{
+		Node* text = makePixelText("START", 3.3f, Color3B(80, 220, 180));   // GO! 와 같은 네온 민트
+		const Size ts = text->getContentSize();
+		text->setPosition(Vec2((BW - ts.width) * 0.5f, (BH - ts.height) * 0.5f));
+		face->addChild(text, 1);
+	}
+
+	auto item = MenuItemLabel::create(face, [this, locked](Ref* sender) {
+		if (locked) { this->callbackLockBtn(sender); return; }   // 잠금 → 구매 요청
+		this->CountDown();
+	});
+	// MenuItemLabel이 face 앵커를 (0,0)으로 돌려놓으므로, 중앙 기준으로 뛰도록 되돌린다
+	face->setAnchorPoint(Vec2(0.5f, 0.5f));
+	face->setPosition(Vec2(BW * 0.5f, BH * 0.5f));
+	item->setPosition(POS);
+
+	m_startMenu = Menu::create(item, nullptr);
+	m_startMenu->setPosition(Vec2::ZERO);
+	this->addChild(m_startMenu, 200);   // 터치레이어(z=tagTouchingLayer) 위
+
+	// lub-dub: 큰 박동 → 짧은 여진 → 쉼. 사람 심박 리듬이라 "누르라"는 신호로 읽힌다.
+	face->runAction(RepeatForever::create(Sequence::create(
+		EaseSineOut::create(ScaleTo::create(0.11f, 1.09f)),
+		EaseSineIn::create (ScaleTo::create(0.10f, 1.00f)),
+		EaseSineOut::create(ScaleTo::create(0.09f, 1.05f)),
+		EaseSineIn::create (ScaleTo::create(0.12f, 1.00f)),
+		DelayTime::create(0.62f),
+		nullptr)));
+}
+
+void PlayScene::_removeStartButton()
+{
+	if (m_startMenu) { m_startMenu->removeFromParent(); m_startMenu = nullptr; }
 }
 
 
@@ -1172,6 +1220,7 @@ void PlayScene::CountDown()
 	this->removeChildByTag(tagCountDown, true);  // arrow/rules 이미지 제거
 	if( m_isIng == NONE )
 	{
+		this->_removeStartButton();
 		stopIdleAnimation();
 		stopRankTicker();
 		// 레벨·타이머 표시, 신호등 회색으로 초기화
@@ -1562,7 +1611,8 @@ void PlayScene::productPurchased(std::string productId)
 		auto actionSeq = Sequence::create(action1, action2, NULL);
 		pPrizeMsg->runAction(actionSeq);
 
-		this->removeChildByTag(tagCart);		
+		// 🔒 → START (잠금 해제 즉시 이 자리에서 바로 시작 가능)
+		if (!m_isSpectate && m_isIng == NONE) this->_buildStartButton();
 	}
 }
 void PlayScene::transactionCanceled()
@@ -1606,7 +1656,7 @@ void PlayScene::restorePreviousTransactions(int count)
 	pMSGBG->runAction(actionSeq);
 	this->addChild(pMSGBG, tagPopup, tagPopup);
 
-	this->removeChildByTag(tagCart);
-
+	// 🔒 → START (복원으로 잠금이 풀린 경우)
+	if (!m_isSpectate && m_isIng == NONE) this->_buildStartButton();
 }
 #endif //LITE_VER
