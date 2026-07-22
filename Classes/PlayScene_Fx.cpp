@@ -43,7 +43,7 @@ void PlayScene::_showNextIdleScene()
         slideInBottomPanel(0, "🔥 EXPERT",        false, Color3B(255,  80,  80), 16.0f);
         setBottomPanel    (1, "⭐ " + lv,                Color3B(180, 180, 255), 16.0f);
         colorCycleBottomPanel(1);
-        typingBottomPanel (2, "🎮 TAP!",          0.1f,  Color3B( 80, 220, 180), 16.0f);
+        typingBottomPanel (2, "👆 START",         0.1f,  Color3B( 80, 220, 180), 16.0f);   // 중앙 START 버튼 유도
         break;
     case 2:
         // 대형(24) — 짧은 단어/이모지, pulse·슬라이드
@@ -170,10 +170,11 @@ void PlayScene::showPodiumRanking(const std::vector<LeaderboardEntry>& entries)
     }
 
     struct Slot {
-        int     pole;
-        int     entryIdx;
-        Color3B color;
-        float   flagY;   // 깃발 최종 Y
+        int         pole;
+        int         entryIdx;
+        Color3B     color;
+        float       flagY;   // 깃발 최종 Y
+        const char* medal;   // 깃발 앞 메달 (🥇🥈🥉)
     };
 
     // 깃발 Y: 1위만 높게, 2·3위 동일
@@ -182,15 +183,26 @@ void PlayScene::showPodiumRanking(const std::vector<LeaderboardEntry>& entries)
     const float FLAG_Y_BRONZE = BOTTOM_PANEL_Y - 1.0f;  // 2위와 동일
     const float NAME_Y        = BOTTOM_PANEL_Y - 14.0f; // 전 패널 동일
 
-    const Slot slots[] = {
-        { 0, 1, Color3B(192, 192, 192), FLAG_Y_SILVER },  // 패널A = 2위(은)
-        { 1, 0, Color3B(255, 215,   0), FLAG_Y_GOLD   },  // 패널B = 1위(금)
-        { 2, 2, Color3B(205, 127,  50), FLAG_Y_BRONZE },  // 패널C = 3위(동)
+    const Slot slots3[] = {
+        { 0, 1, Color3B(192, 192, 192), FLAG_Y_SILVER, "🥈" },  // 패널A = 2위(은)
+        { 1, 0, Color3B(255, 215,   0), FLAG_Y_GOLD,   "🥇" },  // 패널B = 1위(금)
+        { 2, 2, Color3B(205, 127,  50), FLAG_Y_BRONZE, "🥉" },  // 패널C = 3위(동)
     };
+
+    // START 버튼이 중앙 셀을 덮는 동안에는 패널A에 1위만 크게 두고,
+    // 2·3위는 패널C에 작게 두 줄로 몰아 넣는다 (가려지는 자리에 1위를 둘 수 없으므로).
+    const Slot slots2[] = {
+        { 0, 0, Color3B(255, 215,   0), FLAG_Y_GOLD,   "🥇" },  // 패널A = 1위(금)
+    };
+
+    const bool  centerBlocked = (m_startMenu != nullptr);
+    const Slot* slots = centerBlocked ? slots2 : slots3;
+    const int   slotCount = centerBlocked ? 1 : 3;
 
     Label* const mainLabels[] = { m_bottomLabelA, m_bottomLabelB, m_bottomLabelC };
 
-    for (const auto& s : slots) {
+    for (int si = 0; si < slotCount; ++si) {
+        const Slot& s = slots[si];
         if (s.entryIdx >= (int)entries.size()) {
             // 해당 순위 랭커 없음 → 패널에 랜덤 예제 연출
             const char* texts[]  = { "🏆 PLAY!", "⭐ RANK IT", "🔥 BE #1!", "🎮 JOIN!" };
@@ -211,7 +223,8 @@ void PlayScene::showPodiumRanking(const std::vector<LeaderboardEntry>& entries)
 
         std::string cc   = e.countryCode;
         for (char& c : cc) c = (char)toupper((unsigned char)c);
-        std::string flag = cc.empty() ? "  " : countryToFlag(cc);
+        // 메달 + 국기를 한 라벨에 — 이 라벨은 WHITE라 두 이모지 모두 원본색으로 나온다
+        std::string flag = std::string(s.medal) + (cc.empty() ? "" : countryToFlag(cc));
         std::string name = e.displayName.empty() ? "???" : e.displayName;
 
         float cx = arrPosOfPole[s.pole].x;
@@ -250,6 +263,50 @@ void PlayScene::showPodiumRanking(const std::vector<LeaderboardEntry>& entries)
         nameLbl->setPosition(Vec2(cx, NAME_Y));
         nameLbl->setColor(s.color);
         nameLbl->setString(name);
+    }
+
+    // ── START로 중앙이 막힌 배치: 패널C에 2·3위를 소형 2줄로 ──────────────
+    // 깃발과 이름을 한 라벨에 합치면 setColor가 이모지까지 물들이므로 라벨을 분리하고,
+    // 깃발은 우측정렬·이름은 좌측정렬로 붙여 한 줄처럼 보이게 한다.
+    if (centerBlocked)
+    {
+        const float cx = arrPosOfPole[2].x;
+        const struct { int idx; float y; Color3B col; const char* medal; } rows[] = {
+            { 1, BOTTOM_PANEL_Y +  9.0f, Color3B(192, 192, 192), "🥈" },   // 2위(은)
+            { 2, BOTTOM_PANEL_Y -  9.0f, Color3B(205, 127,  50), "🥉" },   // 3위(동)
+        };
+
+        for (int r = 0; r < 2; ++r)
+        {
+            if (rows[r].idx >= (int)entries.size()) continue;
+            const auto& e = entries[rows[r].idx];
+
+            std::string cc = e.countryCode;
+            for (char& c : cc) c = (char)toupper((unsigned char)c);
+
+            std::string badge = std::string(rows[r].medal) + (cc.empty() ? "" : countryToFlag(cc));
+            Label* fl = Label::createWithSystemFont(badge, "Arial", 13.0f);
+            fl->setColor(Color3B::WHITE);                 // 메달·국기 이모지 원본색 유지
+            fl->setAnchorPoint(Vec2(1.0f, 0.5f));
+            fl->setOpacity(0);
+            fl->setPosition(Vec2(cx - 15.0f, rows[r].y));   // 메달+국기 폭(≈28)만큼 좌측으로
+            fl->setTag(TAG_PODIUM_BASE + 5 + r * 2);
+            this->addChild(fl, 2);
+
+            Label* nl = Label::createWithSystemFont(
+                e.displayName.empty() ? "???" : e.displayName, "Arial", 10.0f);
+            nl->setColor(rows[r].col);
+            nl->setAnchorPoint(Vec2(0.0f, 0.5f));
+            nl->setOpacity(0);
+            nl->setPosition(Vec2(cx - 10.0f, rows[r].y));
+            nl->setTag(TAG_PODIUM_BASE + 6 + r * 2);
+            this->addChild(nl, 2);
+
+            // 1위(패널A) 등장 후 은→동 순으로 페이드인
+            float delay = 0.8f + r * 0.35f;
+            fl->runAction(Sequence::create(DelayTime::create(delay), FadeIn::create(0.9f), nullptr));
+            nl->runAction(Sequence::create(DelayTime::create(delay), FadeIn::create(0.9f), nullptr));
+        }
     }
 
     // 5~8초 시상대 감상 후 idle 애니로 전환

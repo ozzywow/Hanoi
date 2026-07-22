@@ -23,6 +23,18 @@ static const int REPLAY_JUNK_DEBOUNCE_MS = 40;
 static const float kReplaySpeeds[]  = { 0.5f, 1.0f, 1.5f, 2.0f, 4.0f };
 static const int   kReplaySpeedCount = 5;
 
+// 컨트롤 바 일시정지 칩 문구 (❚❚ PAUSE ↔ ▶ PLAY)
+static const char* kReplayPauseText = "\xE2\x9D\x9A\xE2\x9D\x9A PAUSE";
+static const char* kReplayPlayText  = "\xE2\x96\xB6 PLAY";
+
+// 배속 화살표 — 더 조절할 단계가 있으면 꽉 찬 ◀/▶, 경계(x0.5·x4)면 속 빈 ◁/▷
+static const char* kSpeedArrowLFull  = "\xE2\x97\x80";   // ◀
+static const char* kSpeedArrowLEmpty = "\xE2\x97\x81";   // ◁
+static const char* kSpeedArrowRFull  = "\xE2\x96\xB6";   // ▶
+static const char* kSpeedArrowREmpty = "\xE2\x96\xB7";   // ▷
+static const Color3B kSpeedArrowOn (180, 210, 255);
+static const Color3B kSpeedArrowOff(110, 125, 150);      // 경계 — 흐리게
+
 // 레이스 마커 스프링(가속·감속). K=강성(클수록 강한 가속), D=감쇠.
 // 감쇠비 ζ = D/(2√K): ζ<1이면 목표를 살짝 지나쳤다 돌아옴(역동적). 여기선 ζ≈0.71 → 부드럽되 탄력.
 // 더 튕기게 하려면 D를 줄이고, 더 빠릿하게 하려면 K를 키운다. RACE_SPRING_VMAX는 폭주 방지 상한(px/s).
@@ -260,14 +272,16 @@ void PlayScene::startReplay()
 	m_replaySelectedPole = -1;
 	m_replaySpeed        = 1.0f;
 
-	// 배속 스테퍼 (◀ SPEED xN ▶, x0.5~x4, 글로벌 저장)
-	this->_buildReplaySpeedControl();
+	// 하단 컨트롤 바 ([❚❚ PAUSE][◀ SPEED xN ▶][■ STOP])
+	this->_buildReplayControlBar();
 
 	this->schedule([this](float dt){ this->_updateReplay(dt); }, 0.0f, "replay_update");
 }
 
 void PlayScene::_updateReplay(float dt)
 {
+	if (m_replayPaused) return;                                     // 일시정지 — 클럭 정지
+
 	m_replayClock += (double)dt * 1000.0 * (double)m_replaySpeed;   // ms (배속 반영)
 
 	// playbackClock 에 도달한 이벤트를 순서대로 적용
@@ -364,11 +378,19 @@ void PlayScene::skipReplay()
 	this->endReplay();
 }
 
-// 배속 스테퍼 ◀ SPEED xN ▶ 생성 — 저장된 배속 로드, 재생/관전 공용
-void PlayScene::_buildReplaySpeedControl()
+// 리플레이 컨트롤 바 (BottomInfoBar) — [❚❚ PAUSE][◀ SPEED xN ▶][■ STOP], 재생/관전 공용.
+// 빈 화면 탭으로는 재생이 멈추지 않으므로(절전 방지 터치 오인) 조작은 이 버튼들로만 한다.
+void PlayScene::_buildReplayControlBar()
 {
 	if (m_replaySpeedLabel) { m_replaySpeedLabel->removeFromParent(); m_replaySpeedLabel = nullptr; }
 	if (m_replaySpeedMenu)  { m_replaySpeedMenu->removeFromParent();  m_replaySpeedMenu  = nullptr; }
+	m_replayPauseItem   = nullptr;
+	m_replaySpeedArrowL = nullptr;
+	m_replaySpeedArrowR = nullptr;
+	m_replayPaused      = false;
+
+	// 하단 패널의 기존 표시(아이들 문구·시상대)를 비워 버튼과 겹치지 않게 한다
+	this->clearBottomPanels();
 
 	// 저장된 배속 로드 → 인덱스 매칭 (없거나 불일치 시 x1)
 	float saved = UserDefault::getInstance()->getFloatForKey("replay_speed", 1.0f);
@@ -380,27 +402,60 @@ void PlayScene::_buildReplaySpeedControl()
 	m_replaySpeed = kReplaySpeeds[m_replaySpeedIdx];
 
 	const float cx = RESOURCE_WIDTH / 2, y = 26.0f;
+	const float CHIP_W = 86.0f, CHIP_H = 26.0f, CHIP_FS = 12.0f;
 
-	auto leftLbl = Label::createWithSystemFont("\xE2\x97\x80", "Arial", 16);   // ◀ 감속
-	leftLbl->setColor(Color3B(180, 210, 255));
+	// 좌: 일시정지 ↔ 재개 토글
+	m_replayPauseItem = makePopupChipButton(kReplayPauseText, kBtnFunc,
+		[this](Ref*){ this->_toggleReplayPause(); }, CHIP_W, CHIP_H, CHIP_FS);
+
+	// 중앙: 배속 스테퍼 (화살표 모양은 _updateReplaySpeedArrows가 경계에 맞춰 확정)
+	auto leftLbl = Label::createWithSystemFont(kSpeedArrowLFull, "Arial", 16);   // ◀ 감속
 	auto leftItem = MenuItemLabel::create(leftLbl, [this](Ref*){ this->_stepReplaySpeed(-1); });
 
-	auto rightLbl = Label::createWithSystemFont("\xE2\x96\xB6", "Arial", 16);  // ▶ 가속
-	rightLbl->setColor(Color3B(180, 210, 255));
+	auto rightLbl = Label::createWithSystemFont(kSpeedArrowRFull, "Arial", 16);  // ▶ 가속
 	auto rightItem = MenuItemLabel::create(rightLbl, [this](Ref*){ this->_stepReplaySpeed(+1); });
 
-	m_replaySpeedMenu = Menu::create(leftItem, rightItem, nullptr);
+	m_replaySpeedArrowL = leftLbl;
+	m_replaySpeedArrowR = rightLbl;
+
+	// 우: 정지 — 재생 중단(최종 상태로 점프) → 결과/관전 종료 팝업 복원
+	auto stopItem = makePopupChipButton("\xE2\x96\xA0 STOP", kBtnDismiss, [this](Ref*){
+		SoundFactory::Instance()->play("efs_click");
+		this->skipReplay();
+	}, CHIP_W, CHIP_H, CHIP_FS);
+
+	m_replaySpeedMenu = Menu::create(m_replayPauseItem, leftItem, rightItem, stopItem, nullptr);
 	m_replaySpeedMenu->setPosition(Vec2::ZERO);
+	m_replayPauseItem->setPosition(Vec2(arrPosOfPole[0].x, y));   // 좌측 구역 중앙
 	leftItem->setPosition(Vec2(cx - 52, y));
 	rightItem->setPosition(Vec2(cx + 52, y));
+	stopItem->setPosition(Vec2(arrPosOfPole[2].x, y));            // 우측 구역 중앙
 
 	m_replaySpeedLabel = Label::createWithSystemFont(
 		StringUtils::format("SPEED x%g", (double)m_replaySpeed), "Arial", 14);
 	m_replaySpeedLabel->setColor(Color3B(255, 220, 120));
 	m_replaySpeedLabel->setPosition(Vec2(cx, y));
 
-	this->addChild(m_replaySpeedMenu, 200);   // 터치레이어 위 → 건너뛰기와 분리
+	this->addChild(m_replaySpeedMenu, 200);   // 터치레이어 위 → 빈 화면 탭과 분리
 	this->addChild(m_replaySpeedLabel, 201);  // 라벨은 Menu 자식 불가(MenuItem만 허용) → 씬에 직접 부착
+
+	this->_updateReplaySpeedArrows();
+}
+
+// 배속 경계 표시 — 더 낮출 수 없으면 ◁, 더 높일 수 없으면 ▷ (속 빈 + 흐린 색)
+void PlayScene::_updateReplaySpeedArrows()
+{
+	bool canDown = (m_replaySpeedIdx > 0);
+	bool canUp   = (m_replaySpeedIdx < kReplaySpeedCount - 1);
+
+	if (m_replaySpeedArrowL) {
+		m_replaySpeedArrowL->setString(canDown ? kSpeedArrowLFull : kSpeedArrowLEmpty);
+		m_replaySpeedArrowL->setColor(canDown ? kSpeedArrowOn : kSpeedArrowOff);
+	}
+	if (m_replaySpeedArrowR) {
+		m_replaySpeedArrowR->setString(canUp ? kSpeedArrowRFull : kSpeedArrowREmpty);
+		m_replaySpeedArrowR->setColor(canUp ? kSpeedArrowOn : kSpeedArrowOff);
+	}
 }
 
 void PlayScene::_stepReplaySpeed(int dir)
@@ -414,9 +469,23 @@ void PlayScene::_stepReplaySpeed(int dir)
 	m_replaySpeed    = kReplaySpeeds[idx];
 	if (m_replaySpeedLabel)
 		m_replaySpeedLabel->setString(StringUtils::format("SPEED x%g", (double)m_replaySpeed));
+	this->_updateReplaySpeedArrows();
 
 	UserDefault::getInstance()->setFloatForKey("replay_speed", m_replaySpeed);   // 글로벌 저장
 	UserDefault::getInstance()->flush();
+	SoundFactory::Instance()->play("efs_click");
+}
+
+// 일시정지 ↔ 재개 — 클럭만 멈추므로 보드/타이머는 현재 프레임 그대로 유지
+void PlayScene::_toggleReplayPause()
+{
+	if (!m_isReplaying) return;
+	m_replayPaused = !m_replayPaused;
+
+	if (m_replayPauseItem) {
+		auto lbl = dynamic_cast<Label*>(m_replayPauseItem->getChildByTag(kChipLabelTag));
+		if (lbl) lbl->setString(m_replayPaused ? kReplayPlayText : kReplayPauseText);
+	}
 	SoundFactory::Instance()->play("efs_click");
 }
 
@@ -584,12 +653,16 @@ void PlayScene::endReplay()
 	this->unschedule("replay_update");
 	this->unschedule("replay_fail_off");
 	m_isReplaying        = false;
+	m_replayPaused       = false;
 	m_replaySelectedPole = -1;
 	this->SelectPole(-1, false);
 
-	// 배속 스테퍼 제거 (라벨은 씬에 직접 부착되므로 따로 제거)
+	// 컨트롤 바 제거 (배속 라벨은 씬에 직접 부착되므로 따로 제거)
 	if (m_replaySpeedLabel) { m_replaySpeedLabel->removeFromParent(); m_replaySpeedLabel = nullptr; }
 	if (m_replaySpeedMenu)  { m_replaySpeedMenu->removeFromParent();  m_replaySpeedMenu  = nullptr; }
+	m_replayPauseItem   = nullptr;   // 메뉴와 함께 제거됨
+	m_replaySpeedArrowL = nullptr;
+	m_replaySpeedArrowR = nullptr;
 
 	// 관전 모드: 재생 종료 → 선택 팝업(REPLAY/HOME). 바로 나가지 않음.
 	if (m_isSpectate) {
@@ -669,8 +742,8 @@ void PlayScene::_beginSpectatePlayback()
 		m_hudTickerLabel->setVisible(true);
 	}
 
-	// 배속 스테퍼 (◀ SPEED xN ▶, x0.5~x4, 글로벌 저장)
-	this->_buildReplaySpeedControl();
+	// 하단 컨트롤 바 ([❚❚ PAUSE][◀ SPEED xN ▶][■ STOP])
+	this->_buildReplayControlBar();
 
 	m_replayClock        = 0.0;
 	m_replayIndex        = 0;
