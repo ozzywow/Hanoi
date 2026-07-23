@@ -134,6 +134,7 @@ LeaderboardManager::LeaderboardManager()
     // 직전 실행 시 저장한 Title Data 값을 즉시 로드(stale-while-revalidate) —
     // 네트워크 도착 전에도 마지막 공지/스위치를 바로 표시. 최초 실행만 기본값.
     m_awardEnabled = UserDefault::getInstance()->getBoolForKey("cfg_award_enabled", true);
+    m_likeEnabled  = UserDefault::getInstance()->getBoolForKey("cfg_like_enabled", true);
     m_notice       = UserDefault::getInstance()->getStringForKey("cfg_notice", "");
 }
 
@@ -240,6 +241,11 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
 
             // 격파 낙인 Shared Group(battles_L03~L10) 최초 1회 생성 (3차, battle_reward)
             bootstrapBattleGroups();
+
+#ifdef ENABLE_REPLAY_LIKE
+            // 리플레이 좋아요 Shared Group(likes_L03~L10) 최초 1회 생성
+            bootstrapLikeGroups();
+#endif
 
             // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
             fetchTitleConfig();
@@ -419,6 +425,9 @@ void LeaderboardManager::clearAllCaches()
     m_leaderboardCache.clear();
     m_replayCache.clear();
     m_battleCache.clear();
+#ifdef ENABLE_REPLAY_LIKE
+    m_likeCache.clear();
+#endif
 #ifdef ENABLE_AWARD_COMMENT
     m_commentCache.clear();
 #endif
@@ -437,7 +446,7 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
     }
 
     // 2.2.0부터 iOS/Android 버전 통합 → 플랫폼 구분 없는 단일 latest_version 키.
-    std::string body = "{\"Keys\":[\"award_enabled\",\"notice\",\"latest_version\"]}";
+    std::string body = "{\"Keys\":[\"award_enabled\",\"notice\",\"latest_version\",\"like_enabled\"]}";
     httpPost(BASE_URL + "/Client/GetTitleData", body, m_sessionTicket,
         [this, callback](bool ok, const std::string& resp) {
             // 조회 실패 시 기존값 유지 (award_enabled=활성, notice는 직전값)
@@ -454,6 +463,13 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
                     } else {
                         m_awardEnabled = true;
                     }
+                    // like_enabled(replay_like): award_enabled와 동일 정책
+                    if (d.HasMember("like_enabled") && d["like_enabled"].IsString()) {
+                        std::string v = d["like_enabled"].GetString();
+                        m_likeEnabled = !(v == "0" || v == "false" || v == "off");
+                    } else {
+                        m_likeEnabled = true;
+                    }
                     // notice: 있으면 그대로, 없으면 빈 문자열(기존 랭킹 스크롤로 폴백)
                     if (d.HasMember("notice") && d["notice"].IsString())
                         m_notice = d["notice"].GetString();
@@ -469,6 +485,7 @@ void LeaderboardManager::fetchTitleConfig(std::function<void()> callback)
                         m_latestVersion.empty() ? "(none)" : m_latestVersion.c_str());
                     // 다음 실행에서 즉시 쓰도록 캐시 저장(stale-while-revalidate)
                     UserDefault::getInstance()->setBoolForKey("cfg_award_enabled", m_awardEnabled);
+                    UserDefault::getInstance()->setBoolForKey("cfg_like_enabled", m_likeEnabled);
                     UserDefault::getInstance()->setStringForKey("cfg_notice", m_notice);
                     UserDefault::getInstance()->flush();
                 }
@@ -1325,3 +1342,184 @@ void LeaderboardManager::fetchBattles(int level,
             if (callback) callback(out);
         });
 }
+
+
+#ifdef ENABLE_REPLAY_LIKE
+// ─────────────────────────────────────────────────────────────────────────
+//  리플레이 좋아요 (👍) — Shared Group likes_L%02d, battle/replay 인프라 미러
+//  저장 value = JSON { n:카운트, v:{투표자id:1} }. 조회는 n만 뽑아 조인 표시.
+// ─────────────────────────────────────────────────────────────────────────
+
+std::string LeaderboardManager::likeGroupId(int level)
+{
+    return StringUtils::format("likes_L%02d", level);
+}
+
+void LeaderboardManager::bootstrapLikeGroups(bool force)
+{
+    if (!force) {
+        if (m_likeGroupsBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("like_groups_bootstrapped", false)) {
+            m_likeGroupsBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    for (int lv = 3; lv <= LIKE_MAX_LEVEL; ++lv) {
+        std::string gid  = likeGroupId(lv);
+        std::string body = StringUtils::format("{\"SharedGroupId\":\"%s\"}", gid.c_str());
+        httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+            [gid](bool ok, const std::string&) {
+                log("PlayFab CreateSharedGroup %s: %s",
+                    gid.c_str(), ok ? "created" : "exists/err (ignored)");
+            });
+    }
+    m_likeGroupsBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("like_groups_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::invalidateLikes(int level)
+{
+    m_likeCache.erase(level);
+}
+
+void LeaderboardManager::fetchLikes(int level,
+    std::function<void(const std::map<std::string, int>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, level, callback](bool ok) {
+            if (ok) fetchLikes(level, callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    // 캐시 확인
+    auto it = m_likeCache.find(level);
+    if (it != m_likeCache.end()) {
+        double elapsedH = difftime(time(nullptr), it->second.cachedAt) / 3600.0;
+        if (elapsedH < CACHE_TTL_HOURS) {
+            if (callback) {
+                auto byId = it->second.byId;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, byId]() { callback(byId); });
+            }
+            return;
+        }
+    }
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\",\"GetMembers\":false}", likeGroupId(level).c_str());
+
+    httpPost(BASE_URL + "/Client/GetSharedGroupData", body, m_sessionTicket,
+        [this, level, callback](bool ok, const std::string& resp) {
+            std::map<std::string, int> out;   // playFabId -> count
+            if (!ok) {
+                if (callback) callback(out);   // 그룹 없음/오류 — 캐시하지 않음
+                return;
+            }
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (!doc.HasParseError() && doc.HasMember("data")) {
+                const auto& data = doc["data"];
+                if (data.HasMember("Data") && data["Data"].IsObject()) {
+                    for (auto m = data["Data"].MemberBegin(); m != data["Data"].MemberEnd(); ++m) {
+                        if (!m->value.IsObject() ||
+                            !m->value.HasMember("Value") || !m->value["Value"].IsString())
+                            continue;
+                        // Value = JSON {"n":카운트,"v":{...}}  → n만 사용
+                        rapidjson::Document inner;
+                        inner.Parse(m->value["Value"].GetString());
+                        if (!inner.HasParseError() &&
+                            inner.HasMember("n") && inner["n"].IsInt()) {
+                            int n = inner["n"].GetInt();
+                            if (n > 0) out[m->name.GetString()] = n;
+                        }
+                    }
+                }
+            }
+            m_likeCache[level] = LikeCacheEntry{ out, time(nullptr) };
+            log("LeaderboardManager: cached likes L%d (%d entries)", level, (int)out.size());
+            if (callback) callback(out);
+        });
+}
+
+void LeaderboardManager::likeReplay(int level, const std::string& targetId,
+    std::function<void(bool, int, bool)> callback)
+{
+    if (targetId.empty() || level > LIKE_MAX_LEVEL) {
+        if (callback) callback(false, 0, false);
+        return;
+    }
+    if (!isLoggedIn()) {
+        login([this, level, targetId, callback](bool ok) {
+            if (ok) doLikeReplay(level, targetId, true, callback);
+            else if (callback) callback(false, 0, false);
+        });
+        return;
+    }
+    doLikeReplay(level, targetId, true, callback);
+}
+
+void LeaderboardManager::doLikeReplay(int level, const std::string& targetId,
+    bool allowRetry, std::function<void(bool, int, bool)> callback)
+{
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"likeReplay\","
+        "\"FunctionParameter\":{\"level\":%d,\"targetId\":\"%s\"},"
+        "\"GeneratePlayStreamEvent\":false}",
+        level, escapeJson(targetId).c_str());
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, level, targetId, allowRetry, callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(false, 0, false); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) { if (callback) callback(false, 0, false); return; }
+            const auto& data = doc["data"];
+
+            if (data.HasMember("Error") && data["Error"].IsObject()) {
+                log("PlayFab likeReplay script error: %.300s", resp.c_str());
+                if (callback) callback(false, 0, false);
+                return;
+            }
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(false, 0, false);
+                return;
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+            int  n       = (fr.HasMember("n") && fr["n"].IsInt()) ? fr["n"].GetInt() : 0;
+            bool already = fr.HasMember("already") && fr["already"].IsBool() && fr["already"].GetBool();
+
+            if (okFlag) {
+                m_likeCache.erase(level);   // 다음 랭킹보드 조회 시 갱신
+                log("PlayFab likeReplay L%d target=%s: OK (n=%d, already=%d)",
+                    level, targetId.c_str(), n, already ? 1 : 0);
+                if (callback) callback(true, n, already);
+                return;
+            }
+
+            // 그룹 미생성 → 부트스트랩 후 1회 재시도
+            if (reason == "no_group" && allowRetry) {
+                log("PlayFab likeReplay L%d: no_group, bootstrapping + retry", level);
+                bootstrapLikeGroups(true);
+                Director::getInstance()->getScheduler()->schedule(
+                    [this, level, targetId, callback](float) {
+                        doLikeReplay(level, targetId, false, callback);
+                    },
+                    (void*)this, 0.0f, 0, 1.0f, false,
+                    "like_write_retry_" + std::to_string(level));
+                return;
+            }
+
+            log("PlayFab likeReplay L%d: FAIL reason=%s", level, reason.c_str());
+            if (callback) callback(false, 0, false);
+        });
+}
+#endif // ENABLE_REPLAY_LIKE

@@ -17,6 +17,9 @@ using namespace cocos2d;
 // 랭킹 Top10 수상소감 기능 — 이 줄을 주석 처리하면 빌드에서 완전히 제외됨
 #define ENABLE_AWARD_COMMENT
 
+// 리플레이 좋아요(👍) 기능 — 이 줄을 주석 처리하면 빌드에서 완전히 제외됨 (docs/replay_like_plan.md)
+#define ENABLE_REPLAY_LIKE
+
 #define MASTER_VOLUME 1.0f			// 0.0~1.0
 
 #define BUY_AT_STORE_URL "https://apps.apple.com/app/id430261581"
@@ -103,6 +106,10 @@ struct RecordTime
 
 // 정의: common_define.cpp
 std::string countryToFlag(const std::string& cc);
+
+// 좋아요 수 축약 표기 — N<1000은 그대로, N>=1000은 "X.YK"(소수 1자리, 반올림 없이 버림).
+// 예: 1267→"1.2K", 1000→"1.0K", 12345→"12.3K", 999→"999". 정의: common_define.cpp
+std::string formatLikeCount(int n);
 
 // 디바이스 언어에 맞는 자국어 인삿말 반환 (greetings.plist 참조). 정의: common_define.cpp
 std::string getLocalGreeting();

@@ -777,22 +777,97 @@ void PlayScene::showSpectateEndPopup()
 	timeLbl->setPosition(Vec2(PW / 2, PH - 80));
 	box->addChild(timeLbl);
 
+	// 좋아요 가능 여부 — 관전 대상이 있고 내가 아니어야(자기 좋아요 차단, replay_like)
+	bool canLike = false;
+#ifdef ENABLE_REPLAY_LIKE
+	{
+		std::string myId = LeaderboardManager::Instance()->getPlayFabId();
+		canLike = !m_spectatePlayFabId.empty() && m_spectatePlayFabId != myId
+		          && LeaderboardManager::Instance()->isLikeEnabled();
+	}
+#endif
+
+	// 버튼 행 — 좋아요 가능하면 3열(REPLAY/👍/HOME), 아니면 2열(REPLAY/HOME)
+	const float xReplay = canLike ? PW * 0.20f : PW * 0.28f;
+	const float xHome   = canLike ? PW * 0.80f : PW * 0.72f;
+	const float btnW    = canLike ? 76.f : 104.f;
+	const float btnFont = canLike ? 12.f : 13.f;
+
 	// 버튼: ▶ REPLAY / ⌂ HOME
 	auto replayItem = makePopupChipButton("\xE2\x96\xB6 REPLAY", kBtnFunc, [this](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		this->removeChildByTag(tagPopup);
 		this->_beginSpectatePlayback();
-	}, 104.f, 34.f, 13.f);
-	replayItem->setPosition(Vec2(PW * 0.28f, kPopupBtnY));
+	}, btnW, 34.f, btnFont);
+	replayItem->setPosition(Vec2(xReplay, kPopupBtnY));
 
 	auto homeItem = makePopupChipButton("\xE2\x8C\x82 HOME", kBtnDismiss, [](Ref*) {
 		SoundFactory::Instance()->play("efs_click");
 		Director::getInstance()->replaceScene(
 			TransitionFade::create(0.3f, MainScene::createScene()));
-	}, 104.f, 34.f, 13.f);
-	homeItem->setPosition(Vec2(PW * 0.72f, kPopupBtnY));
+	}, btnW, 34.f, btnFont);
+	homeItem->setPosition(Vec2(xHome, kPopupBtnY));
 
-	auto menu = Menu::create(replayItem, homeItem, nullptr);
+	Menu* menu;
+#ifdef ENABLE_REPLAY_LIKE
+	if (canLike) {
+		const int lv = m_countOfDiscus;          // 관전 레벨 = 디스크 수
+		const std::string target = m_spectatePlayFabId;
+
+		// 콜백은 자기 버튼 포인터가 필요하므로 빈 콜백으로 만들고 setCallback로 지정
+		auto likeItem = makePopupChipButton("\xF0\x9F\x91\x8D LIKE", kBtnFunc,
+			[](Ref*) {}, btnW, 34.f, btnFont);
+		likeItem->setPosition(Vec2(PW * 0.50f, kPopupBtnY));
+
+		auto alive      = m_aliveFlag;
+		auto submitting = std::make_shared<bool>(false);
+		likeItem->setCallback([this, alive, lv, target, likeItem, submitting](Ref*) {
+			if (*submitting) return;
+			*submitting = true;
+			likeItem->setEnabled(false);
+			SoundFactory::Instance()->play("efs_click");
+			LeaderboardManager::Instance()->likeReplay(lv, target,
+				[this, alive, likeItem, submitting](bool ok, int n, bool already) {
+					*submitting = false;
+					if (!alive || !*alive) return;
+					if (!this->getChildByTag(tagPopup)) return;   // 팝업 닫힘 → likeItem 무효
+					auto lbl = dynamic_cast<Label*>(likeItem->getChildByTag(kChipLabelTag));
+					if (ok) {
+						// 성공/이미함 모두 카운트 반영 + 버튼 잠금(재탭 방지)
+						if (lbl) lbl->setString(StringUtils::format(
+							"\xF0\x9F\x91\x8D %s", formatLikeCount(n).c_str()));
+						likeItem->setEnabled(false);
+						if (!already) {
+							SoundFactory::Instance()->play("efs_move_disc_ok");
+							likeItem->runAction(Sequence::create(
+								ScaleTo::create(0.08f, 1.18f),
+								ScaleTo::create(0.10f, 1.0f), nullptr));
+						}
+					} else {
+						likeItem->setEnabled(true);   // 실패 → 재시도 허용
+					}
+				});
+		});
+
+		// 현재 좋아요 수 프리로드 → 있으면 "👍 N" 표시(아직 안 누른 상태)
+		auto aliveP = m_aliveFlag;
+		LeaderboardManager::Instance()->fetchLikes(lv,
+			[this, aliveP, likeItem, target](const std::map<std::string, int>& m) {
+				if (!aliveP || !*aliveP) return;
+				if (!this->getChildByTag(tagPopup)) return;
+				auto it = m.find(target);
+				if (it == m.end() || it->second <= 0) return;
+				auto lbl = dynamic_cast<Label*>(likeItem->getChildByTag(kChipLabelTag));
+				if (lbl) lbl->setString(StringUtils::format(
+					"\xF0\x9F\x91\x8D %s", formatLikeCount(it->second).c_str()));
+			});
+
+		menu = Menu::create(replayItem, likeItem, homeItem, nullptr);
+	} else
+#endif // ENABLE_REPLAY_LIKE
+	{
+		menu = Menu::create(replayItem, homeItem, nullptr);
+	}
 	menu->setPosition(Vec2::ZERO);
 	box->addChild(menu, 5);
 }

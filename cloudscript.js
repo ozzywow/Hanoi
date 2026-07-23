@@ -183,6 +183,29 @@ handlers.maintainLeaderboards = function(args, context) {
             } catch (e) { /* 그룹 미생성 등 — 무시 */ }
         }
 
+        // 좋아요 정리(replay_like): Top10 밖 대상의 좋아요 키 삭제 → 순위 밖 시 n·v 함께 0 초기화(D3-GC).
+        if (canCall(1)) {
+            try {
+                var lg = server.GetSharedGroupData({ SharedGroupId: likeGroupId(lv) });
+                apiCalls++;
+                if (lg && lg.Data) {
+                    var delL  = {};
+                    var nDelL = 0;
+                    for (var lkey in lg.Data) {
+                        if (!keepSet[lkey]) { delL[lkey] = null; nDelL++; }
+                    }
+                    if (nDelL > 0 && canCall(1)) {
+                        server.UpdateSharedGroupData({
+                            SharedGroupId: likeGroupId(lv),
+                            Data:          delL,
+                            Permission:    "Public"
+                        });
+                        apiCalls++;
+                    }
+                }
+            } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+        }
+
         processed++;
         if (budgetHit) break;   // 클리어 루프에서 예산 소진 → 다음 실행으로 이월
     }
@@ -440,6 +463,88 @@ handlers.deleteReplay = function(args, context) {
         });
     } catch (e) { return { ok: false, reason: "no_group" }; }
     return { ok: true };
+};
+
+// ─────────────────────────────────────────────────────────────
+//  리플레이 좋아요 (👍) — docs/replay_like_plan.md
+//  관전(WATCH)에서 본 리플레이에 투표자가 좋아요 → 대상(리플레이 주인)의 누적 좋아요 +1.
+//  저장: Shared Group "likes_L%02d", key = 대상 playFabId,
+//        value = JSON { n:정수, v:{ 투표자id:1, ... } }, Permission=Public
+//        n=누적 좋아요 수(표시용), v=이미 누른 투표자 집합(중복 방지 — 대상 키에 동봉).
+//  조회: 클라가 GetSharedGroupData(likes_L%02d) 직접 (n만 조인 표시, v는 무시)
+//  서버 책임: ① 자기 좋아요 차단(D6) ② 중복 차단(v) ③ 마스터 스위치(D7)
+//  ※ GC(maintainLeaderboards)가 Top10 밖 키 삭제 → 순위 밖 시 n·v 함께 0 초기화(D3-GC).
+//    Top10 유지(신기록/순위변동) 대상은 keepSet 포함 → 안 지워짐 = 좋아요 유지.
+// ─────────────────────────────────────────────────────────────
+var LIKE_MIN_LEVEL = 3;
+var LIKE_MAX_LEVEL = 10;   // 클라 LeaderboardManager::LIKE_MAX_LEVEL과 일치 필수
+
+function likeGroupId(level) {
+    var pad = (level < 10 ? "0" : "");
+    return "likes_L" + pad + level;
+}
+
+// 마스터 스위치: 공개 Title Data "like_enabled" (award_enabled 패턴, fail-open)
+function likeEnabled() {
+    try {
+        var td = server.GetTitleData({ Keys: ["like_enabled"] });
+        var v = td && td.Data && td.Data.like_enabled;
+        if (v === "0" || v === "false" || v === "off") return false;
+    } catch (e) {}
+    return true;
+}
+
+// 좋아요 누르기 — 투표자(currentPlayerId)가 targetId 리플레이에 +1 (중복/자기 차단)
+//  클라: ExecuteCloudScript { FunctionName:"likeReplay",
+//                             FunctionParameter:{ level:int, targetId:string } }
+//  반환: { ok:true, n:카운트, already:bool } | { ok:false, reason:... }
+handlers.likeReplay = function(args, context) {
+    var voter  = currentPlayerId;
+    var level  = parseInt(args && args.level, 10);
+    var target = String((args && args.targetId) || "");
+
+    if (!(level >= LIKE_MIN_LEVEL && level <= LIKE_MAX_LEVEL))
+        return { ok: false, reason: "bad_level" };
+    if (!target)          return { ok: false, reason: "empty_target" };
+    if (target === voter) return { ok: false, reason: "self" };    // 자기 좋아요 차단
+    if (!likeEnabled())   return { ok: false, reason: "disabled" };
+
+    // 대상 키 읽기 → { n, v }. 그룹 미생성 시 no_group(클라 부트스트랩 후 재시도 유도).
+    var obj = { n: 0, v: {} };
+    try {
+        var g = server.GetSharedGroupData({
+            SharedGroupId: likeGroupId(level),
+            Keys:          [target]
+        });
+        if (g && g.Data && g.Data[target] && g.Data[target].Value) {
+            var parsed = JSON.parse(g.Data[target].Value);
+            if (parsed) {
+                if (typeof parsed.n === "number")            obj.n = parsed.n;
+                if (parsed.v && typeof parsed.v === "object") obj.v = parsed.v;
+            }
+        }
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };
+    }
+
+    // 중복: 이미 누른 투표자면 증가 없이 현재값 반환
+    if (obj.v[voter]) return { ok: true, already: true, n: obj.n };
+
+    obj.v[voter] = 1;
+    obj.n        = obj.n + 1;
+
+    var data = {};
+    data[target] = JSON.stringify({ n: obj.n, v: obj.v });
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: likeGroupId(level),
+            Data:          data,
+            Permission:    "Public"
+        });
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };
+    }
+    return { ok: true, already: false, n: obj.n };
 };
 
 // ─────────────────────────────────────────────────────────────

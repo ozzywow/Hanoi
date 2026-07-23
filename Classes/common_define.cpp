@@ -31,6 +31,14 @@ std::string countryToFlag(const std::string& cc)
     return u8(a) + u8(b);
 }
 
+// 좋아요 수 축약 표기 — 반올림 없이 버림(정수 연산). N>=1000 → "X.YK".
+std::string formatLikeCount(int n)
+{
+    if (n < 1000) return StringUtils::format("%d", n);
+    int tenths = n / 100;                 // 1267 → 12  (버림, 부동소수 반올림 배제)
+    return StringUtils::format("%d.%dK", tenths / 10, tenths % 10);  // 12 → "1.2K"
+}
+
 // 디바이스 언어에 맞는 자국어 인삿말 반환 (greetings.plist 참조)
 std::string getLocalGreeting()
 {
