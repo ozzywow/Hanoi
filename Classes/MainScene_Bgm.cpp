@@ -55,10 +55,8 @@ void MainScene::startTopTicker()
 	const std::string notice = LeaderboardManager::Instance()->getNotice();
 	if (!notice.empty()) {
 		m_topTickerBaseText = "\xF0\x9F\x93\xA2 " + notice;   // "📢 " (U+1F4E2) UTF-8
-		m_topTickerLabel->setString(m_topTickerBaseText);
-		m_topTickerLabel->setColor(Color3B(255, 191, 0));    // 앰버
-		m_topTickerLabel->setVisible(true);
-		tickTopStep();
+		m_topTickerColor    = Color3B(255, 191, 0);          // 앰버
+		ensureTopTickerRunning();   // 현재 스크롤 패스를 끝낸 뒤 교체(끊김 없음)
 		return;
 	}
 
@@ -71,16 +69,13 @@ void MainScene::startTopTicker()
 			&& LeaderboardManager::compareVersion(cur, latest) < 0) {
 			m_topTickerBaseText =
 				"\xF0\x9F\x93\xA2 A new version is now available. We recommend updating.";
-			m_topTickerLabel->setString(m_topTickerBaseText);
-			m_topTickerLabel->setColor(Color3B(255, 191, 0));   // 앰버
-			m_topTickerLabel->setVisible(true);
-			tickTopStep();
+			m_topTickerColor = Color3B(255, 191, 0);   // 앰버
+			ensureTopTickerRunning();
 			return;
 		}
 	}
 
-	m_topTickerLabel->setColor(Color3B::WHITE);              // 랭킹 스크롤은 흰색
-
+	// 3순위: 레벨별 랭킹. 도착 전엔 기존 스크롤(공지/이전 랭킹)을 유지하다가 패스 경계에서 교체.
 	auto alive = m_aliveFlag;
 	auto results = std::make_shared<std::map<int, std::string>>();
 	auto pending = std::make_shared<int>(8);   // level 3~10
@@ -110,18 +105,30 @@ void MainScene::startTopTicker()
 					if (first) text += "---  BE THE FIRST!  ---";
 					if (m_topTickerLabel && gen == m_topTickerGen) {
 						m_topTickerBaseText = text;
-						m_topTickerLabel->setString(text);
-						m_topTickerLabel->setVisible(true);
-						tickTopStep();
+						m_topTickerColor    = Color3B::WHITE;   // 랭킹 스크롤은 흰색
+						ensureTopTickerRunning();
 					}
 				}
 			});
 	}
 }
 
+// 루프가 아직 안 돌고 있을 때만 시작. 이미 돌고 있으면 문자열/색만 갱신되고
+// 다음 패스 경계(tickTopStep 진입)에서 자연스럽게 교체된다(재시작으로 인한 끊김 방지).
+void MainScene::ensureTopTickerRunning()
+{
+	if (m_topTickerRunning) return;
+	if (!m_topTickerLabel) return;
+	m_topTickerRunning = true;
+	m_topTickerLabel->setVisible(true);
+	tickTopStep();
+}
+
 void MainScene::tickTopStep()
 {
 	if (!m_topTickerLabel || !m_topTickerLabel->getParent()) return;
+	m_topTickerLabel->setString(m_topTickerBaseText);   // 매 패스 최신 문자열/색 반영
+	m_topTickerLabel->setColor(m_topTickerColor);
 	const float SPEED = 60.0f;
 	float labelW  = m_topTickerLabel->getContentSize().width;
 	float startX  = RESOURCE_WIDTH + 5.0f;
@@ -137,8 +144,12 @@ void MainScene::tickTopStep()
 		nullptr));
 }
 
-// ── BottomInfoBar 티커: 각국 국기 랜덤 나열 → 좌→우 스크롤 ──────────────
-void MainScene::startBotTicker()
+// ── BottomInfoBar 티커: 최근 접속 플레이어(최근이 우측) → 좌→우 스크롤 ──────────
+//  슬라이딩이 좌→우라 문자열 우측이 먼저 등장 → 가장 최근 접속자를 우측 끝에 배치.
+//  형식: "... Player2🇺🇸      Player1🇰🇷" (이름 뒤 국기). 목록 없으면 랜덤 국기 폴백.
+
+// 폴백: 각국 국기 랜덤 셔플 나열 (서버 목록이 비었을 때만 사용)
+std::string MainScene::buildRandomFlagTicker() const
 {
 	static const char* COUNTRY_CODES[] = {
 		"kr","us","jp","gb","de","fr","it","es","cn","br",
@@ -148,7 +159,6 @@ void MainScene::startBotTicker()
 	};
 	const int N = (int)(sizeof(COUNTRY_CODES) / sizeof(COUNTRY_CODES[0]));
 
-	// Fisher-Yates 셔플
 	std::vector<int> idx(N);
 	for (int i = 0; i < N; ++i) idx[i] = i;
 	for (int i = N - 1; i > 0; --i) {
@@ -159,21 +169,111 @@ void MainScene::startBotTicker()
 	std::string text;
 	for (int i = 0; i < N; ++i) {
 		std::string cc = COUNTRY_CODES[idx[i]];
-		for (char& c : cc) c = (char)toupper((unsigned char)c);
 		if (!text.empty()) text += "      ";
 		text += countryToFlag(cc);
 	}
+	return text;
+}
 
-	if (m_botTickerLabel) {
-		m_botTickerLabel->setString(text);
-		m_botTickerLabel->setVisible(true);
-		tickBotStep();
+// 최근 접속 플레이어: list는 ts 내림차순(최근 우선). 최근 BOT_TICKER_SHOW명을 취해
+// "오래된 … 최신  👋 WELCOME" 순으로 잇는다. 좌→우 스크롤이라 우측 끝(배너)이 먼저
+// 등장 → 화면 순서는 [배너 → 최신 → … → 오래된] 이 되고, 루프마다 배너가 앞장선다.
+std::string MainScene::buildRecentPlayerTicker(const std::vector<RecentPlayerEntry>& list) const
+{
+	// ✈️(U+2708 U+FE0F) WELCOME 🌍(U+1F30D) — 최근 접속자 목록 앞 배너. 이 한 줄만 바꾸면 됨.
+	static const char* BANNER = "\xE2\x9C\x88\xEF\xB8\x8F WELCOME \xF0\x9F\x8C\x8D";
+
+	if (list.empty()) return "";   // 목록 없음 → 배너도 생략(호출측이 폴백 국기 유지)
+
+	int n = (int)list.size();
+	if (n > BOT_TICKER_SHOW) n = BOT_TICKER_SHOW;   // 최근 N명만
+	std::string text;
+	for (int i = n - 1; i >= 0; --i) {              // 오래된→최신 (최신이 우측)
+		const auto& e = list[i];
+		if (!text.empty()) text += "      ";
+		text += e.name;
+		if (!e.countryCode.empty()) text += countryToFlag(e.countryCode);
 	}
+	if (!text.empty()) text += "      ";
+	text += BANNER;                                 // 배너를 우측 끝(=먼저 등장)에 배치
+	return text;
+}
+
+// 루프가 아직 안 돌고 있을 때만 시작. 이미 돌고 있으면 문자열만 갱신되고 다음 패스에서 교체.
+void MainScene::ensureBotTickerRunning()
+{
+	if (m_botTickerRunning) return;
+	if (!m_botTickerLabel) return;
+	m_botTickerRunning = true;
+	m_botTickerLabel->setVisible(true);
+	tickBotStep();
+}
+
+void MainScene::startBotTicker()
+{
+	auto alive = m_aliveFlag;
+
+	// 목록을 이미 띄웠는지 — 만국기 폴백/타임아웃과 공유.
+	auto shown = std::make_shared<bool>(false);
+
+	// 0) 디스크에 영속화된 지난 목록이 있으면 콜드 스타트에서도 즉시 표시(만국기 안 봄).
+	//    이후 refresh가 서버 최신본으로 조용히 갱신(stale-while-revalidate).
+	{
+		auto persisted = LeaderboardManager::Instance()->peekPersistedRecent();
+		std::string t0 = buildRecentPlayerTicker(persisted);
+		if (!t0.empty()) {
+			m_botTickerText = t0;
+			*shown = true;
+			ensureBotTickerRunning();
+		}
+	}
+
+	// 최근 접속 플레이어 조회. 유효 캐시가 있으면 콜백이 즉시(다음 프레임) 목록을 반환하고,
+	// 없으면(로그인 미완 등) 로그인·서버 조회 후 반환. 목록이 있으면 그때 스크롤 시작.
+	auto refresh = [this, alive, shown]() {
+		LeaderboardManager::Instance()->fetchRecentPlayers(
+			[this, alive, shown](const std::vector<RecentPlayerEntry>& players) {
+				if (!alive || !*alive) return;
+				std::string t = buildRecentPlayerTicker(players);
+				if (t.empty()) return;            // 빈 목록 → 아무 것도 안 함(타임아웃이 만국기 처리)
+				m_botTickerText = t;
+				*shown = true;
+				ensureBotTickerRunning();
+			});
+	};
+
+	// 이번 세션 1회: 이름이 있으면 접속 기록(touch) → 성공 후 2초 뒤 재조회(전파 지연 보상).
+	static bool s_touched = false;
+	std::string myName = UserDataManager::Instance()->GetUserName();
+	if (!s_touched && !myName.empty()) {
+		s_touched = true;
+		LeaderboardManager::Instance()->touchRecentPlayer(myName,
+			[this, alive, refresh](bool /*ok*/) {
+				if (!alive || !*alive) return;
+				this->scheduleOnce([alive, refresh](float) {
+					if (!alive || !*alive) return;
+					LeaderboardManager::Instance()->invalidateRecent();  // 전파 지연 보상
+					refresh();
+				}, 2.0f, "recentTouchRefresh");
+			});
+	}
+
+	// 즉시 조회 시도(유효 캐시면 바로 목록 출력).
+	refresh();
+
+	// 3초 타임아웃: 그때까지 목록을 못 띄웠으면(로그인/조회 지연) 만국기 폴백으로 시작.
+	this->scheduleOnce([this, alive, shown](float) {
+		if (!alive || !*alive) return;
+		if (*shown) return;                       // 이미 목록 표시됨 → 만국기 불필요
+		m_botTickerText = buildRandomFlagTicker();
+		ensureBotTickerRunning();
+	}, 3.0f, "botTickerTimeout");
 }
 
 void MainScene::tickBotStep()
 {
 	if (!m_botTickerLabel || !m_botTickerLabel->getParent()) return;
+	m_botTickerLabel->setString(m_botTickerText);   // 매 패스 최신 문자열 반영(심리스 갱신)
 	const float SPEED = 50.0f;
 	float labelW  = m_botTickerLabel->getContentSize().width;
 	float startX  = -(labelW + 5.0f);

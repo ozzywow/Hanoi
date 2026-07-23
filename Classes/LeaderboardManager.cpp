@@ -193,6 +193,12 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
         return;
     }
 
+    // 진행 중인 로그인이 있으면 콜백만 대기열에 추가하고 새 요청은 보내지 않는다
+    // (로그인 스톰 방지 — 콜드 스타트에 다수 조회가 동시에 login()을 호출).
+    if (callback) m_loginWaiters.push_back(callback);
+    if (m_loginInFlight) return;
+    m_loginInFlight = true;
+
     std::string customId = getOrCreateDeviceId();
     std::string displayName = UserDataManager::Instance()->GetUserName();
 
@@ -202,17 +208,25 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
     );
 
     httpPost(BASE_URL + "/Client/LoginWithCustomID", body, "",
-        [this, displayName, callback](bool ok, const std::string& resp) {
+        [this, displayName](bool ok, const std::string& resp) {
+            // 성공/실패 어느 경로로도 대기열을 반드시 일괄 소진 (누락 시 콜백 영구 대기).
+            auto flushWaiters = [this](bool success) {
+                m_loginInFlight = false;
+                std::vector<std::function<void(bool)>> waiters;
+                waiters.swap(m_loginWaiters);
+                for (auto& cb : waiters) if (cb) cb(success);
+            };
+
             if (!ok) {
                 log("PlayFab login failed");
-                if (callback) callback(false);
+                flushWaiters(false);
                 return;
             }
 
             rapidjson::Document doc;
             doc.Parse(resp.c_str());
             if (doc.HasParseError() || !doc.HasMember("data")) {
-                if (callback) callback(false);
+                flushWaiters(false);
                 return;
             }
 
@@ -247,10 +261,13 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
             bootstrapLikeGroups();
 #endif
 
+            // 최근 접속 플레이어 Shared Group(recent_players) 최초 1회 생성
+            bootstrapRecentGroup();
+
             // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
             fetchTitleConfig();
 
-            if (callback) callback(true);
+            flushWaiters(true);
         });
 }
 
@@ -1523,3 +1540,209 @@ void LeaderboardManager::doLikeReplay(int level, const std::string& targetId,
         });
 }
 #endif // ENABLE_REPLAY_LIKE
+
+// ─────────────────────────────────────────────────────────────
+//  최근 접속 플레이어 (BottomInfoBar 티커) — Shared Group "recent_players"
+// ─────────────────────────────────────────────────────────────
+void LeaderboardManager::bootstrapRecentGroup(bool force)
+{
+    if (!force) {
+        if (m_recentGroupBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("recent_group_bootstrapped", false)) {
+            m_recentGroupBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\"}", recentGroupId().c_str());
+    httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+        [](bool ok, const std::string&) {
+            log("PlayFab CreateSharedGroup recent_players: %s",
+                ok ? "created" : "exists/err (ignored)");
+        });
+    m_recentGroupBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("recent_group_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::touchRecentPlayer(const std::string& nameHint,
+    std::function<void(bool)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, nameHint, callback](bool ok) {
+            if (ok) doTouchRecentPlayer(nameHint, true, callback);
+            else if (callback) callback(false);
+        });
+        return;
+    }
+    doTouchRecentPlayer(nameHint, true, callback);
+}
+
+void LeaderboardManager::doTouchRecentPlayer(const std::string& nameHint,
+    bool allowRetry, std::function<void(bool)> callback)
+{
+    std::string body = StringUtils::format(
+        "{\"FunctionName\":\"touchRecentPlayer\","
+        "\"FunctionParameter\":{\"name\":\"%s\"},"
+        "\"GeneratePlayStreamEvent\":false}",
+        escapeJson(nameHint).c_str());
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [this, nameHint, allowRetry, callback](bool ok, const std::string& resp) {
+            if (!ok) { if (callback) callback(false); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) { if (callback) callback(false); return; }
+            const auto& data = doc["data"];
+
+            if (data.HasMember("Error") && data["Error"].IsObject()) {
+                log("PlayFab touchRecentPlayer script error: %.300s", resp.c_str());
+                if (callback) callback(false);
+                return;
+            }
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) {
+                if (callback) callback(false);
+                return;
+            }
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                 ? fr["reason"].GetString() : "";
+
+            if (okFlag) {
+                m_recentCache.valid = false;   // 다음 티커 조회 시 갱신
+                log("PlayFab touchRecentPlayer: OK");
+                if (callback) callback(true);
+                return;
+            }
+
+            // 그룹 미생성 → 부트스트랩 후 1회 재시도
+            if (reason == "no_group" && allowRetry) {
+                log("PlayFab touchRecentPlayer: no_group, bootstrapping + retry");
+                bootstrapRecentGroup(true);
+                Director::getInstance()->getScheduler()->schedule(
+                    [this, nameHint, callback](float) {
+                        doTouchRecentPlayer(nameHint, false, callback);
+                    },
+                    (void*)this, 0.0f, 0, 1.0f, false, "recent_touch_retry");
+                return;
+            }
+
+            log("PlayFab touchRecentPlayer: FAIL reason=%s", reason.c_str());
+            if (callback) callback(false);
+        });
+}
+
+void LeaderboardManager::fetchRecentPlayers(
+    std::function<void(const std::vector<RecentPlayerEntry>&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, callback](bool ok) {
+            if (ok) fetchRecentPlayers(callback);
+            else if (callback) callback({});
+        });
+        return;
+    }
+
+    // 캐시 확인 (전역, TTL 1h)
+    if (m_recentCache.valid) {
+        double elapsedH = difftime(time(nullptr), m_recentCache.cachedAt) / 3600.0;
+        if (elapsedH < CACHE_TTL_HOURS) {
+            if (callback) {
+                auto list = m_recentCache.list;
+                Director::getInstance()->getScheduler()->performFunctionInCocosThread(
+                    [callback, list]() { callback(list); });
+            }
+            return;
+        }
+    }
+
+    std::string body = StringUtils::format(
+        "{\"SharedGroupId\":\"%s\",\"GetMembers\":false}", recentGroupId().c_str());
+
+    httpPost(BASE_URL + "/Client/GetSharedGroupData", body, m_sessionTicket,
+        [this, callback](bool ok, const std::string& resp) {
+            std::vector<RecentPlayerEntry> out;
+            if (!ok) {
+                if (callback) callback(out);   // 그룹 없음/오류 — 캐시하지 않음
+                return;
+            }
+            // {name, cc, ts} 파싱 후 ts 내림차순 정렬 (최근 우선)
+            struct Row { RecentPlayerEntry e; double ts; };
+            std::vector<Row> rows;
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (!doc.HasParseError() && doc.HasMember("data")) {
+                const auto& data = doc["data"];
+                if (data.HasMember("Data") && data["Data"].IsObject()) {
+                    for (auto m = data["Data"].MemberBegin(); m != data["Data"].MemberEnd(); ++m) {
+                        if (!m->value.IsObject() ||
+                            !m->value.HasMember("Value") || !m->value["Value"].IsString())
+                            continue;
+                        rapidjson::Document inner;
+                        inner.Parse(m->value["Value"].GetString());
+                        if (inner.HasParseError()) continue;
+                        Row r;
+                        r.ts = (inner.HasMember("ts") && inner["ts"].IsNumber())
+                               ? inner["ts"].GetDouble() : 0.0;
+                        if (inner.HasMember("name") && inner["name"].IsString())
+                            r.e.name = inner["name"].GetString();
+                        if (inner.HasMember("cc") && inner["cc"].IsString())
+                            r.e.countryCode = inner["cc"].GetString();
+                        if (!r.e.name.empty()) rows.push_back(r);
+                    }
+                }
+            }
+            std::sort(rows.begin(), rows.end(),
+                      [](const Row& a, const Row& b) { return a.ts > b.ts; });
+            for (auto& r : rows) out.push_back(r.e);
+
+            // 빈 결과는 캐시하지 않는다(전파 지연/신규 그룹으로 잠깐 비었을 때, 빈 캐시가
+            // 1h 동안 목록을 가려 PlayScene 복귀 후에도 빈 목록으로 남는 문제 방지).
+            if (!out.empty()) {
+                m_recentCache.list     = out;
+                m_recentCache.cachedAt = time(nullptr);
+                m_recentCache.valid    = true;
+
+                // 디스크 영속화(콜드 스타트 즉시 표시용). 표시에 쓰는 name/cc만 JSON 배열로.
+                std::string js = "[";
+                for (size_t i = 0; i < out.size(); ++i) {
+                    if (i) js += ",";
+                    js += "{\"name\":\"" + escapeJson(out[i].name) +
+                          "\",\"cc\":\"" + escapeJson(out[i].countryCode) + "\"}";
+                }
+                js += "]";
+                UserDefault::getInstance()->setStringForKey("recent_cache_json", js);
+                UserDefault::getInstance()->flush();
+            }
+            log("LeaderboardManager: fetched recent players (%d entries)", (int)out.size());
+            if (callback) callback(out);
+        });
+}
+
+void LeaderboardManager::invalidateRecent()
+{
+    m_recentCache.valid = false;
+}
+
+std::vector<RecentPlayerEntry> LeaderboardManager::peekPersistedRecent() const
+{
+    std::vector<RecentPlayerEntry> out;
+    std::string js = UserDefault::getInstance()->getStringForKey("recent_cache_json", "");
+    if (js.empty()) return out;
+
+    rapidjson::Document doc;
+    doc.Parse(js.c_str());
+    if (doc.HasParseError() || !doc.IsArray()) return out;
+    for (auto it = doc.Begin(); it != doc.End(); ++it) {
+        if (!it->IsObject()) continue;
+        RecentPlayerEntry e;
+        if (it->HasMember("name") && (*it)["name"].IsString()) e.name = (*it)["name"].GetString();
+        if (it->HasMember("cc")   && (*it)["cc"].IsString())   e.countryCode = (*it)["cc"].GetString();
+        if (!e.name.empty()) out.push_back(e);
+    }
+    return out;
+}

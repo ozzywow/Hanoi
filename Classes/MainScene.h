@@ -7,7 +7,8 @@
 #include "IAPDelegate.h"
 using namespace cocos2d;
 
-struct LeaderboardEntry;  // 수상소감 카드 표시용 (LeaderboardManager.h)
+struct LeaderboardEntry;   // 수상소감 카드 표시용 (LeaderboardManager.h)
+struct RecentPlayerEntry;  // 하단 티커 최근 접속 플레이어 (LeaderboardManager.h)
 
 
 
@@ -78,10 +79,18 @@ public:
 
 	Label* m_topTickerLabel  = nullptr;
 	Label* m_botTickerLabel  = nullptr;
+	std::string m_botTickerText;             // 현재 하단 티커 문자열(스크롤 패스마다 반영)
+	bool        m_botTickerRunning = false;  // 하단 스크롤 루프 가동 여부(콘텐츠 생겼을 때만 시작)
 	void startTopTicker();
 	void tickTopStep();
+	void ensureTopTickerRunning();   // 루프 미가동 시에만 시작(재시작=끊김 방지)
 	void startBotTicker();
 	void tickBotStep();
+	void ensureBotTickerRunning();   // 루프 미가동 시에만 시작(상단과 동일)
+	// 하단 티커 문자열 빌더: 최근 접속 플레이어(최근이 우측) / 폴백 랜덤 국기
+	static constexpr int BOT_TICKER_SHOW = 10;   // 표시 개수(링버퍼 RECENT_MAX=20 이하 자유)
+	std::string buildRecentPlayerTicker(const std::vector<RecentPlayerEntry>& list) const;
+	std::string buildRandomFlagTicker() const;
 
 	// BGM Player
 	int       m_bgmIndex       = 0;    // 현재 재생 중인 트랙 인덱스 (0-3)
@@ -91,7 +100,9 @@ public:
 	Node*     m_speakerRNode   = nullptr;
 	DrawNode* m_playBtnIcon    = nullptr;
 	Label*    m_bgmTitleLabel  = nullptr;
-	std::string m_topTickerBaseText;
+	std::string m_topTickerBaseText;                 // 현재 상단 티커 문자열(스크롤 패스마다 반영)
+	Color3B     m_topTickerColor = Color3B::WHITE;   // 현재 상단 티커 색상(패스마다 반영)
+	bool        m_topTickerRunning = false;          // 스크롤 루프 가동 여부(중복 시작/재시작 방지)
 	int         m_topTickerGen = 0;   // 상단 티커 세대 — 늦게 오는 랭킹 콜백이 공지를 덮어쓰지 않게
 
 	void drawBgmPlayer();
