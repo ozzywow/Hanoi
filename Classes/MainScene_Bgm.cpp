@@ -176,26 +176,32 @@ std::string MainScene::buildRandomFlagTicker() const
 }
 
 // 최근 접속 플레이어: list는 ts 내림차순(최근 우선). 최근 BOT_TICKER_SHOW명을 취해
-// "오래된 … 최신  👋 WELCOME" 순으로 잇는다. 좌→우 스크롤이라 우측 끝(배너)이 먼저
-// 등장 → 화면 순서는 [배너 → 최신 → … → 오래된] 이 되고, 루프마다 배너가 앞장선다.
+// "🎮 HAVE A NICE PLAY 🍀   오래된 … 최신   ✈️ WELCOME 🌍" 순으로 잇는다. 좌→우 스크롤이라
+// 우측 끝(HEAD 배너)이 먼저 등장 → 화면 순서 [WELCOME → 최신 → … → 오래된 → PLAY] 반복.
 std::string MainScene::buildRecentPlayerTicker(const std::vector<RecentPlayerEntry>& list) const
 {
-	// ✈️(U+2708 U+FE0F) WELCOME 🌍(U+1F30D) — 최근 접속자 목록 앞 배너. 이 한 줄만 바꾸면 됨.
-	static const char* BANNER = "\xE2\x9C\x88\xEF\xB8\x8F WELCOME \xF0\x9F\x8C\x8D";
+	// 우측 끝(먼저 등장): ✈️(U+2708 U+FE0F) WELCOME 🌍(U+1F30D)
+	static const char* HEAD_BANNER = "\xE2\x9C\x88\xEF\xB8\x8F WELCOME \xF0\x9F\x8C\x8D";
+	// WELCOME 바로 뒤 + 접속자 목록 앞: 🔴(U+1F534) PLAYING NOW — 라이브 진행감.
+	static const char* LIVE_LABEL  = "\xF0\x9F\x94\xB4 PLAYING NOW";
+	// 좌측 끝(맨 뒤): 🎮(U+1F3AE) HAVE A GOOD RUN 🔥(U+1F525) — 문구/이모지는 이 줄만 바꾸면 됨.
+	static const char* TAIL_BANNER = "\xF0\x9F\x8E\xAE HAVE A GOOD RUN \xF0\x9F\x94\xA5";
 
 	if (list.empty()) return "";   // 목록 없음 → 배너도 생략(호출측이 폴백 국기 유지)
 
 	int n = (int)list.size();
 	if (n > BOT_TICKER_SHOW) n = BOT_TICKER_SHOW;   // 최근 N명만
-	std::string text;
+	std::string text = TAIL_BANNER;                 // 맨 왼쪽(=맨 뒤)에 PLAY 배너
 	for (int i = n - 1; i >= 0; --i) {              // 오래된→최신 (최신이 우측)
 		const auto& e = list[i];
-		if (!text.empty()) text += "      ";
+		text += "      ";
 		text += e.name;
 		if (!e.countryCode.empty()) text += countryToFlag(e.countryCode);
 	}
-	if (!text.empty()) text += "      ";
-	text += BANNER;                                 // 배너를 우측 끝(=먼저 등장)에 배치
+	text += "      ";
+	text += LIVE_LABEL;                             // 접속자 목록 바로 뒤(화면상 WELCOME 다음)
+	text += "      ";
+	text += HEAD_BANNER;                            // 우측 끝(=먼저 등장)에 WELCOME 배너
 	return text;
 }
 
