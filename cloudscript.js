@@ -631,6 +631,33 @@ handlers.touchRecentPlayer = function(args, context) {
     return { ok: true, name: name, cc: cc };
 };
 
+// 관리자 전용 — 최근 접속자 목록 강제 초기화 (테스트 데이터 정리용).
+//  그룹은 유지하고 모든 키만 삭제(그룹 삭제 시 클라 재부트스트랩 안 됨 → 유지).
+//  adminKey = Title INTERNAL Data "admin_key"와 일치 필수(소감 관리자 게이트 재사용).
+//  Game Manager → Automation → CloudScript → Run Revision:
+//    FunctionName: clearRecentPlayers, FunctionParameter: { "adminKey": "<키>" }
+//  반환: { ok:true, cleared:N } | { ok:false, reason:"denied"|"no_group" }
+handlers.clearRecentPlayers = function(args, context) {
+    if (!awardAdminAuthorized(args)) return { ok: false, reason: "denied" };
+    try {
+        var g = server.GetSharedGroupData({ SharedGroupId: RECENT_GROUP_ID });
+        if (!g || !g.Data) return { ok: true, cleared: 0 };
+        var del = {};
+        var n = 0;
+        for (var k in g.Data) { del[k] = null; n++; }
+        if (n > 0) {
+            server.UpdateSharedGroupData({
+                SharedGroupId: RECENT_GROUP_ID,
+                Data:          del,
+                Permission:    "Public"
+            });
+        }
+        return { ok: true, cleared: n };
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };
+    }
+};
+
 // ─────────────────────────────────────────────────────────────
 //  도전모드 격파/복수 (battle_reward) — docs/battle_reward_plan.md
 //  고스트 대결에서 A(도전자)가 B(고스트)를 "상향 추월"하면 격파 낙인 기록.
