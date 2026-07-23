@@ -210,6 +210,38 @@ handlers.maintainLeaderboards = function(args, context) {
         if (budgetHit) break;   // 클리어 루프에서 예산 소진 → 다음 실행으로 이월
     }
 
+    // 최근 접속 플레이어 정리(recent_players): ts 내림차순 상위 RECENT_MAX만 유지, 나머지 키 삭제.
+    // 레벨 무관 전역 그룹 → 루프 밖에서 1회. 읽기 1 + (삭제 있을 때)쓰기 1.
+    if (canCall(2)) {
+        try {
+            var rp = server.GetSharedGroupData({ SharedGroupId: RECENT_GROUP_ID });
+            apiCalls++;
+            if (rp && rp.Data) {
+                var rArr = [];
+                for (var pkey in rp.Data) {
+                    var pts = 0;
+                    try {
+                        var pv = JSON.parse(rp.Data[pkey].Value);
+                        if (pv && typeof pv.ts === "number") pts = pv.ts;
+                    } catch (pe) { /* 파싱 실패 → ts=0 (가장 먼저 정리 대상) */ }
+                    rArr.push({ id: pkey, ts: pts });
+                }
+                rArr.sort(function(a, b) { return b.ts - a.ts; });   // 최근 우선
+                var delP = {};
+                var nDelP = 0;
+                for (var pi = RECENT_MAX; pi < rArr.length; pi++) { delP[rArr[pi].id] = null; nDelP++; }
+                if (nDelP > 0) {
+                    server.UpdateSharedGroupData({
+                        SharedGroupId: RECENT_GROUP_ID,
+                        Data:          delP,
+                        Permission:    "Public"
+                    });
+                    apiCalls++;
+                }
+            }
+        } catch (e) { /* 그룹 미생성 등 — 무시 */ }
+    }
+
     return {
         kept:      kept,
         cleared:   cleared,
@@ -545,6 +577,58 @@ handlers.likeReplay = function(args, context) {
         return { ok: false, reason: "no_group", detail: String(e) };
     }
     return { ok: true, already: false, n: obj.n };
+};
+
+// ─────────────────────────────────────────────────────────────
+//  최근 접속 플레이어 (BottomInfoBar 티커) — Shared Group "recent_players"
+//  키 = playFabId, value = JSON { name, cc, ts }, Permission=Public
+//  조회: 클라가 GetSharedGroupData("recent_players") 직접 → ts 내림차순 정렬 후 상위 N 표시.
+//  GC(maintainLeaderboards): ts 내림차순 상위 RECENT_MAX만 유지, 나머지 키 삭제 → payload 상한.
+//  기록 조건: 이름이 설정된 플레이어만(무명 제외). 국가는 서버 프로필 Location(IP 기반, 조작불가).
+//  ※ 자기 키만 갱신하므로 read-modify-write 레이스 없음(like/battle 패턴 미러).
+// ─────────────────────────────────────────────────────────────
+var RECENT_GROUP_ID = "recent_players";
+var RECENT_MAX      = 20;   // 링버퍼 용량 (클라 표시 개수는 이 이하에서 자유 조절)
+
+// 접속 기록 — 자기 키만 {name, cc, ts}로 덮어씀. name 힌트는 프로필 미반영(전파지연) 대비 폴백.
+//  클라: ExecuteCloudScript { FunctionName:"touchRecentPlayer",
+//                             FunctionParameter:{ name:string } }
+//  반환: { ok:true, name, cc } | { ok:false, reason:"no_name"|"no_group" }
+handlers.touchRecentPlayer = function(args, context) {
+    var id   = currentPlayerId;
+    var hint = String((args && args.name) || "");
+
+    var name = "";
+    var cc   = "";
+    try {
+        var p = server.GetPlayerProfile({
+            PlayFabId: id,
+            ProfileConstraints: { ShowDisplayName: true, ShowLocations: true }
+        });
+        if (p && p.PlayerProfile) {
+            if (p.PlayerProfile.DisplayName) name = String(p.PlayerProfile.DisplayName);
+            if (p.PlayerProfile.Locations && p.PlayerProfile.Locations.length > 0) {
+                var lc = p.PlayerProfile.Locations[0].CountryCode;
+                if (lc) cc = String(lc).toLowerCase();
+            }
+        }
+    } catch (e) { /* 프로필 조회 실패 — 힌트로 폴백 */ }
+
+    if (!name) name = hint;                                // 프로필 미반영 시 클라 힌트 사용
+    if (!name) return { ok: false, reason: "no_name" };    // 무명 플레이어는 미기록
+
+    var data = {};
+    data[id] = JSON.stringify({ name: name, cc: cc, ts: Date.now() });
+    try {
+        server.UpdateSharedGroupData({
+            SharedGroupId: RECENT_GROUP_ID,
+            Data:          data,
+            Permission:    "Public"
+        });
+    } catch (e) {
+        return { ok: false, reason: "no_group", detail: String(e) };   // 클라 부트스트랩 후 재시도 유도
+    }
+    return { ok: true, name: name, cc: cc };
 };
 
 // ─────────────────────────────────────────────────────────────

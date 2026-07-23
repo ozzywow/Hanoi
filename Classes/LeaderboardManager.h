@@ -24,6 +24,13 @@ struct LeaderboardEntry {
 #endif
 };
 
+// 최근 접속 플레이어 (BottomInfoBar 티커) — recent_players Shared Group에서 조회.
+// ts(접속 시각) 내림차순으로 정렬되어 서빙됨(가장 최근이 [0]).
+struct RecentPlayerEntry {
+    std::string name;
+    std::string countryCode;  // ISO 2자리 소문자 (없으면 빈 문자열)
+};
+
 class LeaderboardManager : public Singleton<LeaderboardManager>
 {
 public:
@@ -65,6 +72,28 @@ public:
 
     bool isLoggedIn() const { return !m_sessionTicket.empty(); }
     const std::string& getPlayFabId() const { return m_playFabId; }
+
+    // ── 최근 접속 플레이어 (BottomInfoBar 티커) — Shared Group "recent_players" ──
+    // 링버퍼 용량(GC 상한). 클라 표시 개수는 호출측(MainScene)에서 이 이하로 자유 조절.
+    static constexpr int RECENT_MAX = 20;
+    static std::string recentGroupId() { return "recent_players"; }
+
+    // 로그인 성공 시 recent_players Shared Group 최초 1회 생성 (like/battle 미러).
+    void bootstrapRecentGroup(bool force = false);
+
+    // 접속 기록 — 이름이 설정된 경우에만 호출 권장. 자기 키를 {name,cc,ts}로 갱신(CloudScript).
+    // nameHint: 프로필에 이름이 아직 반영 안 된 경우(방금 설정) 서버 폴백용. 국가는 서버가 채움.
+    void touchRecentPlayer(const std::string& nameHint,
+                           std::function<void(bool)> callback = nullptr);
+
+    // 최근 접속 플레이어 목록 조회 → ts 내림차순(최근 우선). CACHE_TTL_HOURS(1h) 캐시.
+    // 성공(비어있지 않음) 시 UserDefault에 영속화 → 다음 콜드 스타트에서 즉시 표시.
+    void fetchRecentPlayers(std::function<void(const std::vector<RecentPlayerEntry>&)> callback);
+    void invalidateRecent();
+
+    // 디스크에 영속화된 최근 목록을 네트워크 없이 즉시 반환(콜드 스타트 stale-while-revalidate).
+    // 없으면 빈 벡터. 표시용이라 name/cc만 담김(ts 순서는 저장 시점 그대로).
+    std::vector<RecentPlayerEntry> peekPersistedRecent() const;
 
     // ── 공개 Title Data 설정(award_enabled + notice) 단일 조회 ──
     // 로그인 시 1회 + 랭킹보드/타이틀 진입 시 재조회. 결과는 멤버에 캐시.
@@ -198,6 +227,13 @@ private:
     std::string m_sessionTicket;
     std::string m_playFabId;
 
+    // 로그인 중복 방지(in-flight 가드): 콜드 스타트에 여러 조회(랭킹 8레벨+접속자+공지 등)가
+    // 동시에 login()을 부를 때 LoginWithCustomID를 한 번만 보내고 나머지 콜백은 대기열에서
+    // 일괄 처리한다. 이전엔 로그인 스톰으로 일부 요청이 실패→상단 티커가 1레벨만 나오거나
+    // 하단 접속자 목록이 첫 진입에 비던 문제의 근본 원인.
+    bool                                   m_loginInFlight = false;
+    std::vector<std::function<void(bool)>> m_loginWaiters;
+
     // 공개 Title Data 캐시 (fetchTitleConfig). ENABLE_AWARD_COMMENT와 무관하게 항상 존재.
     bool        m_awardEnabled = true;   // fail-open 기본값 = 활성
     bool        m_likeEnabled  = true;   // 좋아요 마스터 스위치(replay_like), fail-open
@@ -245,6 +281,18 @@ private:
     void doLikeReplay(int level, const std::string& targetId, bool allowRetry,
                       std::function<void(bool, int, bool)> callback);
 #endif // ENABLE_REPLAY_LIKE
+
+    // 최근 접속 플레이어 캐시(전역, 레벨 무관). ts 내림차순 정렬된 목록.
+    struct RecentCacheEntry {
+        std::vector<RecentPlayerEntry> list;
+        std::time_t                    cachedAt = 0;
+        bool                           valid    = false;
+    };
+    RecentCacheEntry                       m_recentCache;
+    bool                                   m_recentGroupBootstrapped = false;
+    // allowRetry: no_group 시 부트스트랩 후 1회 재시도(doLikeReplay 패턴).
+    void doTouchRecentPlayer(const std::string& nameHint, bool allowRetry,
+                             std::function<void(bool)> callback);
 
     // submitScore가 in-flight인 레벨 추적
     std::set<int>                          m_pendingSubmitLevels;
