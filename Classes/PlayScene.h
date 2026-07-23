@@ -129,6 +129,7 @@ public:
 	std::string m_spectateName;
 	int         m_spectateRank    = 0;   // 종료 팝업 표시용
 	int         m_spectateScoreMs = 0;   // 종료 팝업 표시용(기록 시간)
+	std::string m_spectatePlayFabId;     // 관전 대상 id (좋아요 대상, replay_like)
 	void startSpectate();
 
 	// 3차: 고스트 레이스 (라이브 플레이 + 진행 HUD, docs §10)
@@ -194,14 +195,16 @@ public:
 	// 관전 모드 씬 생성 (2차) — 랭커 리플레이 blob 주입, 진입 시 자동 재생
 	static PlayScene* createSpectateScene(int level, const std::string& blob,
 	                                      const std::string& rankerName,
-	                                      int rank = 0, int scoreMs = 0)
+	                                      int rank = 0, int scoreMs = 0,
+	                                      const std::string& targetId = "")
 	{
 		PlayScene* pRes = PlayScene::create();
-		pRes->m_isSpectate      = true;
-		pRes->m_spectateBlob    = blob;
-		pRes->m_spectateName    = rankerName;
-		pRes->m_spectateRank    = rank;
-		pRes->m_spectateScoreMs = scoreMs;
+		pRes->m_isSpectate       = true;
+		pRes->m_spectateBlob     = blob;
+		pRes->m_spectateName     = rankerName;
+		pRes->m_spectateRank     = rank;
+		pRes->m_spectateScoreMs  = scoreMs;
+		pRes->m_spectatePlayFabId = targetId;
 		pRes->initWithDiscusNum(level);
 		return pRes;
 	}

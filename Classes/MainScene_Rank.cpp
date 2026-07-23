@@ -147,6 +147,22 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			nm->setAnchorPoint(Vec2(0, 0.5f)); nm->setPosition(Vec2(55, y));
 			nm->setColor(rowCol); addLbl(nm);
 
+#ifdef ENABLE_REPLAY_LIKE
+			// 👍N — 수상소감 우측에 배치(N≥1만). 라벨을 먼저 만들어 폭만 재두고(공간 예약),
+			// 실제 배치는 소감 렌더 뒤에서(아래). 소감이 길면 소감을 줄여 좋아요 자리를 확보(replay_like).
+			Label* lkLabel = nullptr;
+			float  lkReserve = 0.f;
+			const float kLikeGap = 5.f;
+			float  likeAtX = 55.f + nm->getContentSize().width + 6.f;  // 소감 없을 때: 이름 우측
+			if (e.likes > 0 && LeaderboardManager::Instance()->isLikeEnabled()) {
+				lkLabel = Label::createWithSystemFont(
+					"\xF0\x9F\x91\x8D" + formatLikeCount(e.likes), "Arial", rowFont - 2);
+				lkLabel->setColor(Color3B(255, 190, 80));   // 앰버
+				lkLabel->setAnchorPoint(Vec2(0, 0.5f));
+				lkReserve = kLikeGap + lkLabel->getContentSize().width;
+			}
+#endif
+
 			auto tm = Label::createWithSystemFont(
 				StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", rowFont);
 			tm->setAnchorPoint(Vec2(1.0f, 0.5f)); tm->setPosition(Vec2(PW - 10, y));
@@ -189,6 +205,9 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				if (bMark) timeLeft -= (bMark->getContentSize().width + 4.f);  // 낙인 마커 공간 확보
 				float availL    = nameRight + 6.f;
 				float availW    = timeLeft - 6.f - availL;
+#ifdef ENABLE_REPLAY_LIKE
+				availW -= lkReserve;   // 좋아요 라벨 공간 예약 — 소감이 길면 소감을 줄인다
+#endif
 				if (availW > 12.f) {
 					if (!e.comment.empty()) {
 						auto cmt = Label::createWithSystemFont(e.comment, "Arial", rowFont - 1);
@@ -203,16 +222,30 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 						}
 						cmt->setPosition(Vec2(availL, y));
 						addLbl(cmt);
+#ifdef ENABLE_REPLAY_LIKE
+						likeAtX = availL + cmt->getContentSize().width + kLikeGap;  // 소감 우측
+#endif
 					} else if (isMe && LeaderboardManager::Instance()->isAwardEnabled()) {
 						auto pen = Label::createWithSystemFont("✎", "Arial", rowFont);  // ✎ 미작성 힌트
 						pen->setAnchorPoint(Vec2(0, 0.5f));
 						pen->setColor(Color3B(255, 215, 0));
 						pen->setPosition(Vec2(availL, y));
 						addLbl(pen);
+#ifdef ENABLE_REPLAY_LIKE
+						likeAtX = availL + pen->getContentSize().width + kLikeGap;
+#endif
 					}
 				}
 			}
 #endif // ENABLE_AWARD_COMMENT
+
+#ifdef ENABLE_REPLAY_LIKE
+			// 👍N 최종 배치 — 수상소감(또는 이름) 우측
+			if (lkLabel) {
+				lkLabel->setPosition(Vec2(likeAtX, y));
+				addLbl(lkLabel);
+			}
+#endif
 
 			if (isMe) {
 				float blinkDelay = ledScan ? (scanDelay + 0.06f) : 0.0f;
@@ -342,9 +375,26 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 				if (!alive || !*alive || gen != m_rankGeneration) return;
 				auto entriesCopy = entries;
 				LeaderboardManager::Instance()->fetchBattles(level,
-					[this, alive, gen, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
+					[this, alive, gen, level, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
 						if (!alive || !*alive || gen != m_rankGeneration) return;
+						
+#ifdef ENABLE_REPLAY_LIKE
+						{
+							auto blCopy = bl;
+							LeaderboardManager::Instance()->fetchLikes(level,
+								[this, alive, gen, panel, buildRows, entriesCopy, blCopy]
+								(const std::map<std::string, int>& likes) mutable {
+									if (!alive || !*alive || gen != m_rankGeneration) return;
+									for (auto& e : entriesCopy) {
+										auto it = likes.find(e.playFabId);
+										if (it != likes.end()) e.likes = it->second;
+									}
+									buildRows(panel, entriesCopy, true, blCopy);   // ledScan = true
+								});
+						}
+#else
 						buildRows(panel, entriesCopy, true, bl);   // ledScan = true
+#endif
 					});
 			});
 
@@ -430,9 +480,26 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			// 데이터 행 (첫 진입은 스캔 없이 바로 표시) — 격파 낙인 조인 후 렌더
 			auto entriesCopy = entries;
 			LeaderboardManager::Instance()->fetchBattles(level,
-				[this, alive, gen, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
+				[this, alive, gen, level, panel, buildRows, entriesCopy](const std::map<std::string, std::string>& bl) {
 					if (!alive || !*alive || gen != m_rankGeneration) return;
-					buildRows(panel, entriesCopy, false, bl);
+					
+#ifdef ENABLE_REPLAY_LIKE
+						{
+							auto blCopy = bl;
+							LeaderboardManager::Instance()->fetchLikes(level,
+								[this, alive, gen, panel, buildRows, entriesCopy, blCopy]
+								(const std::map<std::string, int>& likes) mutable {
+									if (!alive || !*alive || gen != m_rankGeneration) return;
+									for (auto& e : entriesCopy) {
+										auto it = likes.find(e.playFabId);
+										if (it != likes.end()) e.likes = it->second;
+									}
+									buildRows(panel, entriesCopy, false, blCopy);
+								});
+						}
+#else
+						buildRows(panel, entriesCopy, false, bl);
+#endif
 				});
 		});
 }

@@ -19,6 +19,9 @@ struct LeaderboardEntry {
 #ifdef ENABLE_AWARD_COMMENT
     std::string comment;      // 수상소감 (없으면 빈 문자열) — Phase 2에서 조인
 #endif
+#ifdef ENABLE_REPLAY_LIKE
+    int         likes = 0;    // 받은 좋아요 수 (없으면 0) — fetchLikes 조인
+#endif
 };
 
 class LeaderboardManager : public Singleton<LeaderboardManager>
@@ -69,6 +72,8 @@ public:
     void fetchTitleConfig(std::function<void()> callback = nullptr);
     // 수상소감 마스터 스위치: "0"/"false"/"off" → 비활성, 그 외/키없음/실패 → 활성.
     bool isAwardEnabled() const { return m_awardEnabled; }
+    // 좋아요 마스터 스위치(replay_like): award_enabled와 동일 정책. OFF면 클라 UI(버튼/카운트) 숨김.
+    bool isLikeEnabled() const { return m_likeEnabled; }
     // 상단 티커 공지(공개 Title Data "notice"). 비면 기존 랭킹 스크롤로 폴백.
     const std::string& getNotice() const { return m_notice; }
 
@@ -134,6 +139,26 @@ public:
                       std::function<void(const std::map<std::string, std::string>&)> callback);
     void invalidateBattles(int level);
 
+#ifdef ENABLE_REPLAY_LIKE
+    // ── 리플레이 좋아요 (👍) — Shared Group likes_L%02d, docs/replay_like_plan.md ──
+    // 관전에서 좋아요 → 대상 누적 +1 → 랭킹보드 이름 우측 👍N 표시. battle/replay 인프라 미러.
+    static constexpr int LIKE_MAX_LEVEL = 10;   // 서버 cloudscript LIKE_MAX_LEVEL과 일치 필수
+    static std::string likeGroupId(int level);  // "likes_L%02d"
+
+    // 로그인 성공 시 likes_L03~L10 Shared Group 부트스트랩 (battle/replay 미러).
+    void bootstrapLikeGroups(bool force = false);
+
+    // 좋아요 누르기 — 관전 대상(targetId) 리플레이에 +1. CloudScript likeReplay 경유.
+    // 콜백: (ok, newCount, already). already=true면 이미 누른 상태(카운트 무변).
+    void likeReplay(int level, const std::string& targetId,
+                    std::function<void(bool ok, int newCount, bool already)> callback = nullptr);
+
+    // 레벨별 좋아요 수 조회 → (playFabId -> count). CACHE_TTL_HOURS 캐시.
+    void fetchLikes(int level,
+                    std::function<void(const std::map<std::string, int>&)> callback);
+    void invalidateLikes(int level);
+#endif // ENABLE_REPLAY_LIKE
+
 #ifdef ENABLE_AWARD_COMMENT
     // ── 랭킹 Top10 수상소감 (Award Comments) ──
     // Shared Group awards_L03~L10 부트스트랩. 로그인 성공 시 자동 호출.
@@ -175,6 +200,7 @@ private:
 
     // 공개 Title Data 캐시 (fetchTitleConfig). ENABLE_AWARD_COMMENT와 무관하게 항상 존재.
     bool        m_awardEnabled = true;   // fail-open 기본값 = 활성
+    bool        m_likeEnabled  = true;   // 좋아요 마스터 스위치(replay_like), fail-open
     std::string m_notice;                // 상단 티커 공지 (없으면 빈 문자열)
     std::string m_latestVersion;         // 최신 배포 버전 (공개 Title Data latest_version, 미설정=빈 문자열)
 
@@ -206,6 +232,19 @@ private:
         std::time_t cachedAt;
     };
     std::map<int, BattleCacheEntry>        m_battleCache;
+
+#ifdef ENABLE_REPLAY_LIKE
+    // 좋아요 캐시: level -> (playFabId -> count)
+    struct LikeCacheEntry {
+        std::map<std::string, int> byId;
+        std::time_t cachedAt;
+    };
+    std::map<int, LikeCacheEntry>          m_likeCache;
+    bool                                   m_likeGroupsBootstrapped = false;
+    // allowRetry: no_group 시 부트스트랩 후 1회 재시도(doUploadReplay 패턴).
+    void doLikeReplay(int level, const std::string& targetId, bool allowRetry,
+                      std::function<void(bool, int, bool)> callback);
+#endif // ENABLE_REPLAY_LIKE
 
     // submitScore가 in-flight인 레벨 추적
     std::set<int>                          m_pendingSubmitLevels;

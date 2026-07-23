@@ -674,6 +674,28 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 	nameLbl->setPosition(Vec2(16, DH - 50));
 	dlg->addChild(nameLbl);
 
+#ifdef ENABLE_REPLAY_LIKE
+	// 👍N — 이름 우측(N≥1, 좋아요 활성 시). 비동기 조회 후 부착(replay_like).
+	if (LeaderboardManager::Instance()->isLikeEnabled()) {
+		auto alive = m_aliveFlag;
+		std::string lpid = e.playFabId;
+		float nameRight = 16.f + nameLbl->getContentSize().width;
+		LeaderboardManager::Instance()->fetchLikes(level,
+			[this, alive, TAG, lpid, dlg, nameRight, DH](const std::map<std::string, int>& mp) {
+				if (!alive || !*alive) return;
+				if (!this->getChildByTag(TAG)) return;   // 카드 닫힘 → dlg 무효
+				auto it = mp.find(lpid);
+				if (it == mp.end() || it->second <= 0) return;
+				auto lk = Label::createWithSystemFont(
+					"\xF0\x9F\x91\x8D" + formatLikeCount(it->second), "Arial", 12);
+				lk->setColor(Color3B(255, 190, 80));   // 앰버
+				lk->setAnchorPoint(Vec2(0, 0.5f));
+				lk->setPosition(Vec2(nameRight + 8.f, DH - 50));
+				dlg->addChild(lk);
+			});
+	}
+#endif
+
 	RecordTime rt = getRecordTime(e.scoreMs);
 	auto timeLbl = Label::createWithSystemFont(
 		StringUtils::format("%02d:%02d.%02d", rt.min, rt.sec, rt.ms), "Arial", 13);
@@ -699,11 +721,11 @@ void MainScene::showAwardCardDialog(const LeaderboardEntry& e, int level)
 				if (it == m.end() || it->second.empty()) return;
 				std::string blob = it->second;
 				auto watchBtn = makePopupChipButton("\xF0\x9F\x91\x81 WATCH", kBtnFunc,
-					[this, TAG, lv, blob, nm, rnk, sms](Ref*) {
+					[this, TAG, lv, blob, nm, rnk, sms, pid](Ref*) {
 						SoundFactory::Instance()->play("efs_click");
 						this->removeChildByTag(TAG);
 						Director::getInstance()->replaceScene(
-							TransitionFade::create(0.3f, PlayScene::createSpectateScene(lv, blob, nm, rnk, sms)));
+							TransitionFade::create(0.3f, PlayScene::createSpectateScene(lv, blob, nm, rnk, sms, pid)));
 					}, 100.f, 30.f, 13.f);
 				watchBtn->setPosition(Vec2(DW * 0.27f, kPopupBtnY));
 
