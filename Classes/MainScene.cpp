@@ -270,6 +270,37 @@ bool MainScene::init()
 		this->addChild(shareMenu, 13);
 	}
 
+	// ── 💬 게시판 버튼 — 공유 버튼 왼쪽(같은 갭 라인). 웹 게시판(랜딩)을 브라우저로 연다.
+	// 이름이 설정돼 있으면 CloudScript에서 일회용 토큰(5분)을 받아 "?wt="로 넘긴다 → 랜딩이
+	// 세션키로 교환해 그 이름으로 글을 쓸 수 있게 된다. 토큰은 브라우저 기록에 남지 않도록
+	// 랜딩이 읽는 즉시 주소창에서 제거한다.
+	// 무명/네트워크 실패 시엔 토큰 없이 열림 = 읽기 전용(공유 링크로 들어온 방문자와 동일).
+	{
+		const Vec2 BOARD_POS(RESOURCE_WIDTH - 47.f, 240.f);
+		auto boardKeycap = DrawNode::create();
+		drawKeycap(boardKeycap, 0, 0, 22, 22, true);
+		boardKeycap->setPosition(BOARD_POS);
+		this->addChild(boardKeycap, 13);
+		Node* boardIcon = makeVecIcon(22, 22, [](DrawNode* dn, float cx, float cy) {
+			drawVecBoard(dn, cx, cy, 5.5f, Color4F(0.98f, 0.82f, 0.25f, 1.f)); // 앰버
+		});
+		auto boardMenuItem = MenuItemLabel::create(boardIcon, [this](Ref*) {
+			SoundFactory::Instance()->play("efs_click");
+			auto alive = m_aliveFlag;
+			LeaderboardManager::Instance()->issueWebToken(
+				[alive](bool ok, const std::string& token) {
+					if (!*alive) return;   // 씬을 떠난 뒤 응답 도착 — 브라우저를 띄우지 않는다
+					std::string url = SHARE_URL;
+					if (ok && !token.empty()) url += "?wt=" + token;
+					Application::getInstance()->openURL(url);
+				});
+		});
+		boardMenuItem->setPosition(BOARD_POS);
+		Menu* boardMenu = Menu::create(boardMenuItem, NULL);
+		boardMenu->setPosition(Vec2::ZERO);
+		this->addChild(boardMenu, 13);
+	}
+
 	// ── 최하단 LED 전광판 (BottomInfoBar) — 국기 스크롤 (좌→우) ──
 	{
 		const float BW = RESOURCE_WIDTH - 4, BH = 15;

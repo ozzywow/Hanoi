@@ -264,6 +264,9 @@ void LeaderboardManager::login(std::function<void(bool)> callback)
             // 최근 접속 플레이어 Shared Group(recent_players) 최초 1회 생성
             bootstrapRecentGroup();
 
+            // 웹 게시판 Shared Group(board, web_link) 최초 1회 생성
+            bootstrapWebGroups();
+
             // 공개 Title Data(마스터 스위치 + 공지) warm-up — 소감 기능 OFF여도 공지는 동작
             fetchTitleConfig();
 
@@ -1745,4 +1748,78 @@ std::vector<RecentPlayerEntry> LeaderboardManager::peekPersistedRecent() const
         if (!e.name.empty()) out.push_back(e);
     }
     return out;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+//  웹 게시판 — Shared Group 부트스트랩 + 원탭 링크 토큰 발급
+// ─────────────────────────────────────────────────────────────────────────
+
+// CreateSharedGroup은 Client API에만 있어(Server API에 없음) 게임이 대신 만들어 준다.
+// 웹은 이 그룹들을 읽고 CloudScript로만 쓰므로 생성 주체가 필요하다. recent 패턴 미러.
+void LeaderboardManager::bootstrapWebGroups(bool force)
+{
+    if (!force) {
+        if (m_webGroupsBootstrapped) return;
+        if (UserDefault::getInstance()->getBoolForKey("web_groups_bootstrapped", false)) {
+            m_webGroupsBootstrapped = true;
+            return;
+        }
+    }
+    if (!isLoggedIn()) return;  // 로그인 성공 콜백에서 다시 호출됨
+
+    const char* groups[] = { "board", "web_link" };
+    for (const char* gid : groups) {
+        std::string body = StringUtils::format("{\"SharedGroupId\":\"%s\"}", gid);
+        std::string name = gid;
+        httpPost(BASE_URL + "/Client/CreateSharedGroup", body, m_sessionTicket,
+            [name](bool ok, const std::string&) {
+                log("PlayFab CreateSharedGroup %s: %s",
+                    name.c_str(), ok ? "created" : "exists/err (ignored)");
+            });
+    }
+    m_webGroupsBootstrapped = true;
+    UserDefault::getInstance()->setBoolForKey("web_groups_bootstrapped", true);
+    UserDefault::getInstance()->flush();
+}
+
+void LeaderboardManager::issueWebToken(std::function<void(bool, const std::string&)> callback)
+{
+    if (!isLoggedIn()) {
+        login([this, callback](bool ok) {
+            if (ok) issueWebToken(callback);
+            else if (callback) callback(false, "");
+        });
+        return;
+    }
+
+    std::string body =
+        "{\"FunctionName\":\"issueWebToken\","
+        "\"FunctionParameter\":{},"
+        "\"GeneratePlayStreamEvent\":false}";
+
+    httpPost(BASE_URL + "/Client/ExecuteCloudScript", body, m_sessionTicket,
+        [callback](bool ok, const std::string& resp) {
+            // 실패는 전부 "토큰 없음"으로 수렴 — 호출측은 읽기 전용으로 열면 되므로 사유 구분 불필요.
+            auto fail = [callback]() { if (callback) callback(false, ""); };
+            if (!ok) { fail(); return; }
+
+            rapidjson::Document doc;
+            doc.Parse(resp.c_str());
+            if (doc.HasParseError() || !doc.HasMember("data")) { fail(); return; }
+            const auto& data = doc["data"];
+            if (!data.HasMember("FunctionResult") || !data["FunctionResult"].IsObject()) { fail(); return; }
+
+            const auto& fr = data["FunctionResult"];
+            bool okFlag = fr.HasMember("ok") && fr["ok"].IsBool() && fr["ok"].GetBool();
+            if (!okFlag || !fr.HasMember("token") || !fr["token"].IsString()) {
+                std::string reason = (fr.HasMember("reason") && fr["reason"].IsString())
+                                     ? fr["reason"].GetString() : "";
+                log("PlayFab issueWebToken: FAIL reason=%s", reason.c_str());
+                fail();
+                return;
+            }
+            log("PlayFab issueWebToken: OK");
+            if (callback) callback(true, fr["token"].GetString());
+        });
 }

@@ -19,6 +19,8 @@ void drawVecCartIcon(DrawNode* node, float cx, float cy, float sz, const Color4F
 void drawVecLock(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
 // 공유 아이콘: 세 노드(●)를 두 선으로 연결한 안드로이드식 share 글리프
 void drawVecShare(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
+// 게시판 아이콘: 둥근 말풍선(좌하단 꼬리) + 본문 2줄
+void drawVecBoard(DrawNode* node, float cx, float cy, float sz, const Color4F& col);
 
 // ── BGM 플레이어 드로우 ──────────────────────────────────────────────────────
 void drawCassetteBody(DrawNode* dn, float cx, float cy, float w, float h, bool on);
