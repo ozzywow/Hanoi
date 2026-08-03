@@ -206,6 +206,38 @@ void drawVecShare(DrawNode* node, float cx, float cy, float sz, const Color4F& c
     node->drawSolidCircle(pBR, dr, 0, 16, col);
 }
 
+void drawVecBoard(DrawNode* node, float cx, float cy, float sz, const Color4F& col)
+{
+    Color4F bg(0.13f, 0.14f, 0.16f, 1.0f);   // 그레이 키캡 내부색 — 본문 줄을 파내는 데 사용
+
+    float bw = sz * 1.55f, bh = sz * 1.10f;
+    float x0 = cx - bw / 2, x1 = cx + bw / 2;
+    float y0 = cy - bh / 2 + sz * 0.16f, y1 = y0 + bh;
+    float c  = sz * 0.26f;                   // 모서리 컷 (팔각형으로 둥근 사각 근사)
+
+    Vec2 body[8] = {
+        Vec2(x0+c, y0),   Vec2(x1-c, y0),
+        Vec2(x1,   y0+c), Vec2(x1,   y1-c),
+        Vec2(x1-c, y1),   Vec2(x0+c, y1),
+        Vec2(x0,   y1-c), Vec2(x0,   y0+c),
+    };
+    node->drawSolidPoly(body, 8, col);
+
+    // 좌하단 꼬리
+    Vec2 tail[3] = {
+        Vec2(x0 + bw*0.20f, y0),
+        Vec2(x0 + bw*0.44f, y0),
+        Vec2(x0 + bw*0.14f, y0 - sz*0.42f),
+    };
+    node->drawSolidPoly(tail, 3, col);
+
+    // 본문 2줄 (둘째 줄은 짧게 — 글줄 느낌)
+    float lh  = sz * 0.14f;
+    float lx0 = x0 + bw * 0.18f;
+    node->drawSolidRect(Vec2(lx0, cy + sz*0.30f), Vec2(x1 - bw*0.18f, cy + sz*0.30f + lh), bg);
+    node->drawSolidRect(Vec2(lx0, cy - sz*0.02f), Vec2(x1 - bw*0.40f, cy - sz*0.02f + lh), bg);
+}
+
 // ── 아이콘 노드 팩토리 ───────────────────────────────────────────────────────
 
 Node* makeVecCartNode(float w, float h, float sz)

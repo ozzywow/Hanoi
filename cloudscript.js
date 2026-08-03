@@ -912,3 +912,314 @@ handlers.cleanupJunkPlayer = function (args, context) {
         return { deleted: false, reason: "junk", error: (e && e.message) ? e.message : String(e), id: id };
     }
 };
+
+// ─────────────────────────────────────────────────────────────
+//  웹 게시판 (Community Board) — 랜딩 https://ozzywow.github.io/Hanoi/
+//
+//  ■ 신원 이전 (앱 → 브라우저 원탭 링크)
+//    브라우저는 게임 계정을 알 방법이 없다(디바이스ID = 사실상 계정 비밀번호이므로 절대 전달 금지).
+//    대신 앱이 일회용 토큰을 발급받아 URL로 넘기고, 웹이 그것을 세션키로 교환한다.
+//      1) [앱] issueWebToken           → 토큰(5분, 1회용). Shared Group "web_link" 에 { p:pid, e:만료 }
+//      2) [앱] openURL(SHARE_URL + "?wt=" + 토큰)
+//      3) [웹] redeemWebToken(token)   → 토큰 소각 + 세션키 발급 + 이름/국가 반환
+//      4) [웹] localStorage 에 세션키 저장, 주소창의 ?wt= 는 즉시 제거(history.replaceState)
+//
+//  ■ 세션키
+//    형식 "<playFabId>.<32자 랜덤>". 소유자 판별에 전역 인덱스가 필요 없도록 앞부분에 pid를 박았다.
+//    → 소유자 Internal Data "web_session" = { s:시크릿, e:만료 } 만 대조하면 되고 GC가 불필요하다.
+//    30일 슬라이딩(글 쓸 때만 갱신 — 읽기는 세션이 필요 없으므로 추가 비용 0).
+//    플레이어당 1개. 새로 발급되면 이전 세션은 덮어써져 즉시 무효(= 앱에서 다시 원탭 = 원격 로그아웃).
+//    ※ 랜덤은 Math.random 기반(CloudScript에 crypto 없음). 유출 시 피해가 "그 이름으로 글쓰기"로
+//      한정되므로 수용 가능한 수준.
+//
+//  ■ 쓰기 권한
+//    writeBoardPost 는 세션키(웹) 또는 인증된 호출자(앱)를 작성자로 삼는다.
+//    공유 링크로 들어온 방문자는 세션키가 없고 공용 뷰어 계정에는 이름이 없어 자동으로 읽기 전용.
+//
+//  ■ 저장: Shared Group "board", key = "<epochMs><랜덤6>", Permission=Public
+//    value = JSON { p:작성자pid, n:이름, cc:국가, t:본문, ts:작성시각 }
+//    이름을 작성 시점에 박아둬서(비정규화) 웹은 GetSharedGroupData 한 번으로 렌더 가능(조인 불필요).
+//    링버퍼: BOARD_MAX 초과 시 오래된 키부터 삭제(writeBoardPost 인라인 — 별도 GC 태스크 불필요).
+// ─────────────────────────────────────────────────────────────
+var WEB_LINK_GROUP_ID  = "web_link";
+var WEB_TOKEN_TTL_MS   = 5 * 60 * 1000;               // 원탭 토큰 5분
+var WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;    // 세션 30일(슬라이딩)
+var BOARD_GROUP_ID     = "board";
+var BOARD_MAX          = 50;    // 링버퍼 용량
+var BOARD_MAX_CP       = 140;   // 본문 최대 코드포인트 (랜딩 textarea maxlength와 일치 필수)
+
+var WEB_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+function webRandom(n) {
+    var s = "";
+    for (var i = 0; i < n; i++)
+        s += WEB_ALPHABET.charAt(Math.floor(Math.random() * WEB_ALPHABET.length));
+    return s;
+}
+
+// Shared Group 쓰기.
+// classic CloudScript에는 CreateSharedGroup이 없으므로(Client API 전용) 그룹 생성은
+// 게임의 bootstrapWebGroups()가 담당한다. 아래 create 시도는 혹시 제공되는 환경을 위한
+// best-effort이며, 실패해도 조용히 no_group으로 떨어진다.
+function webEnsureGroup(gid, data) {
+    try {
+        server.UpdateSharedGroupData({ SharedGroupId: gid, Data: data, Permission: "Public" });
+        return true;
+    } catch (e) {
+        try { server.CreateSharedGroup({ SharedGroupId: gid }); } catch (e2) { return false; }
+        try {
+            server.UpdateSharedGroupData({ SharedGroupId: gid, Data: data, Permission: "Public" });
+            return true;
+        } catch (e3) { return false; }
+    }
+}
+
+// 마스터 스위치: 공개 Title Data 키 "board_enabled" (award_enabled 패턴, fail-open)
+function boardEnabled() {
+    try {
+        var td = server.GetTitleData({ Keys: ["board_enabled"] });
+        var v = td && td.Data && td.Data.board_enabled;
+        if (v === "0" || v === "false" || v === "off") return false;
+    } catch (e) {}
+    return true;
+}
+
+// 표시 이름 + 국가(서버 프로필 Location, IP 기반이라 조작 불가)
+function webProfile(pid) {
+    var out = { name: "", cc: "" };
+    try {
+        var p = server.GetPlayerProfile({
+            PlayFabId: pid,
+            ProfileConstraints: { ShowDisplayName: true, ShowLocations: true }
+        });
+        if (p && p.PlayerProfile) {
+            if (p.PlayerProfile.DisplayName) out.name = String(p.PlayerProfile.DisplayName);
+            if (p.PlayerProfile.Locations && p.PlayerProfile.Locations.length > 0) {
+                var lc = p.PlayerProfile.Locations[0].CountryCode;
+                if (lc) out.cc = String(lc).toLowerCase();
+            }
+        }
+    } catch (e) {}
+    return out;
+}
+
+// 랜딩의 공용 뷰어 계정(CustomId "web_public_viewer")은 누구나 로그인 가능 → 작성 금지.
+// Title INTERNAL Data "web_viewer_id" 에 그 PlayFabId를 넣어두면 확실히 차단된다.
+// 미설정이어도 이름 없는 계정은 no_name에서 걸리지만, 누군가 그 계정에 이름을 붙이는 순간
+// 구멍이 되므로 배포 시 설정 권장(server/PHASE0_DEPLOY.md 참조).
+function webIsPublicViewer(pid) {
+    try {
+        var td = server.GetTitleInternalData({ Keys: ["web_viewer_id"] });
+        var v = td && td.Data && td.Data.web_viewer_id;
+        if (v && String(v) === String(pid)) return true;
+    } catch (e) {}
+    return false;
+}
+
+// 세션 발급 — 플레이어당 1개(덮어쓰기 = 이전 세션 즉시 무효). 실패 시 "".
+function webMintSession(pid) {
+    var secret = webRandom(32);
+    var rec    = { s: secret, e: Date.now() + WEB_SESSION_TTL_MS };
+    try {
+        server.UpdateUserInternalData({ PlayFabId: pid, Data: { web_session: JSON.stringify(rec) } });
+    } catch (e) { return ""; }
+    return pid + "." + secret;
+}
+
+// 세션키 → 소유자 playFabId ("" = 무효/만료). slide=true면 만료를 30일 뒤로 연장.
+// ※ PlayFabId는 16진 문자열이라 "."을 포함하지 않으므로 첫 "."로 안전하게 분리된다.
+function webLookupSession(sk, slide) {
+    var s   = String(sk || "");
+    var dot = s.indexOf(".");
+    if (dot <= 0) return "";
+    var pid    = s.substring(0, dot);
+    var secret = s.substring(dot + 1);
+    if (!secret) return "";
+
+    var rec = null;
+    try {
+        var d = server.GetUserInternalData({ PlayFabId: pid, Keys: ["web_session"] });
+        if (d && d.Data && d.Data.web_session && d.Data.web_session.Value)
+            rec = JSON.parse(d.Data.web_session.Value);
+    } catch (e) { return ""; }
+
+    if (!rec || rec.s !== secret) return "";
+    if (Date.now() > rec.e)       return "";
+
+    if (slide) {
+        rec.e = Date.now() + WEB_SESSION_TTL_MS;
+        try {
+            server.UpdateUserInternalData({ PlayFabId: pid, Data: { web_session: JSON.stringify(rec) } });
+        } catch (e) { /* 연장 실패는 치명적이지 않음 — 이번 요청은 통과시킨다 */ }
+    }
+    return pid;
+}
+
+// 원탭 링크용 일회용 토큰 발급 (앱에서 호출, 인증된 호출자 기준).
+//  클라: ExecuteCloudScript { FunctionName:"issueWebToken" }
+//  반환: { ok:true, token, ttl } | { ok:false, reason:"no_name"|"no_group" }
+handlers.issueWebToken = function(args, context) {
+    var pid = currentPlayerId;
+    if (!pid) return { ok: false, reason: "no_login" };
+
+    // 이름 없는 플레이어는 게시판에 쓸 수 없으므로 토큰도 발급하지 않는다(호출측은 읽기 전용으로 연다).
+    var prof = webProfile(pid);
+    if (!prof.name) return { ok: false, reason: "no_name" };
+
+    var token = webRandom(24);
+    var data  = {};
+    data[token] = JSON.stringify({ p: pid, e: Date.now() + WEB_TOKEN_TTL_MS });
+
+    // 만료 토큰 기회적 청소 — 수명이 5분이라 그룹이 커지지 않는다(별도 GC 태스크 불필요).
+    try {
+        var g = server.GetSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID });
+        if (g && g.Data) {
+            var now = Date.now();
+            for (var k in g.Data) {
+                var v = null;
+                try { v = JSON.parse(g.Data[k].Value); } catch (e2) {}
+                if (!v || !v.e || now > v.e) data[k] = null;
+            }
+        }
+    } catch (e) { /* 그룹 미생성 — webEnsureGroup이 생성 */ }
+
+    if (!webEnsureGroup(WEB_LINK_GROUP_ID, data)) return { ok: false, reason: "no_group" };
+    return { ok: true, token: token, ttl: WEB_TOKEN_TTL_MS };
+};
+
+// 토큰 → 세션키 교환 (웹에서 호출).
+//  반환: { ok:true, sessionKey, name, cc, ttl } | { ok:false, reason:"invalid"|"expired"|... }
+handlers.redeemWebToken = function(args, context) {
+    var token = String((args && args.token) || "");
+    if (!token) return { ok: false, reason: "empty" };
+
+    var rec = null;
+    try {
+        var g = server.GetSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID, Keys: [token] });
+        if (g && g.Data && g.Data[token] && g.Data[token].Value)
+            rec = JSON.parse(g.Data[token].Value);
+    } catch (e) { return { ok: false, reason: "no_group" }; }
+    if (!rec || !rec.p) return { ok: false, reason: "invalid" };
+
+    // 일회용 — 만료 여부와 무관하게 먼저 소각(재사용 차단)
+    var del = {}; del[token] = null;
+    try {
+        server.UpdateSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID, Data: del, Permission: "Public" });
+    } catch (e) {}
+
+    if (Date.now() > rec.e) return { ok: false, reason: "expired" };
+
+    var prof = webProfile(rec.p);
+    if (!prof.name) return { ok: false, reason: "no_name" };
+
+    var sk = webMintSession(rec.p);
+    if (!sk) return { ok: false, reason: "mint_failed" };
+    return { ok: true, sessionKey: sk, name: prof.name, cc: prof.cc, ttl: WEB_SESSION_TTL_MS };
+};
+
+// 게시판 글 작성.
+//  웹: FunctionParameter { sessionKey, text } / 앱: { text } (인증된 호출자가 작성자)
+//  반환: { ok:true, id, name, cc } | { ok:false, reason:"read_only"|"expired"|"no_name"|검증사유 }
+handlers.writeBoardPost = function(args, context) {
+    if (!boardEnabled()) return { ok: false, reason: "disabled" };
+
+    var text = (args && args.text != null ? String(args.text) : "").replace(/^\s+|\s+$/g, "");
+    var len  = codePointLength(text);
+    if (len === 0)          return { ok: false, reason: "empty" };
+    if (len > BOARD_MAX_CP) return { ok: false, reason: "too_long" };
+    if (awardHasLink(text)) return { ok: false, reason: "link" };
+    if (awardHasProfanity(text, awardLoadBanned())) return { ok: false, reason: "profanity" };
+
+    // 작성자 확정 — 세션키(웹)가 있으면 그 소유자, 없으면 인증된 호출자(앱).
+    // 세션키는 클라가 보낸 이름을 절대 신뢰하지 않기 위한 장치다: 이름은 아래에서 서버가 직접 조회한다.
+    var sk  = (args && args.sessionKey) ? String(args.sessionKey) : "";
+    var pid = sk ? webLookupSession(sk, true) : currentPlayerId;
+    if (sk && !pid)             return { ok: false, reason: "expired" };    // 세션 만료 → 앱에서 재연결
+    if (!pid)                   return { ok: false, reason: "read_only" };
+    if (webIsPublicViewer(pid)) return { ok: false, reason: "read_only" };  // 공유 링크 방문자
+
+    var prof = webProfile(pid);
+    if (!prof.name) return { ok: false, reason: "no_name" };
+
+    var now  = Date.now();
+    var id   = String(now) + webRandom(6);
+    var data = {};
+    data[id] = JSON.stringify({ p: pid, n: prof.name, cc: prof.cc, t: text, ts: now });
+
+    // 링버퍼 — id 앞 13자리가 epochMs라 사전순 정렬 == 시간순(연도 2286까지 자릿수 불변).
+    try {
+        var g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });
+        if (g && g.Data) {
+            var keys = [];
+            for (var k in g.Data) keys.push(k);
+            keys.sort();                                  // 오래된 것이 앞
+            var over = keys.length + 1 - BOARD_MAX;       // 이번 글 포함 초과분
+            for (var i = 0; i < over; i++) data[keys[i]] = null;
+        }
+    } catch (e) { /* 그룹 미생성 — webEnsureGroup이 생성 */ }
+
+    if (!webEnsureGroup(BOARD_GROUP_ID, data)) return { ok: false, reason: "no_group" };
+    return { ok: true, id: id, name: prof.name, cc: prof.cc };
+};
+
+// 게시판 글 삭제 (본인 글만). 웹: { sessionKey, id } / 앱: { id }
+handlers.deleteBoardPost = function(args, context) {
+    var id = String((args && args.id) || "");
+    if (!id) return { ok: false, reason: "empty" };
+
+    var sk  = (args && args.sessionKey) ? String(args.sessionKey) : "";
+    var pid = sk ? webLookupSession(sk, false) : currentPlayerId;
+    if (!pid) return { ok: false, reason: sk ? "expired" : "read_only" };
+
+    var rec = null;
+    try {
+        var g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID, Keys: [id] });
+        if (g && g.Data && g.Data[id] && g.Data[id].Value) rec = JSON.parse(g.Data[id].Value);
+    } catch (e) { return { ok: false, reason: "no_group" }; }
+    if (!rec)          return { ok: true, already: true };   // 이미 없음(링버퍼에서 밀렸을 수 있음)
+    if (rec.p !== pid) return { ok: false, reason: "not_owner" };
+
+    var del = {}; del[id] = null;
+    try {
+        server.UpdateSharedGroupData({ SharedGroupId: BOARD_GROUP_ID, Data: del, Permission: "Public" });
+    } catch (e) { return { ok: false, reason: "no_group" }; }
+    return { ok: true };
+};
+
+// 관리자 전용 — 신고된 글 삭제. adminKey = Title INTERNAL Data "admin_key" (소감 관리자 게이트 재사용).
+//  Game Manager → Automation → CloudScript → Run Revision
+//    FunctionName: adminDeleteBoardPost, FunctionParameter: { "adminKey":"<키>", "id":"<글id>" }
+//  id 생략 시 전체 삭제(그룹은 유지).
+handlers.adminDeleteBoardPost = function(args, context) {
+    if (!awardAdminAuthorized(args)) return { ok: false, reason: "denied" };
+    var id = String((args && args.id) || "");
+
+    var del = {};
+    var n   = 0;
+    if (id) {
+        del[id] = null; n = 1;
+    } else {
+        try {
+            var g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });
+            if (!g || !g.Data) return { ok: true, deleted: 0 };
+            for (var k in g.Data) { del[k] = null; n++; }
+        } catch (e) { return { ok: false, reason: "no_group" }; }
+    }
+    if (n === 0) return { ok: true, deleted: 0 };
+
+    try {
+        server.UpdateSharedGroupData({ SharedGroupId: BOARD_GROUP_ID, Data: del, Permission: "Public" });
+    } catch (e) { return { ok: false, reason: "no_group" }; }
+    return { ok: true, deleted: n };
+};
+
+// 관리자 전용 — 특정 플레이어의 웹 세션 강제 무효화 (계정 도용 신고 대응).
+//  FunctionParameter: { "adminKey":"<키>", "playFabId":"<pid>" }
+handlers.revokeWebSession = function(args, context) {
+    if (!awardAdminAuthorized(args)) return { ok: false, reason: "denied" };
+    var pid = String((args && args.playFabId) || "");
+    if (!pid) return { ok: false, reason: "empty" };
+    try {
+        server.UpdateUserInternalData({ PlayFabId: pid, KeysToRemove: ["web_session"] });
+    } catch (e) { return { ok: false, reason: "failed", detail: String(e) }; }
+    return { ok: true };
+};

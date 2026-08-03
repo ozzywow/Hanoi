@@ -95,6 +95,16 @@ public:
     // 없으면 빈 벡터. 표시용이라 name/cc만 담김(ts 순서는 저장 시점 그대로).
     std::vector<RecentPlayerEntry> peekPersistedRecent() const;
 
+    // ── 웹 게시판 (랜딩) — Shared Group "board" / "web_link" ──
+    // CreateSharedGroup은 Client API 전용이라 게임이 대신 만들어 준다(웹은 읽기 + CloudScript 쓰기만).
+    void bootstrapWebGroups(bool force = false);
+
+    // ── 웹 게시판 원탭 링크 — 일회용 토큰 발급 (CloudScript issueWebToken) ──
+    // 브라우저에 게임 신원을 넘기기 위한 5분짜리 1회용 토큰. openURL(SHARE_URL + "?wt=" + token)로 전달하면
+    // 랜딩이 세션키로 교환해 그 이름으로 글을 쓸 수 있게 된다.
+    // 이름 미설정/네트워크 실패 시 ok=false → 호출측은 토큰 없이(읽기 전용으로) 열면 된다.
+    void issueWebToken(std::function<void(bool ok, const std::string& token)> callback);
+
     // ── 공개 Title Data 설정(award_enabled + notice) 단일 조회 ──
     // 로그인 시 1회 + 랭킹보드/타이틀 진입 시 재조회. 결과는 멤버에 캐시.
     // fail-open/safe: 조회 실패 시 기존값 유지.
@@ -290,6 +300,7 @@ private:
     };
     RecentCacheEntry                       m_recentCache;
     bool                                   m_recentGroupBootstrapped = false;
+    bool                                   m_webGroupsBootstrapped   = false;   // board / web_link
     // allowRetry: no_group 시 부트스트랩 후 1회 재시도(doLikeReplay 패턴).
     void doTouchRecentPlayer(const std::string& nameHint, bool allowRetry,
                              std::function<void(bool)> callback);

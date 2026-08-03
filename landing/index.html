@@ -182,6 +182,44 @@
   .board-list .tm{color:var(--mint); font-variant-numeric:tabular-nums; font-weight:600; letter-spacing:.3px}
   .lb-msg{display:block; text-align:center; color:var(--sub); font-size:14px; padding:38px 18px}
 
+  /* ── Community board ── */
+  .cb{max-width:640px; margin:0 auto}
+  .cb-list{list-style:none; margin:0 0 18px; padding:0; display:flex; flex-direction:column; gap:10px}
+  .cb-list li{background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
+    border-radius:14px; padding:14px 16px}
+  .cb-top{display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px}
+  .cb-top .who{font-weight:700; color:var(--fg)}
+  .cb-top .when{color:var(--sub); font-size:12px; margin-left:auto}
+  .cb-top .fl{width:20px; height:14px; object-fit:cover; border-radius:2px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.12)}
+  .cb-top .fl-emoji{font-size:16px; line-height:1}
+  .cb-top .code{font-size:10px; font-weight:700; color:var(--sub)}
+  .cb-body{color:var(--sub); font-size:14.5px; line-height:1.55;
+    white-space:pre-wrap; overflow-wrap:anywhere}
+  .cb-del{background:none; border:0; color:#7a8499; cursor:pointer; font-size:12px; padding:0 2px}
+  .cb-del:hover{color:#ff6b6b}
+  .cb-msg{text-align:center; color:var(--sub); font-size:14px; padding:30px 0}
+
+  .cb-write{background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
+    border-radius:16px; padding:16px}
+  .cb-write .me{font-size:13px; color:var(--sub); margin-bottom:10px;
+    display:flex; align-items:center; gap:7px}
+  .cb-write .me b{color:var(--mint)}
+  .cb-write textarea{width:100%; background:#0b1220; border:1px solid var(--line); border-radius:11px;
+    color:var(--fg); font:inherit; font-size:14.5px; padding:11px 13px; resize:vertical; min-height:74px}
+  .cb-write textarea:focus{outline:none; border-color:var(--mint)}
+  .cb-row{display:flex; align-items:center; gap:10px; margin-top:10px}
+  .cb-row .cnt{color:var(--sub); font-size:12px; font-variant-numeric:tabular-nums}
+  .cb-row .err{color:#ff8080; font-size:12.5px}
+  .cb-post{margin-left:auto; background:var(--mint); color:#04231c; border:0; border-radius:11px;
+    font-weight:800; font-size:14px; padding:10px 20px; cursor:pointer}
+  .cb-post:disabled{opacity:.45; cursor:default}
+
+  .cb-cta{text-align:center; background:linear-gradient(180deg,var(--card),var(--bg2));
+    border:1px solid var(--line); border-radius:16px; padding:24px}
+  .cb-cta h3{font-size:16px; margin-bottom:6px}
+  .cb-cta p{color:var(--sub); font-size:14px; margin-bottom:16px}
+
   /* ── Support / FAQ ── */
   .faq{max-width:640px; margin:0 auto}
   details{
@@ -298,6 +336,40 @@
       <figure><img src="shots/main.jpg" alt="Main screen with the global online ranking" loading="lazy"><figcaption>Compete on the global leaderboard</figcaption></figure>
       <figure><img src="shots/play.jpg" alt="Solving the puzzle — moving the discs" loading="lazy"><figcaption>Move the discs — every millisecond counts</figcaption></figure>
       <figure><img src="shots/race.jpg" alt="Ghost race against a top player with live progress bar" loading="lazy"><figcaption>Race the ghost of a top player</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- Community board (PlayFab Shared Group "board") -->
+  <section id="board">
+    <div class="eyebrow">Community</div>
+    <h2>Runners' Board</h2>
+    <div class="cb">
+      <ul id="cb-list" class="cb-list"><li class="cb-msg">Loading the board…</li></ul>
+
+      <!-- 쓰기 폼: 앱에서 원탭 링크로 들어온 방문자에게만 노출 -->
+      <div id="cb-write" class="cb-write" hidden>
+        <div class="me">Posting as <b id="cb-me"></b></div>
+        <textarea id="cb-text" maxlength="140" rows="3"
+                  placeholder="Share a tip, a brag, or a challenge…"></textarea>
+        <div class="cb-row">
+          <span class="cnt"><span id="cb-cnt">0</span>/140</span>
+          <span id="cb-err" class="err"></span>
+          <button id="cb-post" class="cb-post">Post</button>
+        </div>
+      </div>
+
+      <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도 -->
+      <div id="cb-cta" class="cb-cta" hidden>
+        <h3>💬 Want to post?</h3>
+        <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
+           to link this browser — no sign-up, no password.</p>
+        <div class="dl">
+          <a class="btn ios" href="https://apps.apple.com/app/id430261581">
+            🍎 <span>Download on the App Store</span></a>
+          <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
+            ▶ <span>Get it on Google Play</span></a>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -432,6 +504,171 @@
   document.getElementById("lv-prev").onclick = function(){ if (level > MINLV){ level--; load(); } };
   document.getElementById("lv-next").onclick = function(){ if (level < MAXLV){ level++; load(); } };
   load();
+
+  // 게시판 스크립트가 재사용하는 공용 헬퍼 (PlayFab 엔드포인트 / 공용 뷰어 티켓 / 이스케이프 / 국기)
+  window.HN = { api:API, esc:esc, flag:flagHTML, ticket:ticket, login:login };
+})();
+</script>
+
+<script>
+// ── 커뮤니티 게시판 (PlayFab Shared Group "board") ──
+// 읽기: 공용 뷰어 계정으로 GetSharedGroupData — 누구나 가능(공유 링크 방문자 포함).
+// 쓰기: 앱이 넘겨준 세션키가 있을 때만. 세션키는 앱 → "?wt=<일회용토큰>" → redeemWebToken 으로 획득.
+//   · 토큰(5분·1회용)은 읽는 즉시 주소창에서 제거한다 — 그 상태로 주소를 복사/공유하면 쓰기 권한이 넘어간다.
+//   · ⚠ 세션키는 절대 URL에 넣지 않는다. localStorage 전용(30일 유효라 유출 피해가 토큰보다 크다).
+//   · 이름은 클라가 보내지 않는다. 서버가 세션키 → playFabId → DisplayName 으로 직접 붙인다(사칭 차단).
+(function(){
+  var HN = window.HN;
+  if (!HN) return;
+
+  var K_SK = "hn_sk", K_NM = "hn_nm";
+  var listEl  = document.getElementById("cb-list");
+  var writeEl = document.getElementById("cb-write");
+  var ctaEl   = document.getElementById("cb-cta");
+  var meEl    = document.getElementById("cb-me");
+  var textEl  = document.getElementById("cb-text");
+  var cntEl   = document.getElementById("cb-cnt");
+  var errEl   = document.getElementById("cb-err");
+  var postEl  = document.getElementById("cb-post");
+
+  function sk(){ try{ return localStorage.getItem(K_SK) || ""; }catch(e){ return ""; } }
+  function nm(){ try{ return localStorage.getItem(K_NM) || ""; }catch(e){ return ""; } }
+  function setSession(k,n){ try{ localStorage.setItem(K_SK,k); localStorage.setItem(K_NM,n); }catch(e){} }
+  function clearSession(){ try{ localStorage.removeItem(K_SK); localStorage.removeItem(K_NM); }catch(e){} }
+
+  // CloudScript 호출 — 401(티켓 만료)이면 재로그인 후 1회 재시도
+  function cs(fn, param){
+    return HN.ticket().then(function(t){
+      return fetch(HN.api + "/Client/ExecuteCloudScript", {
+        method:"POST", headers:{"Content-Type":"application/json","X-Authorization":t},
+        body: JSON.stringify({ FunctionName:fn, FunctionParameter:param||{}, GeneratePlayStreamEvent:false })
+      });
+    }).then(function(r){
+      if (r.status === 401){ return HN.login().then(function(){ return cs(fn, param); }); }
+      return r.json().then(function(j){
+        if (j && j.data && j.data.FunctionResult) return j.data.FunctionResult;
+        throw new Error("cloudscript");
+      });
+    });
+  }
+
+  function msg(t){ listEl.innerHTML = '<li class="cb-msg">' + t + '</li>'; }
+
+  function ago(ts){
+    var s = Math.max(0, Math.floor((Date.now() - ts)/1000));
+    if (s < 60) return "just now";
+    var m = Math.floor(s/60);  if (m < 60) return m + "m ago";
+    var h = Math.floor(m/60);  if (h < 24) return h + "h ago";
+    var d = Math.floor(h/24);  if (d < 30) return d + "d ago";
+    return Math.floor(d/30) + "mo ago";
+  }
+
+  function render(data){
+    var rows = [];
+    for (var k in data){
+      var v = null;
+      try { v = JSON.parse(data[k].Value); } catch(e){}
+      if (v && v.t && v.n) rows.push({ id:k, n:v.n, cc:v.cc||"", t:v.t, ts:v.ts||0, p:v.p||"" });
+    }
+    rows.sort(function(a,b){ return b.ts - a.ts; });      // 최신 우선
+    if (!rows.length){ msg("No posts yet — be the first to say something."); return; }
+
+    var mine = sk() ? sk().split(".")[0] : "";            // 세션키 앞부분 = 내 playFabId
+    listEl.innerHTML = rows.map(function(r){
+      var del = (mine && r.p === mine)
+        ? '<button class="cb-del" data-id="' + HN.esc(r.id) + '" aria-label="Delete post">✕</button>' : "";
+      return '<li><div class="cb-top">' + HN.flag(r.cc)
+           + '<span class="who">' + HN.esc(r.n) + '</span>' + del
+           + '<span class="when">' + ago(r.ts) + '</span></div>'
+           + '<div class="cb-body">' + HN.esc(r.t) + '</div></li>';
+    }).join("");
+  }
+
+  function loadBoard(){
+    return HN.ticket().then(function(t){
+      return fetch(HN.api + "/Client/GetSharedGroupData", {
+        method:"POST", headers:{"Content-Type":"application/json","X-Authorization":t},
+        body: JSON.stringify({ SharedGroupId:"board", GetMembers:false })
+      });
+    }).then(function(r){
+      if (r.status === 401){ return HN.login().then(loadBoard).then(function(){ return null; }); }
+      return r.json();
+    }).then(function(j){
+      if (!j) return;                                     // 401 재시도 경로에서 이미 렌더됨
+      // 그룹 미생성(첫 글 이전)도 정상 상태 — 빈 보드로 표시
+      render((j.data && j.data.Data) || {});
+    }).catch(function(){ msg("The board is taking a break — check back soon."); });
+  }
+
+  var ERR = {
+    empty:     "Write something first.",
+    too_long:  "Too long — 140 characters max.",
+    link:      "Links aren't allowed on the board.",
+    profanity: "Please keep it friendly.",
+    read_only: "Open the board from the game to post.",
+    expired:   "This browser is no longer linked — tap 💬 in the game again.",
+    no_name:   "Set your player name in the game first.",
+    disabled:  "The board is closed right now."
+  };
+
+  function expire(){ clearSession(); applyMode(); }
+
+  function applyMode(){
+    if (sk()){
+      meEl.textContent = nm() || "you";
+      writeEl.hidden = false; ctaEl.hidden = true;
+    } else {
+      writeEl.hidden = true;  ctaEl.hidden = false;
+    }
+  }
+
+  textEl.oninput = function(){
+    cntEl.textContent = String(textEl.value.length);
+    errEl.textContent = "";
+  };
+
+  postEl.onclick = function(){
+    var t = textEl.value.replace(/^\s+|\s+$/g, "");
+    errEl.textContent = "";
+    if (!t){ errEl.textContent = ERR.empty; return; }
+    postEl.disabled = true;
+    cs("writeBoardPost", { sessionKey: sk(), text: t }).then(function(fr){
+      postEl.disabled = false;
+      if (fr && fr.ok){ textEl.value = ""; cntEl.textContent = "0"; loadBoard(); return; }
+      var rs = (fr && fr.reason) || "";
+      errEl.textContent = ERR[rs] || "Couldn't post — try again.";
+      if (rs === "expired" || rs === "read_only") expire();
+    }).catch(function(){
+      postEl.disabled = false;
+      errEl.textContent = "Network hiccup — try again.";
+    });
+  };
+
+  // 내 글 삭제 (이벤트 위임)
+  listEl.addEventListener("click", function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest(".cb-del") : null;
+    if (!b) return;
+    if (!confirm("Delete this post?")) return;
+    b.disabled = true;
+    cs("deleteBoardPost", { sessionKey: sk(), id: b.getAttribute("data-id") }).then(function(fr){
+      if (fr && fr.ok){ loadBoard(); return; }
+      b.disabled = false;
+      if (fr && fr.reason === "expired") expire();
+    }).catch(function(){ b.disabled = false; });
+  });
+
+  // 앱에서 넘어온 일회용 토큰(?wt=) 처리 — 네트워크를 타기 전에 주소창부터 정리한다.
+  function redeemFromUrl(){
+    var m = /[?&]wt=([A-Za-z0-9]+)/.exec(location.search);
+    if (!m) return Promise.resolve();
+    var token = m[1];
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch(e){}
+    return cs("redeemWebToken", { token: token }).then(function(fr){
+      if (fr && fr.ok && fr.sessionKey) setSession(fr.sessionKey, fr.name || "");
+    }).catch(function(){});
+  }
+
+  redeemFromUrl().then(function(){ applyMode(); loadBoard(); });
 })();
 </script>
 
