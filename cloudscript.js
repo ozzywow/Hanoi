@@ -10,7 +10,13 @@
 //    해결: ① API 예산 가드로 한도 전에 중단(남은 작업은 다음 실행으로 이월 — 정리는
 //    idempotent라 안전) ② 시간 기반 시작-레벨 로테이션으로 매 실행 다른 지점에서 시작
 //    → 예산상 전 레벨을 못 돌려도 결국 모든 레벨이 순환 정리됨(상태 저장 불필요).
+//
+// ⚠ Scheduled Task 의 FunctionParameter 에 adminKey 를 반드시 포함해야 한다.
+//    { "adminKey": "<Title Internal Data admin_key 값>" }  (topN 등 기존 인자와 함께)
+//    누락되면 denied 로 즉시 반환되어 정리가 조용히 멈춘다.
 handlers.maintainLeaderboards = function(args, context) {
+    if (!awardAdminAuthorized(args)) return { ok: false, reason: "denied" };
+
     var TOP_N        = (args && args.topN) ? args.topN : 10;
     var EXPIRED_VAL  = 3599590;
     var EXPIRE_MS    = 7 * 24 * 60 * 60 * 1000;
@@ -879,7 +885,12 @@ handlers.resetAllLeaderboards = function(args, context) {
 //   이 함수는 활동 여부와 무관하게 "이름/점수" 만으로 판별(세그먼트가 이미 오래된 것만 넘김).
 // ⚠️ 사전 요구: Settings → API Features → "Allow server to delete player accounts" 활성화.
 // 테스트: ExecuteCloudScript 로 { PlayFabId:"...", dryRun:true } 넘기면 삭제 없이 판정만 반환.
+// ⚠ Scheduled Task(세그먼트 액션)의 FunctionParameter 에 adminKey 를 반드시 포함해야 한다.
+//    { "adminKey": "<admin_key 값>" }   누락되면 denied 로 반환되어 정리가 조용히 멈춘다.
+//    게이트가 없으면 임의 PlayFabId 를 넘겨 남의 계정 삭제를 시도할 수 있다(이름·점수 없는 계정 한정).
 handlers.cleanupJunkPlayer = function (args, context) {
+    if (!awardAdminAuthorized(args)) return { deleted: false, reason: "denied" };
+
     var id = (args && args.PlayFabId) ? args.PlayFabId : currentPlayerId;
     if (!id) return { deleted: false, reason: "no-id" };
 
