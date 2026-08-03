@@ -7,6 +7,10 @@
     CloudScript 핸들러 dumpAwardComments / adminDeleteAwardComment 를 호출하며,
     Title Internal Data 의 admin_key 로 권한을 검증한다.
 
+    ⚠ 이 저장소는 public 이므로 admin_key 를 파일에 적지 않는다.
+      환경변수로 넘기거나, 없으면 실행 시 입력받는다.
+          $env:HANOI_ADMIN_KEY = "<키>"
+
 .EXAMPLE
     .\admin_award.ps1
         전체 소감 검색 (한글 자동 디코딩, 표 출력)
@@ -26,11 +30,18 @@ param(
     [string] $TargetId,
     [switch] $Force,
     [string] $Title    = "119C4E",
-    [string] $AdminKey = "@wlsrnr4387"
+    [string] $AdminKey = $env:HANOI_ADMIN_KEY
 )
 
 $ErrorActionPreference = "Stop"
 $Base = "https://$Title.playfabapi.com"
+
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    $sec = Read-Host "admin_key (환경변수 HANOI_ADMIN_KEY 로 미리 넣어둘 수 있음)" -AsSecureString
+    $AdminKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+    if ([string]::IsNullOrWhiteSpace($AdminKey)) { throw "admin_key 가 필요합니다." }
+}
 
 # ── 로그인 → SessionTicket (adminKey 가 실제 권한, 익명 계정으로 충분) ──
 $login = Invoke-RestMethod -Uri "$Base/Client/LoginWithCustomID" -Method Post `

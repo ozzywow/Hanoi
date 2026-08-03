@@ -828,7 +828,12 @@ handlers.adminDeleteAwardComment = function(args, context) {
 };
 
 // 전체 랭킹 초기화 - 모든 플레이어의 BestTime 통계를 0으로 리셋 (긴급용)
+//  Game Manager → Automation → CloudScript → Run Revision
+//    FunctionName: resetAllLeaderboards, FunctionParameter: { "adminKey": "<키>" }
+//  ⚠ 파괴적 + 되돌릴 수 없음. 게이트가 없으면 로그인만 한 아무 클라이언트나 전 랭킹을 밀 수 있다.
 handlers.resetAllLeaderboards = function(args, context) {
+    if (!awardAdminAuthorized(args)) return { ok: false, reason: "denied" };
+
     var fixed = 0;
 
     for (var lv = 3; lv < 10; lv++) {
