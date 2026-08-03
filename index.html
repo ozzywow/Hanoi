@@ -301,6 +301,40 @@
     </div>
   </section>
 
+  <!-- Community board (PlayFab Shared Group "board") — 랭킹 바로 아래 -->
+  <section id="board">
+    <div class="eyebrow">Community</div>
+    <h2>Runners' Board</h2>
+    <div class="cb">
+      <ul id="cb-list" class="cb-list"><li class="cb-msg">Loading the board…</li></ul>
+
+      <!-- 쓰기 폼: 앱에서 원탭 링크로 들어온 방문자에게만 노출 -->
+      <div id="cb-write" class="cb-write" hidden>
+        <div class="me">Posting as <b id="cb-me"></b></div>
+        <textarea id="cb-text" maxlength="140" rows="3"
+                  placeholder="Share a tip, a brag, or a challenge…"></textarea>
+        <div class="cb-row">
+          <span class="cnt"><span id="cb-cnt">0</span>/140</span>
+          <span id="cb-err" class="err"></span>
+          <button id="cb-post" class="cb-post">Post</button>
+        </div>
+      </div>
+
+      <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도 -->
+      <div id="cb-cta" class="cb-cta" hidden>
+        <h3>💬 Want to post?</h3>
+        <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
+           to link this browser — no sign-up, no password.</p>
+        <div class="dl">
+          <a class="btn ios" href="https://apps.apple.com/app/id430261581">
+            🍎 <span>Download on the App Store</span></a>
+          <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
+            ▶ <span>Get it on Google Play</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Features -->
   <section id="features">
     <div class="eyebrow">Why you'll get hooked</div>
@@ -336,40 +370,6 @@
       <figure><img src="shots/main.jpg" alt="Main screen with the global online ranking" loading="lazy"><figcaption>Compete on the global leaderboard</figcaption></figure>
       <figure><img src="shots/play.jpg" alt="Solving the puzzle — moving the discs" loading="lazy"><figcaption>Move the discs — every millisecond counts</figcaption></figure>
       <figure><img src="shots/race.jpg" alt="Ghost race against a top player with live progress bar" loading="lazy"><figcaption>Race the ghost of a top player</figcaption></figure>
-    </div>
-  </section>
-
-  <!-- Community board (PlayFab Shared Group "board") -->
-  <section id="board">
-    <div class="eyebrow">Community</div>
-    <h2>Runners' Board</h2>
-    <div class="cb">
-      <ul id="cb-list" class="cb-list"><li class="cb-msg">Loading the board…</li></ul>
-
-      <!-- 쓰기 폼: 앱에서 원탭 링크로 들어온 방문자에게만 노출 -->
-      <div id="cb-write" class="cb-write" hidden>
-        <div class="me">Posting as <b id="cb-me"></b></div>
-        <textarea id="cb-text" maxlength="140" rows="3"
-                  placeholder="Share a tip, a brag, or a challenge…"></textarea>
-        <div class="cb-row">
-          <span class="cnt"><span id="cb-cnt">0</span>/140</span>
-          <span id="cb-err" class="err"></span>
-          <button id="cb-post" class="cb-post">Post</button>
-        </div>
-      </div>
-
-      <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도 -->
-      <div id="cb-cta" class="cb-cta" hidden>
-        <h3>💬 Want to post?</h3>
-        <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
-           to link this browser — no sign-up, no password.</p>
-        <div class="dl">
-          <a class="btn ios" href="https://apps.apple.com/app/id430261581">
-            🍎 <span>Download on the App Store</span></a>
-          <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
-            ▶ <span>Get it on Google Play</span></a>
-        </div>
-      </div>
     </div>
   </section>
 
