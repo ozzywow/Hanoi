@@ -836,7 +836,9 @@ handlers.resetAllLeaderboards = function(args, context) {
 
     var fixed = 0;
 
-    for (var lv = 3; lv < 10; lv++) {
+    // L3~L10 전 레벨 (다른 기능들의 *_MAX_LEVEL 과 동일 범위).
+    // 안쪽 `lv < 10` 은 한 자리 레벨의 0 패딩용이라 경계가 다르다 — 혼동 주의.
+    for (var lv = 3; lv <= 10; lv++) {
         var pad      = lv < 10 ? "0" : "";
         var statName = "BestTime_L" + pad + lv;
 
