@@ -108,6 +108,30 @@ FunctionParameter: { "text": "hello board" }
 
 ---
 
+## 운영 — `admin_board.ps1`
+
+신고 대응 도구. `admin_award.ps1` 과 같은 `admin_key` 게이트를 쓴다.
+**키는 파일에 적지 않는다** (이 저장소는 public) — 환경변수로 넘기거나 실행 시 입력한다.
+
+```powershell
+$env:HANOI_ADMIN_KEY = "<키>"
+
+.\admin_board.ps1                                       # 전체 조회(최신순)
+.\admin_board.ps1 -Delete -Id <글Id>                    # 글 하나 삭제
+.\admin_board.ps1 -Delete -TargetId <작성자PlayFabId>   # 그 작성자 글 전부
+.\admin_board.ps1 -Delete -TargetId <pid> -Revoke       # 글 삭제 + 웹 세션 차단(도배 대응)
+.\admin_board.ps1 -Revoke  -TargetId <pid>              # 세션만 차단
+.\admin_board.ps1 -Delete -All -Force                   # 전체 비우기
+```
+
+조회는 CloudScript를 거치지 않고 `GetSharedGroupData` 를 직접 읽는다(보드가 Public).
+삭제·차단만 `adminDeleteBoardPost` / `revokeWebSession` 을 호출한다.
+
+> 세션을 차단하면 해당 유저는 앱에서 💬 를 다시 눌러야 글을 쓸 수 있다.
+> 계정 자체를 막는 게 아니라 브라우저 연결만 끊는 것이다.
+
+---
+
 ## 배포 체크리스트
 
 - [ ] CloudScript 파일 전체 교체 후 Save & deploy
