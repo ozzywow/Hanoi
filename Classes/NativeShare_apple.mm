@@ -19,8 +19,17 @@ void NativeShare::share(const std::string& text)
 		while (root.presentedViewController) root = root.presentedViewController;
 		if (!root) return;
 
+		// 순수 URL이면 NSString이 아니라 NSURL로 넘긴다.
+		//  - 공유 시트의 "복사"가 문자열이 아닌 URL로 클립보드에 올려 붙여넣기가 깨지지 않음
+		//  - Safari / 읽기목록 등 URL 전용 액티비티가 목록에 노출되고 링크 미리보기가 붙음
+		id item = s;
+		if ([s hasPrefix:@"http"] && [s rangeOfString:@" "].location == NSNotFound) {
+			NSURL* u = [NSURL URLWithString:s];
+			if (u) item = u;
+		}
+
 		UIActivityViewController* av =
-			[[UIActivityViewController alloc] initWithActivityItems:@[s] applicationActivities:nil];
+			[[UIActivityViewController alloc] initWithActivityItems:@[item] applicationActivities:nil];
 
 		// iPad: 공유 시트는 popover라 소스 지정 필요(없으면 크래시)
 		if (av.popoverPresentationController) {

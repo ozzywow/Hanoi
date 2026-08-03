@@ -254,8 +254,11 @@ bool MainScene::init()
 		auto shareMenuItem = MenuItemLabel::create(shareIcon, [this, SHARE_POS](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			// 모바일: 네이티브 공유 시트(카톡/메시지 등 바로 선택) / 데스크톱: 클립보드 복사 폴백
+			// 초대 문구는 붙이지 않는다 — 공유 시트의 "복사"가 문구까지 함께 복사해
+			// 브라우저 주소창에 붙여넣으면 URL이 오염되어 페이지가 열리지 않는다.
+			// 문구 역할은 랜딩(landing/index.html)의 OG 메타가 만드는 링크 미리보기 카드가 대신한다.
 			if (NativeShare::isSupported()) {
-				NativeShare::share(std::string("Race me on Tower of Hanoi - Speedrun!\n") + SHARE_URL);
+				NativeShare::share(SHARE_URL);
 			} else {
 				Clipboard::copy(SHARE_URL);
 				this->showToast("LINK COPIED", Vec2(SHARE_POS.x, SHARE_POS.y - 20.f));
