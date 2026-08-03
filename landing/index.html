@@ -301,8 +301,10 @@
     </div>
   </section>
 
-  <!-- Community board (PlayFab Shared Group "board") — 랭킹 바로 아래 -->
-  <section id="board">
+  <!-- Community board (PlayFab Shared Group "board") — 랭킹 바로 아래.
+       기본 hidden: 글이 하나도 없으면 계속 감춘다(빈 보드가 페이지 상단을 차지하지 않도록).
+       조회 결과가 있거나, 앱에서 링크된 방문자(첫 글을 쓸 수 있어야 함)면 스크립트가 노출시킨다. -->
+  <section id="board" hidden>
     <div class="eyebrow">Community</div>
     <h2>Runners' Board</h2>
     <div class="cb">
@@ -522,6 +524,7 @@
   if (!HN) return;
 
   var K_SK = "hn_sk", K_NM = "hn_nm";
+  var secEl   = document.getElementById("board");
   var listEl  = document.getElementById("cb-list");
   var writeEl = document.getElementById("cb-write");
   var ctaEl   = document.getElementById("cb-cta");
@@ -554,6 +557,11 @@
 
   function msg(t){ listEl.innerHTML = '<li class="cb-msg">' + t + '</li>'; }
 
+  // 섹션 노출 규칙: 글이 하나라도 있거나, 앱에서 링크된 방문자(첫 글을 쓸 수 있어야 함)일 때만.
+  // 그 외(빈 보드 / 조회 실패)에는 랭킹 아래에 빈 칸이 생기지 않도록 통째로 감춘다.
+  var hasPosts = false;
+  function syncVisibility(){ secEl.hidden = !(hasPosts || sk()); }
+
   function ago(ts){
     var s = Math.max(0, Math.floor((Date.now() - ts)/1000));
     if (s < 60) return "just now";
@@ -571,7 +579,9 @@
       if (v && v.t && v.n) rows.push({ id:k, n:v.n, cc:v.cc||"", t:v.t, ts:v.ts||0, p:v.p||"" });
     }
     rows.sort(function(a,b){ return b.ts - a.ts; });      // 최신 우선
-    if (!rows.length){ msg("No posts yet — be the first to say something."); return; }
+    hasPosts = rows.length > 0;
+    syncVisibility();
+    if (!hasPosts){ msg("No posts yet — be the first to say something."); return; }
 
     var mine = sk() ? sk().split(".")[0] : "";            // 세션키 앞부분 = 내 playFabId
     listEl.innerHTML = rows.map(function(r){
@@ -597,7 +607,11 @@
       if (!j) return;                                     // 401 재시도 경로에서 이미 렌더됨
       // 그룹 미생성(첫 글 이전)도 정상 상태 — 빈 보드로 표시
       render((j.data && j.data.Data) || {});
-    }).catch(function(){ msg("The board is taking a break — check back soon."); });
+    }).catch(function(){
+      // 조회 실패 — 일반 방문자에겐 아예 감춘다. 링크된 방문자에겐 남겨 재시도할 수 있게.
+      msg("The board is taking a break — check back soon.");
+      syncVisibility();
+    });
   }
 
   var ERR = {
@@ -611,7 +625,8 @@
     disabled:  "The board is closed right now."
   };
 
-  function expire(){ clearSession(); applyMode(); }
+  // 세션 만료/무효 — 쓰기 폼을 접고, 글이 없다면 섹션까지 다시 감춘다.
+  function expire(){ clearSession(); applyMode(); syncVisibility(); }
 
   function applyMode(){
     if (sk()){
@@ -668,7 +683,8 @@
     }).catch(function(){});
   }
 
-  redeemFromUrl().then(function(){ applyMode(); loadBoard(); });
+  // 링크된 방문자는 보드 조회를 기다리지 않고 곧바로 섹션을 띄운다(빈 보드여도 첫 글을 쓸 수 있게).
+  redeemFromUrl().then(function(){ applyMode(); syncVisibility(); loadBoard(); });
 })();
 </script>
 
