@@ -993,11 +993,15 @@ function webEnsureGroup(gid, data) {
     }
 }
 
-// 마스터 스위치: 공개 Title Data 키 "board_enabled" (award_enabled 패턴, fail-open)
+// 마스터 스위치: 공개 Title Data 키 "web_board" (award_enabled 패턴, fail-open)
+//   "1" / 키없음 / 조회실패 → 활성 (기본값)
+//   "0" / "false" / "off"   → 비활성
+// 비활성이면 글쓰기와 원탭 토큰 발급이 막히고, 랜딩은 게시판 섹션을 통째로 감춘다.
+// (이미 올라간 글은 지우지 않는다 — 다시 켜면 그대로 복귀)
 function boardEnabled() {
     try {
-        var td = server.GetTitleData({ Keys: ["board_enabled"] });
-        var v = td && td.Data && td.Data.board_enabled;
+        var td = server.GetTitleData({ Keys: ["web_board"] });
+        var v = td && td.Data && td.Data.web_board;
         if (v === "0" || v === "false" || v === "off") return false;
     } catch (e) {}
     return true;
@@ -1078,6 +1082,8 @@ function webLookupSession(sk, slide) {
 //  클라: ExecuteCloudScript { FunctionName:"issueWebToken" }
 //  반환: { ok:true, token, ttl } | { ok:false, reason:"no_name"|"no_group" }
 handlers.issueWebToken = function(args, context) {
+    if (!boardEnabled()) return { ok: false, reason: "disabled" };   // 꺼져 있으면 링크할 대상이 없다
+
     var pid = currentPlayerId;
     if (!pid) return { ok: false, reason: "no_login" };
 
