@@ -122,11 +122,6 @@
   .btn:hover{transform:translateY(-2px)}
   .btn.ios{background:var(--ios); box-shadow:0 8px 24px rgba(10,132,255,.32)}
   .btn.and{background:var(--and); box-shadow:0 8px 24px rgba(52,199,89,.30)}
-  .btn .rec{
-    position:absolute; top:-9px; right:-9px; background:var(--gold); color:#221a00;
-    font-size:10px; font-weight:800; padding:2px 7px; border-radius:20px; letter-spacing:.3px;
-    box-shadow:0 3px 10px rgba(0,0,0,.4);
-  }
 
   /* ── Sections ── */
   section{padding:44px 0}
@@ -199,6 +194,13 @@
   .cb-del{background:none; border:0; color:#7a8499; cursor:pointer; font-size:12px; padding:0 2px}
   .cb-del:hover{color:#ff6b6b}
   .cb-msg{text-align:center; color:var(--sub); font-size:14px; padding:30px 0}
+
+  .cb-more{display:block; width:100%; margin:0 0 18px; background:#0e1524;
+    border:1px solid var(--line); border-radius:12px; color:var(--mint);
+    font:inherit; font-weight:700; font-size:13.5px; letter-spacing:.3px;
+    padding:11px; cursor:pointer; transition:background .12s}
+  .cb-more:hover{background:#14203a}
+  .cb-more[hidden]{display:none}   /* display:block 가 [hidden] 기본 규칙을 덮으므로 명시 */
 
   .cb-write{background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
     border-radius:16px; padding:16px}
@@ -309,6 +311,8 @@
     <h2>Runners' Board</h2>
     <div class="cb">
       <ul id="cb-list" class="cb-list"><li class="cb-msg">Loading the board…</li></ul>
+      <!-- 기본은 최근 10개만. 더 있으면 전체 펼치기 -->
+      <button id="cb-more" class="cb-more" hidden></button>
 
       <!-- 쓰기 폼: 앱에서 원탭 링크로 들어온 방문자에게만 노출 -->
       <div id="cb-write" class="cb-write" hidden>
@@ -333,6 +337,14 @@
           <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
             ▶ <span>Get it on Google Play</span></a>
         </div>
+      </div>
+
+      <!-- 앱에서 링크(?wt=)를 물고 들어왔지만 교환에 실패한 경우.
+           이미 앱을 가진 사람이므로 설치 안내 대신 재연결 안내를 띄운다. -->
+      <div id="cb-fail" class="cb-cta" hidden>
+        <h3>🔗 That link didn't go through</h3>
+        <p>It may have expired or already been used. Tap the 💬 button on the game's title screen
+           again to reconnect this browser.</p>
       </div>
     </div>
   </section>
@@ -524,10 +536,13 @@
   if (!HN) return;
 
   var K_SK = "hn_sk", K_NM = "hn_nm";
+  var SHOW_N  = 10;                                    // 기본 표시 개수(서버 링버퍼는 50)
   var secEl   = document.getElementById("board");
   var listEl  = document.getElementById("cb-list");
+  var moreEl  = document.getElementById("cb-more");
   var writeEl = document.getElementById("cb-write");
   var ctaEl   = document.getElementById("cb-cta");
+  var failEl  = document.getElementById("cb-fail");
   var meEl    = document.getElementById("cb-me");
   var textEl  = document.getElementById("cb-text");
   var cntEl   = document.getElementById("cb-cnt");
@@ -555,12 +570,16 @@
     });
   }
 
-  function msg(t){ listEl.innerHTML = '<li class="cb-msg">' + t + '</li>'; }
+  function msg(t){ listEl.innerHTML = '<li class="cb-msg">' + t + '</li>'; moreEl.hidden = true; }
+
+  // 앱 보유가 확인된 방문자 — ?wt= 링크를 물고 들어왔거나, 예전에 연결됐다가 세션이 만료된 경우.
+  // 이들에게는 설치 유도 카드가 무의미하므로 재연결 안내로 대체한다.
+  var hasApp = false;
 
   // 섹션 노출 규칙: 글이 하나라도 있거나, 앱에서 링크된 방문자(첫 글을 쓸 수 있어야 함)일 때만.
   // 그 외(빈 보드 / 조회 실패)에는 랭킹 아래에 빈 칸이 생기지 않도록 통째로 감춘다.
   var hasPosts = false;
-  function syncVisibility(){ secEl.hidden = !(hasPosts || sk()); }
+  function syncVisibility(){ secEl.hidden = !(hasPosts || sk() || hasApp); }
 
   function ago(ts){
     var s = Math.max(0, Math.floor((Date.now() - ts)/1000));
@@ -579,12 +598,20 @@
       if (v && v.t && v.n) rows.push({ id:k, n:v.n, cc:v.cc||"", t:v.t, ts:v.ts||0, p:v.p||"" });
     }
     rows.sort(function(a,b){ return b.ts - a.ts; });      // 최신 우선
+    allRows  = rows;
     hasPosts = rows.length > 0;
     syncVisibility();
     if (!hasPosts){ msg("No posts yet — be the first to say something."); return; }
+    paint();
+  }
 
-    var mine = sk() ? sk().split(".")[0] : "";            // 세션키 앞부분 = 내 playFabId
-    listEl.innerHTML = rows.map(function(r){
+  // 기본은 최근 SHOW_N개만 — 서버 링버퍼가 50개라 전부 펼치면 랭킹 아래로 페이지가 크게 밀린다.
+  var allRows = [], expanded = false;
+
+  function paint(){
+    var shown = expanded ? allRows : allRows.slice(0, SHOW_N);
+    var mine  = sk() ? sk().split(".")[0] : "";           // 세션키 앞부분 = 내 playFabId
+    listEl.innerHTML = shown.map(function(r){
       var del = (mine && r.p === mine)
         ? '<button class="cb-del" data-id="' + HN.esc(r.id) + '" aria-label="Delete post">✕</button>' : "";
       return '<li><div class="cb-top">' + HN.flag(r.cc)
@@ -592,7 +619,13 @@
            + '<span class="when">' + ago(r.ts) + '</span></div>'
            + '<div class="cb-body">' + HN.esc(r.t) + '</div></li>';
     }).join("");
+
+    var more = !expanded && allRows.length > SHOW_N;
+    if (more) moreEl.textContent = "Show all " + allRows.length + " posts";
+    moreEl.hidden = !more;
   }
+
+  moreEl.onclick = function(){ expanded = true; paint(); };
 
   function loadBoard(){
     return HN.ticket().then(function(t){
@@ -625,15 +658,19 @@
     disabled:  "The board is closed right now."
   };
 
-  // 세션 만료/무효 — 쓰기 폼을 접고, 글이 없다면 섹션까지 다시 감춘다.
-  function expire(){ clearSession(); applyMode(); syncVisibility(); }
+  // 세션 만료/무효 — 쓰기 폼을 접는다. 앱은 가진 사람이므로 설치 안내가 아닌 재연결 안내를 띄운다.
+  function expire(){ clearSession(); hasApp = true; applyMode(); syncVisibility(); }
 
   function applyMode(){
     if (sk()){
       meEl.textContent = nm() || "you";
-      writeEl.hidden = false; ctaEl.hidden = true;
+      writeEl.hidden = false; ctaEl.hidden = true; failEl.hidden = true;
     } else {
-      writeEl.hidden = true;  ctaEl.hidden = false;
+      writeEl.hidden = true;
+      // 설치 유도("Want to post?")는 토큰 없이 그냥 들어온 방문자에게만.
+      // 링크를 물고 왔는데 교환에 실패한 경우엔 이미 앱이 있으므로 재연결 안내로 바꾼다.
+      ctaEl.hidden  = hasApp;
+      failEl.hidden = !hasApp;
     }
   }
 
@@ -677,6 +714,7 @@
     var m = /[?&]wt=([A-Za-z0-9]+)/.exec(location.search);
     if (!m) return Promise.resolve();
     var token = m[1];
+    hasApp = true;                 // 앱에서 넘어온 방문자 — 교환에 실패해도 설치 안내는 띄우지 않는다
     try { history.replaceState(null, "", location.pathname + location.hash); } catch(e){}
     return cs("redeemWebToken", { token: token }).then(function(fr){
       if (fr && fr.ok && fr.sessionKey) setSession(fr.sessionKey, fr.name || "");
@@ -689,21 +727,18 @@
 </script>
 
 <script>
-// 방문 기기 감지 → 해당 스토어 버튼에 "Recommended" 배지 강조 (자동 이동은 하지 않음)
+// 방문 기기 감지 → 해당 플랫폼 스토어 버튼만 노출 (자동 이동은 하지 않음).
+// 히어로와 게시판 CTA 카드의 .dl 컨테이너 양쪽에 모두 적용된다.
+// 판별 불가(데스크톱 등)면 둘 다 남겨 둔다 — 아무것도 못 받는 상황을 만들지 않기 위해.
+// ※ .btn 은 display:inline-flex 라 [hidden] 기본 규칙이 먹지 않는다 → 인라인 style로 숨긴다.
 (function(){
   var ua = navigator.userAgent || "";
-  var isTouchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  var isTouchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPadOS는 Mac으로 위장
   var isIOS = /iPhone|iPad|iPod/i.test(ua) || isTouchMac;
   var isAndroid = /Android/i.test(ua);
-  var id = isAndroid ? "btn-and" : (isIOS ? "btn-ios" : null);
-  if (id){
-    var b = document.getElementById(id);
-    var tag = document.createElement("span");
-    tag.className = "rec"; tag.textContent = "YOUR DEVICE";
-    b.appendChild(tag);
-    // 추천 버튼을 맨 앞으로
-    b.parentNode.insertBefore(b, b.parentNode.firstChild);
-  }
+  if (isAndroid === isIOS) return;                     // 둘 다 아님(데스크톱) → 그대로 둘 다 노출
+  var els = document.querySelectorAll(isAndroid ? ".dl .btn.ios" : ".dl .btn.and");
+  for (var i = 0; i < els.length; i++) els[i].style.display = "none";
 })();
 </script>
 </body>
