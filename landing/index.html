@@ -655,6 +655,7 @@
     read_only: "Open the board from the game to post.",
     expired:   "This browser is no longer linked — tap 💬 in the game again.",
     no_name:   "Set your player name in the game first.",
+    cooldown:  "Hold on a moment before posting again.",
     disabled:  "The board is closed right now."
   };
 
@@ -688,7 +689,15 @@
       postEl.disabled = false;
       if (fr && fr.ok){ textEl.value = ""; cntEl.textContent = "0"; loadBoard(); return; }
       var rs = (fr && fr.reason) || "";
-      errEl.textContent = ERR[rs] || "Couldn't post — try again.";
+      if (rs === "cooldown"){
+        // 서버가 남은 대기시간(ms)을 알려준다 — 몇 초 남았는지 그대로 보여준다.
+        var secs = Math.ceil(((fr && fr.retryMs) || 0) / 1000);
+        errEl.textContent = secs > 0
+          ? ("Please wait " + secs + "s before posting again.")
+          : ERR.cooldown;
+      } else {
+        errEl.textContent = ERR[rs] || "Couldn't post — try again.";
+      }
       if (rs === "expired" || rs === "read_only") expire();
     }).catch(function(){
       postEl.disabled = false;

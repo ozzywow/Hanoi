@@ -947,6 +947,8 @@ var WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;    // 세션 30일(슬라이�
 var BOARD_GROUP_ID     = "board";
 var BOARD_MAX          = 50;    // 링버퍼 용량
 var BOARD_MAX_CP       = 140;   // 본문 최대 코드포인트 (랜딩 textarea maxlength와 일치 필수)
+var BOARD_AUTHOR_MAX   = 5;     // 작성자당 슬롯 상한 — 한 명이 보드를 밀어내지 못하게
+var BOARD_COOLDOWN_MS  = 60 * 1000;   // 연속 작성 쿨다운
 
 var WEB_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 function webRandom(n) {
@@ -1116,6 +1118,22 @@ handlers.redeemWebToken = function(args, context) {
     return { ok: true, sessionKey: sk, name: prof.name, cc: prof.cc, ttl: WEB_SESSION_TTL_MS };
 };
 
+// 작성 쿨다운 — 마지막 작성 시각을 작성자 Internal Data("board_last")에 보관.
+// 반환: 남은 대기 ms (0이면 작성 가능). 조회 실패는 통과시킨다(fail-open, 하우스 스타일).
+function boardCooldownLeft(pid) {
+    try {
+        var d = server.GetUserInternalData({ PlayFabId: pid, Keys: ["board_last"] });
+        if (d && d.Data && d.Data.board_last && d.Data.board_last.Value) {
+            var last = parseInt(d.Data.board_last.Value, 10);
+            if (last > 0) {
+                var left = last + BOARD_COOLDOWN_MS - Date.now();
+                if (left > 0) return left;
+            }
+        }
+    } catch (e) {}
+    return 0;
+}
+
 // 게시판 글 작성.
 //  웹: FunctionParameter { sessionKey, text } / 앱: { text } (인증된 호출자가 작성자)
 //  반환: { ok:true, id, name, cc } | { ok:false, reason:"read_only"|"expired"|"no_name"|검증사유 }
@@ -1137,6 +1155,10 @@ handlers.writeBoardPost = function(args, context) {
     if (!pid)                   return { ok: false, reason: "read_only" };
     if (webIsPublicViewer(pid)) return { ok: false, reason: "read_only" };  // 공유 링크 방문자
 
+    // 연속 작성 차단 — 프로필/보드 조회보다 먼저 걸러 불필요한 API 호출을 줄인다.
+    var wait = boardCooldownLeft(pid);
+    if (wait > 0) return { ok: false, reason: "cooldown", retryMs: wait };
+
     var prof = webProfile(pid);
     if (!prof.name) return { ok: false, reason: "no_name" };
 
@@ -1145,20 +1167,51 @@ handlers.writeBoardPost = function(args, context) {
     var data = {};
     data[id] = JSON.stringify({ p: pid, n: prof.name, cc: prof.cc, t: text, ts: now });
 
-    // 링버퍼 — id 앞 13자리가 epochMs라 사전순 정렬 == 시간순(연도 2286까지 자릿수 불변).
+    // 정리 대상 수집 — 한 번의 보드 조회로 ①작성자 슬롯 상한 ②전체 링버퍼를 함께 처리한다.
+    // id 앞 13자리가 epochMs라 사전순 정렬 == 시간순(연도 2286까지 자릿수 불변).
+    var i, k;
+    var del = {};
     try {
         var g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });
         if (g && g.Data) {
-            var keys = [];
-            for (var k in g.Data) keys.push(k);
-            keys.sort();                                  // 오래된 것이 앞
-            var over = keys.length + 1 - BOARD_MAX;       // 이번 글 포함 초과분
-            for (var i = 0; i < over; i++) data[keys[i]] = null;
+            var keys = [], mineKeys = [];
+            for (k in g.Data) {
+                keys.push(k);
+                var v = null;
+                try { v = JSON.parse(g.Data[k].Value); } catch (e2) {}
+                if (v && v.p === pid) mineKeys.push(k);
+            }
+            keys.sort();                                   // 오래된 것이 앞
+            mineKeys.sort();
+
+            // ① 작성자당 슬롯 상한 — 초과분은 "본인" 글 중 오래된 것부터 밀어낸다.
+            //    한 명이 연속 작성으로 남의 글을 전부 밀어내는 것을 막는 핵심 장치.
+            var mineOver = mineKeys.length + 1 - BOARD_AUTHOR_MAX;
+            for (i = 0; i < mineOver; i++) del[mineKeys[i]] = 1;
+
+            // ② 전체 링버퍼 — ①에서 이미 빠질 몫을 뺀 나머지 기준으로 오래된 것부터.
+            var remaining = keys.length + 1;               // 이번 글 포함
+            for (k in del) remaining--;
+            var over = remaining - BOARD_MAX;
+            for (i = 0; i < keys.length && over > 0; i++) {
+                if (del[keys[i]]) continue;                // 이미 삭제 예정
+                del[keys[i]] = 1;
+                over--;
+            }
         }
     } catch (e) { /* 그룹 미생성 — webEnsureGroup이 생성 */ }
 
+    var dropped = 0;
+    for (k in del) { data[k] = null; dropped++; }
+
     if (!webEnsureGroup(BOARD_GROUP_ID, data)) return { ok: false, reason: "no_group" };
-    return { ok: true, id: id, name: prof.name, cc: prof.cc };
+
+    // 성공 후에만 쿨다운 시작 — 거부된 시도로 대기가 걸리지 않게.
+    try {
+        server.UpdateUserInternalData({ PlayFabId: pid, Data: { board_last: String(now) } });
+    } catch (e) { /* 실패해도 글은 이미 올라갔다 */ }
+
+    return { ok: true, id: id, name: prof.name, cc: prof.cc, dropped: dropped };
 };
 
 // 게시판 글 삭제 (본인 글만). 웹: { sessionKey, id } / 앱: { id }
