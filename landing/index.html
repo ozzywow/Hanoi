@@ -111,7 +111,8 @@
     background:linear-gradient(120deg,#eaf0f8,#8fb8ff 60%,#a98bff);
     -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
   }
-  .tag{color:var(--sub); font-size:clamp(15px,2.6vw,18px); max-width:520px; margin:0 auto 28px}
+  /* 히어로의 마지막 요소 — 아래 여백은 header 의 padding-bottom 이 담당한다 */
+  .tag{color:var(--sub); font-size:clamp(15px,2.6vw,18px); max-width:520px; margin:0 auto}
 
   .dl{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
   .btn{
@@ -122,6 +123,14 @@
   .btn:hover{transform:translateY(-2px)}
   .btn.ios{background:var(--ios); box-shadow:0 8px 24px rgba(10,132,255,.32)}
   .btn.and{background:var(--and); box-shadow:0 8px 24px rgba(52,199,89,.30)}
+  /* 방문 기기에 해당하는 버튼 — 위 두 규칙의 box-shadow 를 덮어야 하므로 반드시 뒤에 온다 */
+  .btn.you{box-shadow:0 0 0 2px var(--gold), 0 8px 24px rgba(0,0,0,.38)}
+  .btn .ud{                                  /* .btn 이 position:relative → 버튼 기준으로 뜬다 */
+    position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+    background:var(--gold); color:#20160a; font-size:10px; font-weight:800;
+    letter-spacing:.6px; text-transform:uppercase; white-space:nowrap;
+    padding:2px 8px; border-radius:99px; box-shadow:0 2px 8px rgba(0,0,0,.45);
+  }
 
   /* ── Sections ── */
   section{padding:44px 0}
@@ -220,7 +229,8 @@
   .cb-cta{text-align:center; background:linear-gradient(180deg,var(--card),var(--bg2));
     border:1px solid var(--line); border-radius:16px; padding:24px}
   .cb-cta h3{font-size:16px; margin-bottom:6px}
-  .cb-cta p{color:var(--sub); font-size:14px; margin-bottom:16px}
+  .cb-cta p{color:var(--sub); font-size:14px; margin:0}   /* 카드의 마지막 요소 — 아래 여백은 padding 이 담당 */
+  #cb-cta .dl{margin-top:14px}                            /* 카드 밖으로 뺀 스토어 버튼 */
 
   /* ── Support / FAQ ── */
   .faq{max-width:640px; margin:0 auto}
@@ -280,30 +290,9 @@
     </div>
     <h1>Tower of Hanoi<br>Speedrun</h1>
     <p class="tag">The classic puzzle, reimagined as a global speedrun.<br>Race the clock, climb the world rankings, and challenge the ghosts of top players.</p>
-    <div class="dl">
-      <a class="btn ios" id="btn-ios" href="https://apps.apple.com/app/id430261581">
-        🍎 <span>Download on the App Store</span></a>
-      <a class="btn and" id="btn-and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
-        ▶ <span>Get it on Google Play</span></a>
-    </div>
   </header>
 
-  <!-- Live world rankings (PlayFab) -->
-  <section id="rankings">
-    <div class="eyebrow">Live · real players</div>
-    <h2>World Rankings</h2>
-    <div class="board">
-      <div class="board-hd">
-        <button id="lv-prev" aria-label="Previous level">◀</button>
-        <div class="board-lv"><b id="lv-num">LEVEL 3</b><small>ONLINE RANK</small></div>
-        <button id="lv-next" aria-label="Next level">▶</button>
-      </div>
-      <div class="board-cols"><span>#</span><span>NAME</span><span>TIME</span></div>
-      <ol id="lb-list" class="board-list"><li class="lb-msg">Loading rankings…</li></ol>
-    </div>
-  </section>
-
-  <!-- Community board (PlayFab Shared Group "board") — 랭킹 바로 아래.
+  <!-- Community board (PlayFab Shared Group "board") — 랭킹보드 위.
        기본 hidden: 글이 하나도 없으면 계속 감춘다(빈 보드가 페이지 상단을 차지하지 않도록).
        조회 결과가 있거나, 앱에서 링크된 방문자(첫 글을 쓸 수 있어야 함)면 스크립트가 노출시킨다. -->
   <section id="board" hidden>
@@ -326,11 +315,15 @@
         </div>
       </div>
 
-      <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도 -->
-      <div id="cb-cta" class="cb-cta" hidden>
-        <h3>💬 Want to post?</h3>
-        <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
-           to link this browser — no sign-up, no password.</p>
+      <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도.
+           #cb-cta 는 JS 가 여닫는 래퍼일 뿐이고, 카드 테두리는 안쪽 .cb-cta 가 그린다
+           — 스토어 버튼을 카드 밖(바로 아래)에 두되 카드와 항상 같이 나타나고 사라지도록. -->
+      <div id="cb-cta" hidden>
+        <div class="cb-cta">
+          <h3>💬 Want to post?</h3>
+          <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
+             to link this browser — no sign-up, no password.</p>
+        </div>
         <div class="dl">
           <a class="btn ios" href="https://apps.apple.com/app/id430261581">
             🍎 <span>Download on the App Store</span></a>
@@ -346,6 +339,21 @@
         <p>It may have expired or already been used. Tap the 💬 button on the game's title screen
            again to reconnect this browser.</p>
       </div>
+    </div>
+  </section>
+
+  <!-- Live world rankings (PlayFab) -->
+  <section id="rankings">
+    <div class="eyebrow">Live · real players</div>
+    <h2>World Rankings</h2>
+    <div class="board">
+      <div class="board-hd">
+        <button id="lv-prev" aria-label="Previous level">◀</button>
+        <div class="board-lv"><b id="lv-num">LEVEL 3</b><small>ONLINE RANK</small></div>
+        <button id="lv-next" aria-label="Next level">▶</button>
+      </div>
+      <div class="board-cols"><span>#</span><span>NAME</span><span>TIME</span></div>
+      <ol id="lb-list" class="board-list"><li class="lb-msg">Loading rankings…</li></ol>
     </div>
   </section>
 
@@ -398,8 +406,6 @@
         <p>Rankings can take a few seconds to propagate on the server. Reopen the ranking board after a moment — your record is safely stored and will appear.</p></details>
       <details><summary>What is Ghost Race?</summary>
         <p>You race side by side against a top player's recorded run. Beat their time to leave your mark; if you're beaten, a Revenge challenge lets you try again.</p></details>
-      <details><summary>How do I change the language?</summary>
-        <p>The game follows your device language automatically and supports many languages out of the box.</p></details>
       <details><summary>Is the game free?</summary>
         <p>Yes. Some higher levels can be unlocked via an optional in-app purchase.</p></details>
     </div>
@@ -764,18 +770,24 @@
 </script>
 
 <script>
-// 방문 기기 감지 → 해당 플랫폼 스토어 버튼만 노출 (자동 이동은 하지 않음).
-// 히어로와 게시판 CTA 카드의 .dl 컨테이너 양쪽에 모두 적용된다.
-// 판별 불가(데스크톱 등)면 둘 다 남겨 둔다 — 아무것도 못 받는 상황을 만들지 않기 위해.
-// ※ .btn 은 display:inline-flex 라 [hidden] 기본 규칙이 먹지 않는다 → 인라인 style로 숨긴다.
+// 방문 기기 감지 → 해당 플랫폼 버튼에 "Your Device" 배지를 단다 (자동 이동은 하지 않음).
+// 스토어 버튼은 항상 둘 다 노출한다 — 감추지 않고 어느 쪽이 자기 기기인지만 알려 준다.
+// 판별 불가(데스크톱 등)면 배지 없이 그대로 둘 다 노출.
+// 셀렉터는 .dl 전체를 훑으므로 나중에 .dl 블록이 늘어도 그대로 적용된다.
 (function(){
   var ua = navigator.userAgent || "";
   var isTouchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPadOS는 Mac으로 위장
   var isIOS = /iPhone|iPad|iPod/i.test(ua) || isTouchMac;
   var isAndroid = /Android/i.test(ua);
-  if (isAndroid === isIOS) return;                     // 둘 다 아님(데스크톱) → 그대로 둘 다 노출
-  var els = document.querySelectorAll(isAndroid ? ".dl .btn.ios" : ".dl .btn.and");
-  for (var i = 0; i < els.length; i++) els[i].style.display = "none";
+  if (isAndroid === isIOS) return;                     // 둘 다 아님(데스크톱) → 배지 없음
+  var els = document.querySelectorAll(isAndroid ? ".dl .btn.and" : ".dl .btn.ios");
+  for (var i = 0; i < els.length; i++){
+    els[i].classList.add("you");
+    var badge = document.createElement("span");
+    badge.className = "ud";
+    badge.textContent = "Your Device";
+    els[i].appendChild(badge);
+  }
 })();
 </script>
 </body>
