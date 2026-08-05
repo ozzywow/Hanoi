@@ -115,6 +115,8 @@
   .tag{color:var(--sub); font-size:clamp(15px,2.6vw,18px); max-width:520px; margin:0 auto}
 
   .dl{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+  /* 히어로의 상설 스토어 버튼 — 배지(.ud)가 버튼 위로 9px 삐져나오므로 위 여백을 넉넉히 */
+  .hero-dl{margin-top:26px}
   .btn{
     display:inline-flex; align-items:center; gap:9px; font-weight:700; font-size:15px;
     color:#fff; padding:13px 22px; border-radius:13px; border:1px solid transparent;
@@ -230,7 +232,6 @@
     border:1px solid var(--line); border-radius:16px; padding:24px}
   .cb-cta h3{font-size:16px; margin-bottom:6px}
   .cb-cta p{color:var(--sub); font-size:14px; margin:0}   /* 카드의 마지막 요소 — 아래 여백은 padding 이 담당 */
-  #cb-cta .dl{margin-top:14px}                            /* 카드 밖으로 뺀 스토어 버튼 */
 
   /* ── Support / FAQ ── */
   .faq{max-width:640px; margin:0 auto}
@@ -290,6 +291,16 @@
     </div>
     <h1>Tower of Hanoi<br>Speedrun</h1>
     <p class="tag">The classic puzzle, reimagined as a global speedrun.<br>Race the clock, climb the world rankings, and challenge the ghosts of top players.</p>
+
+    <!-- 스토어 버튼 — 방문자 상태와 무관하게 항상 노출.
+         (앱을 이미 가진 사람에게도 다른 기기용 링크는 쓸모가 있다.)
+         아래 배지 스크립트가 방문 기기에 해당하는 쪽에 "Your Device" 를 달아 준다. -->
+    <div class="dl hero-dl">
+      <a class="btn ios" href="https://apps.apple.com/app/id430261581">
+        🍎 <span>Download on the App Store</span></a>
+      <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
+        ▶ <span>Get it on Google Play</span></a>
+    </div>
   </header>
 
   <!-- Community board (PlayFab Shared Group "board") — 랭킹보드 위.
@@ -316,20 +327,12 @@
       </div>
 
       <!-- 읽기 전용 방문자(공유 링크 등): 설치 유도.
-           #cb-cta 는 JS 가 여닫는 래퍼일 뿐이고, 카드 테두리는 안쪽 .cb-cta 가 그린다
-           — 스토어 버튼을 카드 밖(바로 아래)에 두되 카드와 항상 같이 나타나고 사라지도록. -->
-      <div id="cb-cta" hidden>
-        <div class="cb-cta">
-          <h3>💬 Want to post?</h3>
-          <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
-             to link this browser — no sign-up, no password.</p>
-        </div>
-        <div class="dl">
-          <a class="btn ios" href="https://apps.apple.com/app/id430261581">
-            🍎 <span>Download on the App Store</span></a>
-          <a class="btn and" href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">
-            ▶ <span>Get it on Google Play</span></a>
-        </div>
+           스토어 버튼은 히어로에 상설로 있으므로 여기서는 안내 문구만 — 같은 페이지에
+           "Your Device" 배지가 두 번 뜨지 않도록. -->
+      <div id="cb-cta" class="cb-cta" hidden>
+        <h3>💬 Want to post?</h3>
+        <p>The board is open to players. Install the game, then tap the 💬 button on the title screen
+           to link this browser — no sign-up, no password.</p>
       </div>
 
       <!-- 앱에서 링크(?wt=)를 물고 들어왔지만 교환에 실패한 경우.
