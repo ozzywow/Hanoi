@@ -1,8 +1,12 @@
-# 도전모드 격파/복수 기획안
+# 도전모드 격파/복수 — 기획 및 구현 기록
 
 > Tower of Hanoi - Speedrun — 고스트 대결 승패에 낙인·뱃지·복수 루프를 얹어 경쟁 극대화
-> 작성일: 2026-07-10 · 상태: 기획 (구현 전)
+> 작성일: 2026-07-10 · **상태: P0~P4 구현 완료** (문서 갱신 2026-08-07)
 > 선행: [replay_ghost_plan.md](replay_ghost_plan.md) (고스트 대결/리플레이 인프라)
+
+**아래 §1~§6 은 설계 의도와 결정 근거를 남긴 원문이며, 구현이 이를 따랐다.**
+실제 코드와 갈라진 지점과 미연결 항목은 **[§7 구현 현황](#7-구현-현황)** 에 모아 두었다.
+설계 대원칙(§1)·격파 성립 조건(§2)·데이터 모델(§3)은 그대로 유효하므로 수정 시 먼저 읽을 것.
 
 ---
 
@@ -128,7 +132,9 @@ FunctionParameter: { level:int }
 ## 5. 클라 훅 지점
 
 ### 5.1 격파 기록 발동 — 결과 팝업 흐름
-[PlayScene.cpp:709](../Classes/PlayScene.cpp#L709) `m_isRace && raceWon` 분기에서, **신기록 제출 완료 콜백 이후**:
+> 구현됨 → [PlayScene.cpp:792](../Classes/PlayScene.cpp#L792) (아래 의사코드의 최종 형태)
+
+`m_isRace && raceWon` 분기에서, **신기록 제출 완료 콜백 이후**:
 ```
 // isUpward = 도전 시작 시 A 순위 > m_ghostRank (B가 위였음). 하향 도전이면 호출 안 함.
 if (m_isRace && raceWon && isNewRecord && m_ghostPlayFabId != myId && isUpward) {
@@ -141,7 +147,9 @@ if (m_isRace && raceWon && isNewRecord && m_ghostPlayFabId != myId && isUpward) 
 > ✅ **P0 실현성 확인됨**: 리더보드 엔트리는 이미 `e.playFabId`를 보유([LeaderboardManager.cpp:585](../Classes/LeaderboardManager.cpp#L585)). 레이스 실행 호출부([MainScene.cpp:1673](../Classes/MainScene.cpp#L1673))에서 그 엔트리가 손에 있으므로 owner id 접근 가능. 다만 `createRaceScene(lv, blob, nm, rnk, sms)` 시그니처엔 없음 → **playFabId 파라미터 추가 + `m_ghostPlayFabId` 멤버**만 하면 됨. RETRY 경로([PlayScene.cpp:792](../Classes/PlayScene.cpp#L792))도 `gb/gn/gr/gs`처럼 함께 스레딩.
 
 ### 5.2 K.O. 연출 — 승리 팝업
-[PlayScene.cpp:711](../Classes/PlayScene.cpp#L711) `raceWon` 시:
+> 구현됨 → [PlayScene.cpp:662](../Classes/PlayScene.cpp#L662). 단, K.O. 배너는 만들지 않았다(§7.2 ③)
+
+`raceWon` 시:
 - 기존 👻 `m_raceGhostIcon`([PlayScene.cpp:1517](../Classes/PlayScene.cpp#L1517))을 팝업 직전 **파괴 연출**(흔들림→낙하→페이드, 기존 Action 조합).
 - 팝업 타이틀 "YOU WIN!" 위/아래 "💥 %s K.O.!" 배너.
 - 격파 성립(recordBattle ok) 시 "🗡️ 랭킹 강탈!" 추가 라인 + 강조 사운드.
@@ -186,19 +194,62 @@ B가 **랭킹보드/타이틀 진입** 시 자기 `battles_L%02d[B]` 조회:
 
 ---
 
-## 7. 페이즈 분할
+## 7. 구현 현황
 
-- **P0 (선행)**: 레이스 컨텍스트에 **B playFabId** 전파 (`createRaceScene` 시그니처 + 고스트 로드 경로). 이게 없으면 아무것도 못 함.
-- **P1 (백엔드)**: `recordBattle`/`deleteBattle` 핸들러 + `maintainLeaderboards` GC/TTL 통합 + `battle_enabled` 스위치.
-- **P2 (승자 경험)**: K.O. 연출 + 격파 성립 훅 + 소감 프리필.
-- **P3 (뱃지)**: 랭킹보드 🗡️/⚔️ 렌더 (battles 그룹 로드/매칭).
-- **P4 (복수 루프)**: 풀 방식 복수 배너/원탭 재도전 + 넥서시스 플립.
+### 7.1 페이즈 — 전부 완료
+
+| 페이즈 | 내용 | 구현 위치 |
+|---|---|---|
+| **P0** | 레이스 컨텍스트에 B playFabId 전파 | `createRaceScene(level, blob, name, rank, scoreMs, **playFabId, isRevenge**)` — [PlayScene.h:158](../Classes/PlayScene.h#L158) |
+| **P1** | `recordBattle`/`deleteBattle` + GC/TTL + 마스터 스위치 | [cloudscript.js:717](../cloudscript.js#L717) / [:772](../cloudscript.js#L772), GC는 `maintainLeaderboards` 내 [:162](../cloudscript.js#L162), 클라 래퍼 [LeaderboardManager.cpp:1197~](../Classes/LeaderboardManager.cpp#L1197) |
+| **P2** | K.O. 연출 + 격파 훅 + 소감 프리필 | [PlayScene.cpp:662](../Classes/PlayScene.cpp#L662) / [:792](../Classes/PlayScene.cpp#L792) / [MainScene_Dialog.cpp:772](../Classes/MainScene_Dialog.cpp#L772) |
+| **P3** | 랭킹보드 격파/피격 뱃지 | [MainScene_Rank.cpp:171](../Classes/MainScene_Rank.cpp#L171) |
+| **P4** | 복수 배너·원탭 재도전 + 넥서시스 플립 | [MainScene_Rank.cpp:325](../Classes/MainScene_Rank.cpp#L325) → [MainScene_Dialog.cpp:871](../Classes/MainScene_Dialog.cpp#L871), 플립은 [cloudscript.js:752](../cloudscript.js#L752) |
+
+### 7.2 설계와 달라진 지점
+
+**① 넥서시스 플립은 클라 2회 호출이 아니라 서버 1회 write** (§5.4 수정)
+계획은 "복수 성공 → `deleteBattle` + 낙인 이전"이라 클라가 두 번 호출하는 그림이었으나,
+실제로는 `recordBattle` 이 같은 `UpdateSharedGroupData` 안에서 `rec[pid] = null` 로 처리한다.
+방금 꺾은 상대가 나를 이겼던 상대일 때만 지우고, 제3자(C)에게 당한 낙인은 유지한다.
+→ **원자적이라 중간 실패로 낙인이 어긋날 여지가 없다.** 계획보다 나은 형태.
+
+**② 소감 프리필 문구는 영어** (§5.3 수정)
+계획 `"%s를 짓밟고 올라왔다"` → 실제 `"Climbed over %s"`. 전 세계 랭킹보드에 노출되는 문자열이라
+영어가 맞다. `battle_brag_L%02d` 로 저장했다가 소감 입력 진입 시 **1회 소비**(읽고 삭제)한다.
+
+**③ 승리 팝업 배너는 "RANK STOLEN!" 하나** (§5.2 수정)
+계획의 `"💥 %s K.O.!"` 배너는 만들지 않았다. 고스트 아이콘 파괴 연출(회전 추락 + 페이드)이
+K.O. 를 이미 시각적으로 전달하고, 팝업에는 **격파 성립 시에만** `🗡 RANK STOLEN!` 이 뜬다.
+서버 판정 후 비동기로 붙기 때문에 팝업이 살아 있는지 `setTag(4242)` 로 확인하고 부착한다.
+
+**④ 격파 전리품 상세 UI 없음** (§5.5 수정)
+"격파+피격 동시 보유 시 전리품은 탭 상세로" 라고 했으나, 행 탭은 **복수 창**으로 간다.
+전리품(🗡)은 피격 낙인이 없을 때만 표시되고 별도 상세 화면은 없다. 복수 동기를 최우선으로
+둔 결과이며, 현재 플레이어 규모에서 전리품 상세는 과잉이라 판단.
+
+### 7.3 미연결 — 남은 작업
+
+**① `deleteBattle` 클라 래퍼에 호출부가 없다**
+[LeaderboardManager.cpp:1311](../Classes/LeaderboardManager.cpp#L1311) 에 구현돼 있으나 아무 데서도 부르지 않는다.
+§4.4 "이름/랭킹 초기화 시 낙인 정리" 경로가 연결되지 않은 상태 — RESET ALL 은
+로컬 캐시와 리플레이 저장본만 지우고([MainScene_Dialog.cpp:828~](../Classes/MainScene_Dialog.cpp#L828))
+**서버의 내 피격 낙인은 남는다.** 초기화 후 랭킹보드에 옛 낙인이 계속 보일 수 있다.
+→ RESET ALL 루프에서 레벨별 `deleteBattle(lv)` 호출을 추가하면 해소. 7일 TTL로 언젠가는 사라진다.
+
+**② `battle_enabled` 마스터 스위치는 서버 전용**
+끄면 신규 격파 기록은 `reason:"disabled"` 로 막히지만([cloudscript.js:686](../cloudscript.js#L686)),
+**클라는 이 값을 읽지 않아 이미 쌓인 낙인은 랭킹보드에 계속 그려진다.**
+`award_enabled`/`like_enabled` 처럼 `fetchTitleConfig` 에 실어 렌더 게이트로 쓰려면 클라 작업이 필요하다.
+스위치의 목적이 "사고 시 즉시 차단"이라면 반쪽이므로, 그 용도로 쓸 계획이면 먼저 연결할 것.
 
 ---
 
-## 8. 미결/확인 필요
+## 8. 확정된 설계 결정 (구현이 따름)
 
-1. ~~B playFabId 확보 경로~~ — **확인 완료**: `e.playFabId` 존재, `createRaceScene` 시그니처 확장만 필요(§5.1).
-2. ~~byName 저장~~ — **결정 완료**: 저장 안 함, 렌더 시 `id→name` 맵으로 해소(§3, §5.5).
-3. ~~하향 마킹 악용~~ — **결정 완료**: 하향 도전은 무보상(마크 없음). 상향 게이트(`bPos > bRankWas`) + 클라 상향 조건으로 차단(§2, §4.1).
-4. ~~LED 뱃지 표기~~ — **결정 완료**: 마커 = 상대 국가 깃발(`countryToFlag()` 재활용), 🗡️/💥 글리프+색상으로 격파/피격 구분, 깃발은 저장 안 하고 `id→country` 맵 해소(§5.5). 세부 배치만 구현 단계에서.
+1. ~~B playFabId 확보 경로~~ — `e.playFabId` 사용, `createRaceScene` 시그니처 확장으로 해결(§5.1).
+2. ~~byName 저장~~ — 저장 안 함. 렌더 시 `id→name` 맵으로 해소(§3, §5.5).
+3. ~~하향 마킹 악용~~ — 하향 도전은 무보상. **값(ms) 기준** 추월 게이트 + 상향 게이트(`aValWas >= B.val`)로 차단.
+   ⚠️ 서버는 리더보드 Position 이 아니라 **기록 값**으로 판정한다 — Position 은 원시 ms 내림차순이라 순위 비교에 쓰면 안 된다([[project_leaderboard_position_inversion]]).
+4. ~~LED 뱃지 표기~~ — 마커 = 상대 국가 깃발(`countryToFlag()`), 🗡/💥 글리프 + 색상으로 방향 구분,
+   깃발은 저장하지 않고 `id→country` 맵으로 해소. 동시 보유 시 **피격 우선**, 내 행이면 별도 펄스로 복수 유도.
