@@ -79,3 +79,30 @@ RecordTime getRecordTime(int time)
 	res.ms = ((time % (1000 * 60)) % 1000) / 10;
 	return res;
 }
+
+std::string makeShareText(int level, int timeMs, int rank)
+{
+	std::string s;
+
+	if (level >= 3 && timeMs > 0) {
+		RecordTime rt = getRecordTime(timeMs);
+		// 스피드런 감각에 맞춰 분:초가 아니라 "초.센티초"로 환산해 보여 준다 (예: 68.42s).
+		int sec = rt.min * 60 + rt.sec;
+
+		if (rank > 0)
+			s += StringUtils::format(
+				"\xF0\x9F\x8F\x86 I'm #%d in the world \xE2\x80\x94 Level %d in %d.%02ds",
+				rank, level, sec, rt.ms);
+		else
+			s += StringUtils::format(
+				"\xF0\x9F\x8F\x86 Level %d cleared in %d.%02ds \xE2\x80\x94 Tower of Hanoi Speedrun",
+				level, sec, rt.ms);
+
+		s += "\nThink you're faster?";
+	} else {
+		// 기록이 없는 단계(첫 진입 등) — 자랑할 게 없으니 일반 초대 문구로 떨어진다.
+		s += "Tower of Hanoi - Speedrun \xE2\x80\x94 race the clock, climb the world rankings.";
+	}
+
+	return s;
+}

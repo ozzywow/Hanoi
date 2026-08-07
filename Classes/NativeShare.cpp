@@ -20,6 +20,13 @@ void NativeShare::share(const std::string& text)
 	}
 }
 
+// ACTION_SEND의 EXTRA_TEXT는 단일 문자열 — 합쳐서 보낸다.
+// (iOS와 달리 공유 시트가 아이템 배열을 받지 않으므로 분리할 방법이 없다)
+void NativeShare::share(const std::string& text, const std::string& url)
+{
+	share(text.empty() ? url : (text + "\n" + url));
+}
+
 #elif (CC_TARGET_PLATFORM == CC_PLATFORM_IOS) || (CC_TARGET_PLATFORM == CC_PLATFORM_MAC)
 // 정의는 NativeShare_apple.mm
 
@@ -27,4 +34,5 @@ void NativeShare::share(const std::string& text)
 // ── Windows/Linux 등: 공유 시트 없음 → 호출측이 클립보드 복사로 폴백 ──
 bool NativeShare::isSupported() { return false; }
 void NativeShare::share(const std::string&) {}
+void NativeShare::share(const std::string&, const std::string&) {}
 #endif

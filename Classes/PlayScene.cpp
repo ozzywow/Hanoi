@@ -7,6 +7,8 @@
 #include "UserDataManager.h"
 #include "LeaderboardManager.h"
 #include "ReviewManager.h"
+#include "NativeShare.h"
+#include "Clipboard.h"
 #include "DrawUtils.h"
 #include "PixelFont.h"
 #ifdef LITE_VER
@@ -743,9 +745,6 @@ void PlayScene::MessagePopup()
 		isNewRecord = true;
 	}
 
-	// 팝업 박스 크기 (리플레이 버튼 공간 확보 위해 세로 확장)
-	const float PW = 280, PH = 218;
-
 	// 톤: 성취(CLEAR/RECORD/WIN)=골드 테두리·타이틀 / 패배(LOSE)=그레이 테두리·레드 타이틀
 	bool raceWon = false;
 	std::string titleStr;  Color3B titleColor, borderCol;
@@ -759,6 +758,17 @@ void PlayScene::MessagePopup()
 		titleColor = kTextTitle;
 		borderCol  = kBorderGold;
 	}
+
+	// 공유 버튼은 자랑거리가 실제로 생긴 순간에만 — 신기록 또는 레이스 승리.
+	// 평범한 LEVEL CLEAR/패배엔 띄우지 않는다(매번 뜨면 무시하게 되고 실을 내용도 없다).
+	// 첫판은 이름도 랭킹도 없는 상태라 제외.
+	const bool canShare = (!m_isFirstPlay && (isNewRecord || raceWon));
+
+	// 팝업 박스 크기 (리플레이 버튼 공간 확보 위해 세로 확장)
+	// 공유 행이 붙으면 버튼 행 위로 한 줄이 더 필요 → 세로만 늘린다.
+	// 본문 라벨은 전부 PH 기준 상단 정렬이라 PH가 커져도 배치가 밀리지 않는다.
+	const float PW = 280;
+	const float PH = canShare ? 252.f : 218.f;
 
 	// 공용 프레임 (모달은 아래 커스텀 스왈로우가 담당 → modal=false)
 	auto f = makePopupFrame(titleStr, borderCol, titleColor, PW, PH, 22.f, kDimStd, false, true);
@@ -905,6 +915,36 @@ void PlayScene::MessagePopup()
 		auto closeMenu = Menu::create(closeItem, nullptr);
 		closeMenu->setPosition(Vec2(hasReplay ? (PW - 74.f) : PW / 2, kPopupBtnY));   // 우측(리플레이 없으면 중앙)
 		popupBox->addChild(closeMenu);
+	}
+
+	// SHARE — 감정의 정점(신기록·승리) 바로 그 자리에 둔다. 타이틀 화면의 공유 버튼은
+	// 자랑하고 싶은 순간이 아니라 게임을 시작하려는 순간이라 거의 눌리지 않는다.
+	// 버튼 행 위 한 줄을 통째로 쓴다(좌우 2칸은 REPLAY/CLOSE가 이미 차지).
+	if (canShare)
+	{
+		const int lvl = m_countOfDiscus, ms = m_mastTime;
+		auto shareItem = makePopupChipButton("\xF0\x9F\x8F\x86 SHARE MY RECORD", kBtnFunc,
+			[lvl, ms](Ref* sender) {
+				SoundFactory::Instance()->play("efs_click");
+				// 순위는 캐시된 랭킹에서만 읽는다(네트워크 없음). 방금 제출한 신기록은 아직
+				// 반영 전이라 순위가 없거나 직전 값일 수 있고, 그 경우 rank<=0 이면 문구에서
+				// 순위 줄이 빠질 뿐이라 과장된 자랑이 나가지 않는다.
+				int rank = LeaderboardManager::Instance()->getMyCachedRank(lvl);
+				std::string text = makeShareText(lvl, ms, rank);
+
+				if (NativeShare::isSupported()) {
+					NativeShare::share(text, SHARE_URL);   // 문구/링크 분리 — URL 복사 오염 방지
+				} else {
+					// 데스크톱: 공유 시트가 없어 URL만 복사하고, 칩 라벨로 결과를 알린다.
+					Clipboard::copy(SHARE_URL);
+					if (auto* item = dynamic_cast<MenuItemSprite*>(sender))
+						if (auto* lbl = dynamic_cast<Label*>(item->getChildByTag(kChipLabelTag)))
+							lbl->setString("LINK COPIED");
+				}
+			}, 180.f, 34.f);
+		auto shareMenu = Menu::create(shareItem, nullptr);
+		shareMenu->setPosition(Vec2(PW / 2, kPopupBtnY + 46.f));
+		popupBox->addChild(shareMenu);
 	}
 
 	// 힌트 — 첫판만 "TAP TO CONTINUE"(오버레이 탭으로 진행). 그 외엔 명시 버튼이 있어 힌트 없음.
