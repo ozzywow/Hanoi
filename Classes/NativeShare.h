@@ -13,4 +13,12 @@ public:
 	static bool isSupported();
 	// 공유 시트 표시. isSupported()가 false면 no-op.
 	static void share(const std::string& text);
+
+	// 문구 + 링크를 **별도 아이템**으로 넘기는 공유.
+	// 하나의 문자열로 합쳐 보내면 iOS 공유 시트의 "복사"가 문구까지 클립보드에 올려
+	// 주소창 붙여넣기가 깨진다. 링크를 NSURL 아이템으로 분리하면
+	//   ① 메신저에는 문구 + 링크 미리보기가 함께 뜨고
+	//   ② "복사"·Safari 등 URL 전용 액티비티는 순수 URL만 집어간다.
+	// Android는 ACTION_SEND의 EXTRA_TEXT가 단일 문자열이라 "text\nurl"로 합쳐 보낸다.
+	static void share(const std::string& text, const std::string& url);
 };

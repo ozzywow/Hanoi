@@ -254,12 +254,25 @@ bool MainScene::init()
 		auto shareMenuItem = MenuItemLabel::create(shareIcon, [this, SHARE_POS](Ref*) {
 			SoundFactory::Instance()->play("efs_click");
 			// 모바일: 네이티브 공유 시트(카톡/메시지 등 바로 선택) / 데스크톱: 클립보드 복사 폴백
-			// 초대 문구는 붙이지 않는다 — 공유 시트의 "복사"가 문구까지 함께 복사해
-			// 브라우저 주소창에 붙여넣으면 URL이 오염되어 페이지가 열리지 않는다.
-			// 문구 역할은 랜딩(landing/index.html)의 OG 메타가 만드는 링크 미리보기 카드가 대신한다.
+			//
+			// 문구는 링크와 **별도 아이템**으로 넘긴다(NativeShare::share(text, url)).
+			// 하나로 합쳐 보내면 공유 시트의 "복사"가 문구까지 클립보드에 올려 주소창
+			// 붙여넣기가 깨진다 — 그래서 예전엔 문구 없이 URL만 보냈다.
+			// 대표 기록은 캐시된 랭킹에서 내 최고 순위를 고른다(네트워크 호출 없음).
+			// 랭킹 캐시가 없으면 로컬 최고 레벨로 떨어지고, 그것도 없으면 일반 초대 문구.
+			int level = 0;
+			int rank  = LeaderboardManager::Instance()->getMyBestCachedRank(&level);
+			if (level == 0) {
+				for (int lv = MAX_PLAY_LEVEL; lv >= 3; --lv)
+					if (UserDataManager::Instance()->GetBestRecord(lv) > 0) { level = lv; break; }
+			}
+			int timeMs = level > 0 ? UserDataManager::Instance()->GetBestRecord(level) : 0;
+			std::string text = makeShareText(level, timeMs, rank);
+
 			if (NativeShare::isSupported()) {
-				NativeShare::share(SHARE_URL);
+				NativeShare::share(text, SHARE_URL);
 			} else {
+				// 데스크톱 폴백은 URL만 복사한다 — 클립보드가 곧 주소창 입력이라 문구는 방해가 된다.
 				Clipboard::copy(SHARE_URL);
 				this->showToast("LINK COPIED", Vec2(SHARE_POS.x, SHARE_POS.y - 20.f));
 			}

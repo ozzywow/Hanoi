@@ -73,6 +73,16 @@ public:
     bool isLoggedIn() const { return !m_sessionTicket.empty(); }
     const std::string& getPlayFabId() const { return m_playFabId; }
 
+    // ── 내 순위 조회 (공유 문구용) — 캐시만 본다. 네트워크 호출 없음 ──
+    // 캐시 엔트리의 rank는 scoreMs 오름차순으로 재계산된 값이라 그대로 신뢰할 수 있다
+    // (PlayFab Position은 원시 내림차순이라 순위 판단에 쓰면 안 된다 — fetchLeaderboard 참고).
+    // 캐시 미보유 / 순위권 밖 / 미로그인이면 0.
+    int getMyCachedRank(int level) const;
+
+    // 캐시된 전 레벨 중 가장 높은(숫자가 작은) 내 순위. levelOut에 해당 레벨을 돌려준다.
+    // 자랑거리로 쓸 "대표 기록"을 고르는 용도. 없으면 0(levelOut 미변경).
+    int getMyBestCachedRank(int* levelOut = nullptr) const;
+
     // ── 최근 접속 플레이어 (BottomInfoBar 티커) — Shared Group "recent_players" ──
     // 링버퍼 용량(GC 상한). 클라 표시 개수는 호출측(MainScene)에서 이 이하로 자유 조절.
     static constexpr int RECENT_MAX = 20;

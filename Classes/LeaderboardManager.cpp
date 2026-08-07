@@ -398,6 +398,37 @@ void LeaderboardManager::invalidateCache(int level)
     m_leaderboardCache.erase(level);
 }
 
+int LeaderboardManager::getMyCachedRank(int level) const
+{
+    if (m_playFabId.empty()) return 0;
+    auto it = m_leaderboardCache.find(level);
+    if (it == m_leaderboardCache.end()) return 0;
+
+    // 오래된 캐시로 순위를 주장하지 않는다 — 그 사이 남들이 앞질렀을 수 있어
+    // 공유 문구가 과장된 자랑이 된다. 만료면 0 = 순위 문장 생략.
+    if (difftime(time(nullptr), it->second.cachedAt) > CACHE_TTL_HOURS * 3600.0)
+        return 0;
+
+    for (const auto& e : it->second.entries)
+        if (e.playFabId == m_playFabId)
+            return e.rank;      // scoreMs 오름차순으로 재계산된 값 (1-based)
+
+    return 0;   // 캐시엔 있으나 내 항목 없음 = 순위권 밖
+}
+
+int LeaderboardManager::getMyBestCachedRank(int* levelOut) const
+{
+    int best = 0, bestLevel = 0;
+
+    for (const auto& kv : m_leaderboardCache) {
+        int r = getMyCachedRank(kv.first);
+        if (r > 0 && (best == 0 || r < best)) { best = r; bestLevel = kv.first; }
+    }
+
+    if (best > 0 && levelOut) *levelOut = bestLevel;
+    return best;
+}
+
 bool LeaderboardManager::isNameTakenByRanker(const std::string& name) const
 {
     // trim + ASCII 소문자 정규화 (한글은 대소문자 없음 → 영향 없음)

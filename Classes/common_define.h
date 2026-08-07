@@ -116,3 +116,12 @@ std::string getLocalGreeting();
 
 RecordTime getRecordTime(int time);
 
+// 공유 시트에 실을 자랑 문구 — URL은 포함하지 않는다(호출측이 NativeShare::share(text, url)로
+// 별도 아이템으로 넘긴다). 링크만 던지면 광고로 읽혀 아무도 열지 않으므로 순위·레벨·기록을 싣는다.
+// 메신저(카톡/왓츠앱/iMessage)는 이 문구를 링크 미리보기와 나란히 보여주므로,
+// 동적 OG 이미지 없이도 순위가 그대로 전달된다.
+//   rank  <= 0 → 순위 문장 생략 (랭킹 미등록 / 캐시 없음)
+//   level <= 0 또는 timeMs <= 0 → 기록 줄 생략 → 일반 초대 문구
+// 정의: common_define.cpp
+std::string makeShareText(int level, int timeMs, int rank);
+
