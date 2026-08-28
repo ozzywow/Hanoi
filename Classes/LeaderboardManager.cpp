@@ -398,9 +398,20 @@ void LeaderboardManager::invalidateCache(int level)
     m_leaderboardCache.erase(level);
 }
 
+bool LeaderboardManager::isPropagationPending(int level) const
+{
+    auto it = m_propagationPending.find(level);
+    return it != m_propagationPending.end() && it->second;
+}
+
 int LeaderboardManager::getMyCachedRank(int level) const
 {
     if (m_playFabId.empty()) return 0;
+
+    // 전파 대기 중이면 캐시의 내 순위는 방금 낸 기록을 반영하지 않은 값이다.
+    // 공유 문구가 낡은 순위를 자랑하지 않도록 순위 없음으로 취급한다.
+    if (isPropagationPending(level)) return 0;
+
     auto it = m_leaderboardCache.find(level);
     if (it == m_leaderboardCache.end()) return 0;
 
@@ -750,9 +761,33 @@ void LeaderboardManager::fetchLeaderboard(int level, int maxCount,
             for (size_t i = 0; i < entries.size(); ++i)
                 entries[i].rank = (int)i + 1;
 
-            // 캐시는 전체 항목 저장 (truncate 전) — 이후 maxCount=1 호출이 캐시를 오염시키지 않도록
-            m_leaderboardCache[level] = CacheEntry{ entries, time(nullptr) };
-            log("LeaderboardManager: cached L%d (%d entries)", level, (int)entries.size());
+            // ── 전파 대기 감지 ──
+            // 서버 통계는 Min 집계라, 전파가 끝났다면 내 서버 기록 <= 내 로컬 최고기록이다.
+            // 서버 쪽이 더 "느린" 값이면 방금 제출한 기록이 아직 리더보드에 안 실린 것.
+            // (로컬 기록 0 = 12h 만료 초기화 등 → 비교 불가하므로 판정하지 않는다)
+            bool pending = false;
+            {
+                int localBest = UserDataManager::Instance()->GetBestRecord(level);
+                if (localBest > 0 && !m_playFabId.empty()) {
+                    for (const auto& e : entries) {
+                        if (e.playFabId != m_playFabId) continue;
+                        pending = (e.scoreMs > localBest);
+                        break;
+                    }
+                }
+            }
+            m_propagationPending[level] = pending;
+
+            // 캐시는 전체 항목 저장 (truncate 전) — 이후 maxCount=1 호출이 캐시를 오염시키지 않도록.
+            // 전파 대기 중이면 cachedAt을 앞당겨 저장해 TTL이 PENDING_TTL_SEC 뒤에 만료되게 한다.
+            // 이 처리가 없으면 낡은 순위가 CACHE_TTL_HOURS(1시간) 동안 굳어, 신기록을 낸
+            // 플레이어에게 "기록이 반영 안 됐다"로 보인다.
+            std::time_t stamp = time(nullptr);
+            if (pending)
+                stamp -= (std::time_t)(CACHE_TTL_HOURS * 3600.0) - PENDING_TTL_SEC;
+            m_leaderboardCache[level] = CacheEntry{ entries, stamp };
+            log("LeaderboardManager: cached L%d (%d entries)%s", level, (int)entries.size(),
+                pending ? " [propagation pending - short TTL]" : "");
 
             // 콜백에는 요청한 maxCount 만큼만 전달
             if ((int)entries.size() > maxCount)
