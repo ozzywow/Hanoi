@@ -469,32 +469,15 @@ bool MainScene::init()
 			});
 	}
 
-	// 방금 이름 등록한 경우 PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
+	// 방금 이름 등록 / 신기록 갱신 직후 — PlayFab 전파 지연 보상 재조회.
+	// 두 분기는 상호배타적이며, 첫판·이름등록 직후엔 pending 점수가 제출된 상태다.
 	if (UserDataManager::Instance()->m_justRegistered) {
 		UserDataManager::Instance()->m_justRegistered = false;
-		int lv = level;
-		scheduleOnce([this, lv](float) {
-			LeaderboardManager::Instance()->invalidateCache(lv);
-			drawOnlineRank(lv);
-#ifdef ENABLE_AWARD_COMMENT
-			// 첫판/이름 등록 직후 pending 점수가 제출됐으므로, Top10이면 로컬 리플레이도 업로드.
-			// (일반 신기록은 아래 m_justGotNewRecord 분기가 담당 — 두 분기는 상호배타적)
-			checkAndPromptAward(lv);
-#endif
-		}, 2.0f, "refreshRank");
+		refreshRankAfterSubmit(level);
 	}
-
-	// 신기록 갱신 직후 — PlayFab 전파 지연 보상을 위해 2초 후 캐시 무효화 + 재갱신
 	if (UserDataManager::Instance()->m_justGotNewRecord) {
 		UserDataManager::Instance()->m_justGotNewRecord = false;
-		int lv = level;
-		scheduleOnce([this, lv](float) {
-			LeaderboardManager::Instance()->invalidateCache(lv);
-			drawOnlineRank(lv);
-#ifdef ENABLE_AWARD_COMMENT
-			checkAndPromptAward(lv);   // rank 확정 후 Top10이면 리플레이 업로드(수상소감 자동팝업은 제거됨)
-#endif
-		}, 2.0f, "refreshNewRecord");
+		refreshRankAfterSubmit(level);
 	}
 
 	// 캐시된 공지(직전 실행 저장분)로 상단 티커를 네트워크 대기 없이 즉시 구성.
@@ -505,6 +488,40 @@ bool MainScene::init()
 	return true;
 }
 
+
+// 신기록·이름등록 직후 랭킹 재조회 — PlayFab 전파 지연 보상.
+//
+// 제출은 성공해도 리더보드 조회에 반영되기까지 시간이 걸린다. 예전엔 2초 뒤 한 번만
+// 다시 읽었는데, 그 사이 전파가 안 끝나면 낡은 순위가 그대로 캐시에 들어가
+// CACHE_TTL_HOURS(1시간) 동안 굳었다. 신기록을 낸 플레이어에게는 "내 기록이
+// 반영 안 됐다"로 보인다(실제로 게시판 항의로 이어졌다).
+//
+// 2 → 5 → 10초로 재시도한다. 직전 조회가 이미 내 최신 기록을 담고 있으면
+// (isPropagationPending == false) 더 두드리지 않고 멈춘다 — 정상 케이스는 1회로 끝난다.
+void MainScene::refreshRankAfterSubmit(int level, int attempt)
+{
+	static const float kDelay[] = { 2.0f, 5.0f, 10.0f };
+	static const int   kMax     = sizeof(kDelay) / sizeof(kDelay[0]);
+	if (attempt < 0 || attempt >= kMax) return;
+
+	auto alive = m_aliveFlag;
+	this->scheduleOnce([this, alive, level, attempt](float) {
+		if (!alive || !*alive) return;               // 씬을 떠난 뒤 도착 — 무시
+
+		// 2회차부터는 아직 전파 대기일 때만 다시 읽는다(직전 조회 결과로 판정).
+		if (attempt > 0 && !LeaderboardManager::Instance()->isPropagationPending(level))
+			return;
+
+		LeaderboardManager::Instance()->invalidateCache(level);
+		this->drawOnlineRank(level);
+#ifdef ENABLE_AWARD_COMMENT
+		// rank 확정 후 Top10이면 리플레이 업로드(수상소감 자동팝업은 제거됨).
+		// 첫판·이름등록 직후엔 pending 점수가 방금 제출된 상태다.
+		this->checkAndPromptAward(level);
+#endif
+		this->refreshRankAfterSubmit(level, attempt + 1);
+	}, kDelay[attempt], StringUtils::format("refreshRank%d", attempt));
+}
 
 void MainScene::onExitTransitionDidStart()
 {

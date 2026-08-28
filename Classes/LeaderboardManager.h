@@ -83,6 +83,11 @@ public:
     // 자랑거리로 쓸 "대표 기록"을 고르는 용도. 없으면 0(levelOut 미변경).
     int getMyBestCachedRank(int* levelOut = nullptr) const;
 
+    // 마지막 조회에서 내 최신 기록이 아직 리더보드에 안 실려 있었는지(PlayFab 전파 지연).
+    // 서버 통계는 Min 집계라 전파가 끝났다면 서버 기록 <= 로컬 최고기록이다.
+    // true인 동안 해당 레벨 캐시는 PENDING_TTL_SEC 만 유지된다.
+    bool isPropagationPending(int level) const;
+
     // ── 최근 접속 플레이어 (BottomInfoBar 티커) — Shared Group "recent_players" ──
     // 링버퍼 용량(GC 상한). 클라 표시 개수는 호출측(MainScene)에서 이 이하로 자유 조절.
     static constexpr int RECENT_MAX = 20;
@@ -240,6 +245,8 @@ public:
 
     // 캐시 TTL: 이 시간(시간 단위)이 지나면 서버 재질의
     static constexpr double CACHE_TTL_HOURS = 1.0;
+    // 전파 대기로 판정된 조회 결과의 유효시간(초). 낡은 순위가 1시간 굳는 것을 막는다.
+    static constexpr int PENDING_TTL_SEC = 60;
 
 private:
     using FetchCallback = std::function<void(const std::vector<LeaderboardEntry>&)>;
@@ -265,6 +272,8 @@ private:
         std::time_t cachedAt;
     };
     std::map<int, CacheEntry>              m_leaderboardCache;
+    // level -> 마지막 조회가 전파 대기 상태였는지 (isPropagationPending)
+    std::map<int, bool>                    m_propagationPending;
 
     // 리플레이 캐시: level -> (playFabId -> Base64 blob)
     struct ReplayCacheEntry {

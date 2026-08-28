@@ -66,9 +66,15 @@ public:
 	Label*          m_versionLabel = nullptr;   // 버전 숫자 "current/latest" (탭 없음)
 	MenuItemLabel*  m_updateItem   = nullptr;   // [Update] 버튼 — current<latest일 때만 표시/활성, 탭→스토어
 
+	// 신기록·이름등록 직후 랭킹 재조회 — PlayFab 전파 지연 보상. 2 → 5 → 10초로 재시도하며,
+	// 직전 조회가 이미 내 최신 기록을 담고 있으면 중단한다(isPropagationPending).
+	// 단발 2초로는 전파가 늦을 때 낡은 순위가 그대로 굳었다.
+	void refreshRankAfterSubmit(int level, int attempt = 0);
+
 #ifdef ENABLE_AWARD_COMMENT
 	// 랭킹 Top10 수상소감
 	void checkAndPromptAward(int level);                                   // 신기록 rank 확정 후 rank≤10이면 입력창
+
 	void showAwardInputDialog(int level, int rank, const std::string& existing);  // 작성/수정 입력창
 	void showAwardCardDialog(const LeaderboardEntry& entry, int level);    // 읽기 카드 팝업
 #endif
