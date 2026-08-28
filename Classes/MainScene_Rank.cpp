@@ -290,11 +290,17 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 			auto replayOwners = std::make_shared<std::set<std::string>>();
 			if (level <= LeaderboardManager::REPLAY_MAX_LEVEL) {
 				auto alive = m_aliveFlag;
+				// ⚠ rowsNode 는 raw Node* 라 그대로 캡처하면 위험하다.
+				//    레벨을 연속으로 넘기면 다음 buildRows 의 removeChildByTag(TAG_D_ROWS)가
+				//    이 노드를 즉시 파괴하는데, 뒤늦게 도착한 이 콜백이 해제된 메모리를
+				//    getParent()로 건드려 크래시났다(널 검사는 무의미 — 포인터는 널이 아니라 dangling).
+				//    RefPtr 로 잡아 콜백이 끝날 때까지 수명을 보장한다.
+				RefPtr<Node> rowsRef = rowsNode;
 				LeaderboardManager::Instance()->fetchReplays(level,
-					[replayOwners, alive, entriesCopy, rowsNode, FIRST_ROW_Y, ROW_STEP](const std::map<std::string, std::string>& m) {
-						if (!alive || !*alive) return;
+					[this, replayOwners, alive, gen, entriesCopy, rowsRef, FIRST_ROW_Y, ROW_STEP](const std::map<std::string, std::string>& m) {
+						if (!alive || !*alive || gen != m_rankGeneration) return;   // 씬 종료 / 보드 교체됨
 						for (auto& kv : m) replayOwners->insert(kv.first);
-						if (!rowsNode || !rowsNode->getParent()) return;   // 보드 교체됨 → 마커 스킵
+						if (!rowsRef || !rowsRef->getParent()) return;   // 보드 교체됨 → 마커 스킵
 						for (int i = 0; i < (int)entriesCopy.size(); ++i) {
 							if (!replayOwners->count(entriesCopy[i].playFabId)) continue;
 							float y = FIRST_ROW_Y - i * ROW_STEP;
@@ -304,7 +310,7 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 							mark->setPosition(Vec2(6, y));
 							mark->setOpacity(0);
 							mark->runAction(FadeIn::create(0.2f));
-							rowsNode->addChild(mark, 3);
+							rowsRef->addChild(mark, 3);
 						}
 					});
 			}
@@ -408,6 +414,9 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 	auto loading = Label::createWithSystemFont("Loading...", "Arial", 14);
 	loading->setColor(Color3B(180, 180, 180));
 	loading->setPosition(Vec2(PX + PW / 2, PY + PH / 2));
+	// 연속 탭 시 로딩 라벨이 겹쳐 쌓이지 않도록 추가 전에 직전 것을 먼저 치운다
+	// (콜백의 removeChildByTag 는 한 개만 지운다).
+	m_rankTableLayer->removeChildByTag(TAG_LOADING);
 	m_rankTableLayer->addChild(loading, 0, TAG_LOADING);
 
 	LeaderboardManager::Instance()->fetchLeaderboard(level, 10,
