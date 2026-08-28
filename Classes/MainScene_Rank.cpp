@@ -49,6 +49,10 @@ void MainScene::drawOnlineRank(int level, bool retryOnEmpty)
 	const int TAG_D_TITLE = 152;   // LEVEL N 타이틀
 	const int TAG_D_ROWS  = 153;   // 데이터 행 컨테이너 (LED 전환 대상)
 
+	// 보던 레벨 기억 — 다음 MainScene 진입에서 이 레벨로 복귀한다.
+	// ◀▶ 콜백뿐 아니라 모든 갱신 경로가 이 함수를 지나므로 여기 한 곳이면 충분하다.
+	s_lastRankLevel = level;
+
 	++m_rankGeneration;
 	int  gen   = m_rankGeneration;
 	auto alive = m_aliveFlag;
