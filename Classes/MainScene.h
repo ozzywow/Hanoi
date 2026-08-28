@@ -80,6 +80,9 @@ public:
 #endif
 
 	int m_rankLevel = 3;
+	// 마지막으로 본 랭킹보드 레벨. MainScene 은 진입마다 새로 생성되므로 멤버로는 유지되지 않아
+	// static 으로 둔다(앱 실행 단위). 0 = 아직 본 적 없음 → 진입 시 내 진행 레벨로 시작.
+	static int s_lastRankLevel;
 	int m_rankGeneration = 0;          // 연속 탭 시 오래된 콜백 무시용
 	std::shared_ptr<bool> m_aliveFlag;
 

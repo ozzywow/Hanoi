@@ -23,6 +23,9 @@ static const Color3B MINT_C(80, 220, 180);
 // 앱 콜드 재시작 시 리셋. (b=권장은 진입마다, a=강제는 항상)
 static bool s_patchPromptShownThisRun = false;
 
+// 마지막으로 본 랭킹보드 레벨 (MainScene.h 선언). 0 = 미기억.
+int MainScene::s_lastRankLevel = 0;
+
 // START 색상 순환 팔레트 (톤다운: 순색 회피). 흰→녹→파→빨→앰버→퍼플.
 static const Color3B START_PALETTE[] = {
 	Color3B(210, 215, 225),  // 소프트 화이트
@@ -402,7 +405,13 @@ bool MainScene::init()
 		log("PlayFab startup login: %s", ok ? "OK" : "FAIL");
 	});
 
-	int level = UserDataManager::Instance()->GetLevel();
+	// 랭킹보드 레벨: 이번 실행에서 마지막으로 본 레벨을 이어서 보여준다.
+	// (◀▶ 로 넘긴 뒤 플레이하고 돌아와도 보던 자리를 유지)
+	// 기억이 없으면(첫 진입) 내 진행 레벨부터. 저장값이 어긋나도 안전하도록 범위를 조인다.
+	int level = (s_lastRankLevel > 0) ? s_lastRankLevel
+	                                  : UserDataManager::Instance()->GetLevel();
+	if (level < 3)              level = 3;
+	if (level > MAX_PLAY_LEVEL) level = MAX_PLAY_LEVEL;
 	m_rankLevel = level;
 	SoundFactory::Instance()->play("efs_click");
 	this->drawOnlineRank(level);
