@@ -298,13 +298,18 @@ function codePointLength(s) {
     return n;
 }
 
-// 매칭용 정규화: 소문자 + 공백제거 + 흔한 leet 치환 (원본은 변형하지 않음)
-function awardNormalize(s) {
+// 매칭용 정규화 (원본은 변형하지 않음)
+// 소문자화 + leet 치환. 공백은 건드리지 않는다 — 호출측이 필요에 따라 제거한다.
+function awardLeet(s) {
     return s.toLowerCase()
-            .replace(/\s+/g, "")
             .replace(/0/g, "o").replace(/1/g, "i").replace(/3/g, "e")
             .replace(/4/g, "a").replace(/5/g, "s").replace(/@/g, "a")
             .replace(/\$/g, "s");
+}
+
+// 공백 제거본 — 한글/초성/띄어쓰기 우회 차단용.
+function awardNormalize(s) {
+    return awardLeet(s).replace(/\s+/g, "");
 }
 
 // 한글 완성형 → 초성 추출 (초성체 욕설 'ㅅㅂ' 등 대응)
@@ -339,14 +344,66 @@ function awardHasLink(s) {
     return /(https?:\/\/|www\.|\.com|\.net|\.io|\.gg|\.kr|\.me|t\.me|kakao|\bhttp\b)/i.test(s);
 }
 
+// 단어 토큰 분해 — 영문 금칙어를 '단어 경계'로 판정하기 위한 것.
+// 영숫자·한글이 아닌 문자는 구분자로 본다 → "f.u.c.k" 같은 구두점 우회도 분해된다.
+// 추가로, 한 글자 토큰이 2개 이상 연속되면 하나로 합친다 → "f u c k" → "fuck".
+// (반면 "lags a bit" 은 한 글자 토큰이 하나뿐이라 합쳐지지 않는다 — 이게 핵심)
+function awardTokens(s) {
+    var raw = awardLeet(s)
+                .replace(/[^a-z0-9가-힣ㄱ-ㆎ]+/g, " ")
+                .replace(/^\s+|\s+$/g, "")
+                .split(/\s+/);
+    var out = [], run = [], i;
+    for (i = 0; i < raw.length; i++) {
+        if (!raw[i]) continue;
+        out.push(raw[i]);
+        if (raw[i].length === 1) {
+            run.push(raw[i]);
+        } else {
+            if (run.length >= 2) out.push(run.join(""));
+            run = [];
+        }
+    }
+    if (run.length >= 2) out.push(run.join(""));
+    return out;
+}
+
+// 영문 금칙어의 굴절 허용 접미사. "fuck"으로 "fucking/fucks"는 잡되,
+// 중간·접미 일치는 허용하지 않아 "class"(→ass)·"sitting"(→tit)은 통과시킨다.
+var AWARD_SUFFIX = ["", "s", "es", "ed", "er", "ers", "ing", "in", "y", "ies"];
+
+function awardWordHit(tok, w) {
+    if (tok.indexOf(w) !== 0) return false;      // 접두 일치만 인정
+    var rest = tok.substring(w.length);
+    for (var i = 0; i < AWARD_SUFFIX.length; i++)
+        if (rest === AWARD_SUFFIX[i]) return true;
+    return false;
+}
+
+// 금칙어 검사.
+//  · 한글/자모 금칙어 — 어절 경계가 없으므로 공백 제거본에 부분 문자열 매칭(기존 동작).
+//  · 영문/숫자 금칙어 — 단어 단위로만 매칭. 부분 문자열로 보면 sitting→tit,
+//    class→ass, analysis→anal 처럼 멀쩡한 단어가 걸린다(Scunthorpe 문제).
+//  ※ 한계: "fuckyou" 같은 합성어는 단어 규칙으로 못 잡는다 → 목록에 직접 추가할 것.
 function awardHasProfanity(s, banned) {
-    var n   = awardNormalize(s);
-    var cho = awardChosung(n);
+    var n    = awardNormalize(s);
+    var cho  = awardChosung(n);
+    var toks = null;                              // 영문 금칙어가 있을 때만 분해
+
     for (var i = 0; i < banned.length; i++) {
         var w = banned[i];
         if (!w) continue;
-        if (n.indexOf(w) >= 0)   return true;  // 일반/leet 매칭
-        if (cho.indexOf(w) >= 0) return true;  // 초성체 매칭
+        w = awardLeet(String(w)).replace(/\s+/g, "");   // 목록 표기 흔들림 흡수
+        if (!w) continue;
+
+        if (/^[a-z0-9]+$/.test(w)) {
+            if (!toks) toks = awardTokens(s);
+            for (var j = 0; j < toks.length; j++)
+                if (awardWordHit(toks[j], w)) return true;
+        } else {
+            if (n.indexOf(w) >= 0)   return true;  // 일반/leet 매칭
+            if (cho.indexOf(w) >= 0) return true;  // 초성체 매칭
+        }
     }
     return false;
 }
