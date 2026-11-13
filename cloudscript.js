@@ -1024,6 +1024,13 @@ var BOARD_MAX          = 50;    // 링버퍼 용량
 var BOARD_MAX_CP       = 140;   // 본문 최대 코드포인트 (랜딩 textarea maxlength와 일치 필수)
 var BOARD_AUTHOR_MAX   = 5;     // 작성자당 슬롯 상한 — 한 명이 보드를 밀어내지 못하게
 var BOARD_COOLDOWN_MS  = 60 * 1000;   // 연속 작성 쿨다운
+// 댓글 — 같은 그룹에 별도 키("c"+epochMs+랜덤6, 값에 부모 글 id를 r로 보관).
+// 글 키는 항상 숫자로 시작하므로 첫 글자가 "c"면 댓글. 글 JSON에 배열로 넣지 않는 이유는
+// 읽고-고쳐-쓰기 경쟁으로 동시 댓글이 유실되기 때문(키가 따로면 충돌이 없다).
+var BOARD_COMMENT_PER_POST   = 20;           // 글당 댓글 상한
+var BOARD_COMMENT_AUTHOR_MAX = 5;            // 한 글에 한 사람이 달 수 있는 댓글
+var BOARD_COMMENT_MAX        = 150;          // 보드 전체 댓글 상한(초과 시 오래된 것부터 제거)
+var BOARD_COMMENT_COOLDOWN_MS = 30 * 1000;   // 댓글 쿨다운(글 쿨다운과 별개)
 
 var WEB_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 function webRandom(n) {
@@ -1201,18 +1208,33 @@ handlers.redeemWebToken = function(args, context) {
 
 // 작성 쿨다운 — 마지막 작성 시각을 작성자 Internal Data("board_last")에 보관.
 // 반환: 남은 대기 ms (0이면 작성 가능). 조회 실패는 통과시킨다(fail-open, 하우스 스타일).
-function boardCooldownLeft(pid) {
+function boardCooldownLeft(pid, key, ms) {
+    key = key || "board_last";
+    ms  = ms  || BOARD_COOLDOWN_MS;
     try {
-        var d = server.GetUserInternalData({ PlayFabId: pid, Keys: ["board_last"] });
-        if (d && d.Data && d.Data.board_last && d.Data.board_last.Value) {
-            var last = parseInt(d.Data.board_last.Value, 10);
+        var d = server.GetUserInternalData({ PlayFabId: pid, Keys: [key] });
+        if (d && d.Data && d.Data[key] && d.Data[key].Value) {
+            var last = parseInt(d.Data[key].Value, 10);
             if (last > 0) {
-                var left = last + BOARD_COOLDOWN_MS - Date.now();
+                var left = last + ms - Date.now();
                 if (left > 0) return left;
             }
         }
     } catch (e) {}
     return 0;
+}
+
+// 댓글 키 판별 — 글 키는 숫자로 시작, 댓글 키는 "c"로 시작.
+function boardIsComment(key) { return String(key).charAt(0) === "c"; }
+
+// 삭제 예정(del) 글에 딸린 댓글을 del 에 추가. data = GetSharedGroupData 의 Data.
+function boardCascadeComments(data, del) {
+    for (var k in data) {
+        if (!boardIsComment(k)) continue;
+        var v = null;
+        try { v = JSON.parse(data[k].Value); } catch (e) {}
+        if (v && v.r && del[v.r]) del[k] = 1;
+    }
 }
 
 // 게시판 글 작성.
@@ -1257,6 +1279,7 @@ handlers.writeBoardPost = function(args, context) {
         if (g && g.Data) {
             var keys = [], mineKeys = [];
             for (k in g.Data) {
+                if (boardIsComment(k)) continue;           // 댓글은 글 슬롯/링버퍼에 세지 않는다
                 keys.push(k);
                 var v = null;
                 try { v = JSON.parse(g.Data[k].Value); } catch (e2) {}
@@ -1279,6 +1302,9 @@ handlers.writeBoardPost = function(args, context) {
                 del[keys[i]] = 1;
                 over--;
             }
+
+            // ③ 밀려나는 글의 댓글도 함께 정리(고아 댓글 방지)
+            boardCascadeComments(g.Data, del);
         }
     } catch (e) { /* 그룹 미생성 — webEnsureGroup이 생성 */ }
 
@@ -1313,10 +1339,87 @@ handlers.deleteBoardPost = function(args, context) {
     if (rec.p !== pid) return { ok: false, reason: "not_owner" };
 
     var del = {}; del[id] = null;
+    // 글이면 딸린 댓글도 함께 삭제(댓글 id는 "c"로 시작 — 본인 댓글 삭제는 위 소유자 검사로 충분)
+    if (!boardIsComment(id)) {
+        try {
+            var all = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });
+            if (all && all.Data) {
+                var mark = {}; mark[id] = 1;
+                boardCascadeComments(all.Data, mark);
+                for (var mk in mark) del[mk] = null;
+            }
+        } catch (e) {}
+    }
     try {
         server.UpdateSharedGroupData({ SharedGroupId: BOARD_GROUP_ID, Data: del, Permission: "Public" });
     } catch (e) { return { ok: false, reason: "no_group" }; }
     return { ok: true };
+};
+
+// 게시판 댓글 작성. 웹: { sessionKey, postId, text } / 앱: { postId, text }
+//  반환: { ok:true, id } | { ok:false, reason: disabled|empty|too_long|link|profanity|expired|read_only|
+//                            cooldown|no_name|no_post|thread_full|author_limit|no_group }
+handlers.writeBoardComment = function(args, context) {
+    if (!boardEnabled()) return { ok: false, reason: "disabled" };
+
+    var postId = String((args && args.postId) || "");
+    if (!postId || boardIsComment(postId)) return { ok: false, reason: "no_post" };
+
+    var text = (args && args.text != null ? String(args.text) : "").replace(/^\s+|\s+$/g, "");
+    var len  = codePointLength(text);
+    if (len === 0)          return { ok: false, reason: "empty" };
+    if (len > BOARD_MAX_CP) return { ok: false, reason: "too_long" };
+    if (awardHasLink(text)) return { ok: false, reason: "link" };
+    if (awardHasProfanity(text, awardLoadBanned())) return { ok: false, reason: "profanity" };
+
+    var sk  = (args && args.sessionKey) ? String(args.sessionKey) : "";
+    var pid = sk ? webLookupSession(sk, true) : currentPlayerId;
+    if (sk && !pid)             return { ok: false, reason: "expired" };
+    if (!pid)                   return { ok: false, reason: "read_only" };
+    if (webIsPublicViewer(pid)) return { ok: false, reason: "read_only" };
+
+    var wait = boardCooldownLeft(pid, "comment_last", BOARD_COMMENT_COOLDOWN_MS);
+    if (wait > 0) return { ok: false, reason: "cooldown", retryMs: wait };
+
+    var prof = webProfile(pid);
+    if (!prof.name) return { ok: false, reason: "no_name" };
+
+    // 보드 한 번 조회로: 부모 글 존재 확인 + 글당/작성자당 상한 + 전체 상한 정리
+    var g;
+    try { g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID }); }
+    catch (e) { return { ok: false, reason: "no_group" }; }
+    if (!g || !g.Data || !g.Data[postId]) return { ok: false, reason: "no_post" };
+
+    var k, v, inThread = 0, mineInThread = 0, allComments = [];
+    for (k in g.Data) {
+        if (!boardIsComment(k)) continue;
+        allComments.push(k);
+        v = null;
+        try { v = JSON.parse(g.Data[k].Value); } catch (e2) {}
+        if (v && v.r === postId) {
+            inThread++;
+            if (v.p === pid) mineInThread++;
+        }
+    }
+    if (inThread >= BOARD_COMMENT_PER_POST)      return { ok: false, reason: "thread_full" };
+    if (mineInThread >= BOARD_COMMENT_AUTHOR_MAX) return { ok: false, reason: "author_limit" };
+
+    var now  = Date.now();
+    var id   = "c" + String(now) + webRandom(6);
+    var data = {};
+    data[id] = JSON.stringify({ p: pid, n: prof.name, cc: prof.cc, t: text, ts: now, r: postId });
+
+    // 전체 댓글 상한 — 이번 것 포함해서 넘치면 오래된 댓글부터 제거
+    allComments.sort();
+    var over = allComments.length + 1 - BOARD_COMMENT_MAX;
+    for (var i = 0; i < over; i++) data[allComments[i]] = null;
+
+    if (!webEnsureGroup(BOARD_GROUP_ID, data)) return { ok: false, reason: "no_group" };
+
+    try {
+        server.UpdateUserInternalData({ PlayFabId: pid, Data: { comment_last: String(now) } });
+    } catch (e) {}
+    return { ok: true, id: id, name: prof.name, cc: prof.cc };
 };
 
 // 관리자 전용 — 신고된 글 삭제. adminKey = Title INTERNAL Data "admin_key" (소감 관리자 게이트 재사용).
@@ -1331,6 +1434,17 @@ handlers.adminDeleteBoardPost = function(args, context) {
     var n   = 0;
     if (id) {
         del[id] = null; n = 1;
+        // 글이면 댓글도 같이 — 댓글 id를 직접 지정한 경우는 그 댓글만
+        if (!boardIsComment(id)) {
+            try {
+                var ga = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });
+                if (ga && ga.Data) {
+                    var mark = {}; mark[id] = 1;
+                    boardCascadeComments(ga.Data, mark);
+                    for (var mk in mark) { if (mk !== id) { del[mk] = null; n++; } }
+                }
+            } catch (e) {}
+        }
     } else {
         try {
             var g = server.GetSharedGroupData({ SharedGroupId: BOARD_GROUP_ID });

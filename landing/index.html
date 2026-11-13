@@ -218,6 +218,25 @@
   .cb-del:hover{color:#ff6b6b}
   .cb-msg{text-align:center; color:var(--sub); font-size:14px; padding:30px 0}
 
+  /* 댓글 */
+  .cb-tg{background:none; border:0; color:var(--mint); font:inherit; font-size:12.5px; font-weight:700;
+    cursor:pointer; padding:8px 0 0; display:block}
+  .cb-tg:hover{text-decoration:underline}
+  .cb-th{margin-top:10px; padding-top:6px; border-top:1px solid var(--line)}
+  .cb-th[hidden]{display:none}
+  .cb-cm{padding:8px 0 8px 12px; border-left:2px solid var(--line); margin-top:8px}
+  .cb-cm .cb-top{margin-bottom:3px; font-size:12.5px}
+  .cb-cm .cb-body{font-size:13.5px}
+  .cb-rp{display:flex; gap:8px; margin-top:10px}
+  .cb-rp input{flex:1; min-width:0; background:#0b1220; border:1px solid var(--line); border-radius:10px;
+    color:var(--fg); font:inherit; font-size:14px; padding:9px 12px}
+  .cb-rp input:focus{outline:none; border-color:var(--mint)}
+  .cb-rp button{background:var(--mint); color:#04231c; border:0; border-radius:10px; font-weight:800;
+    font-size:13px; padding:0 16px; cursor:pointer}
+  .cb-rp button:disabled{opacity:.45; cursor:default}
+  .cb-rerr{color:#ff8080; font-size:12.5px; margin-top:6px; min-height:0}
+  .cb-rerr:empty{display:none}
+
   .cb-more{display:block; width:100%; margin:0 0 18px; background:#0e1524;
     border:1px solid var(--line); border-radius:12px; color:var(--mint);
     font:inherit; font-weight:700; font-size:13.5px; letter-spacing:.3px;
@@ -637,14 +656,19 @@
   }
 
   function render(data){
-    var rows = [];
+    var rows = [], cms = {};
     for (var k in data){
       var v = null;
       try { v = JSON.parse(data[k].Value); } catch(e){}
-      if (v && v.t && v.n) rows.push({ id:k, n:v.n, cc:v.cc||"", t:v.t, ts:v.ts||0, p:v.p||"" });
+      if (!(v && v.t && v.n)) continue;
+      var row = { id:k, n:v.n, cc:v.cc||"", t:v.t, ts:v.ts||0, p:v.p||"" };
+      if (v.r){ (cms[v.r] = cms[v.r] || []).push(row); }   // 댓글 — 부모 글 id(r)별로 묶는다
+      else rows.push(row);
     }
     rows.sort(function(a,b){ return b.ts - a.ts; });      // 최신 우선
+    for (var r in cms) cms[r].sort(function(a,b){ return a.ts - b.ts; });   // 댓글은 오래된 순
     allRows  = rows;
+    allCms   = cms;
     hasPosts = rows.length > 0;
     syncVisibility();
     if (!hasPosts){ msg("No posts yet — be the first to say something."); return; }
@@ -652,18 +676,34 @@
   }
 
   // 기본은 최근 SHOW_N개만 — 서버 링버퍼가 50개라 전부 펼치면 랭킹 아래로 페이지가 크게 밀린다.
-  var allRows = [], expanded = false;
+  var allRows = [], allCms = {}, expanded = false;
+  var openTh = {};                                          // 펼쳐진 스레드(글 id) — 재로딩해도 유지
+
+  function head(r, mine){
+    var del = (mine && r.p === mine)
+      ? '<button class="cb-del" data-id="' + HN.esc(r.id) + '" aria-label="Delete">✕</button>' : "";
+    return '<div class="cb-top">' + HN.flag(r.cc)
+         + '<span class="who">' + HN.esc(r.n) + '</span>' + del
+         + '<span class="when">' + ago(r.ts) + '</span></div>'
+         + '<div class="cb-body">' + HN.esc(r.t) + '</div>';
+  }
 
   function paint(){
     var shown = expanded ? allRows : allRows.slice(0, SHOW_N);
     var mine  = sk() ? sk().split(".")[0] : "";           // 세션키 앞부분 = 내 playFabId
     listEl.innerHTML = shown.map(function(r){
-      var del = (mine && r.p === mine)
-        ? '<button class="cb-del" data-id="' + HN.esc(r.id) + '" aria-label="Delete post">✕</button>' : "";
-      return '<li><div class="cb-top">' + HN.flag(r.cc)
-           + '<span class="who">' + HN.esc(r.n) + '</span>' + del
-           + '<span class="when">' + ago(r.ts) + '</span></div>'
-           + '<div class="cb-body">' + HN.esc(r.t) + '</div></li>';
+      var cs_ = allCms[r.id] || [], open = !!openTh[r.id];
+      var th = cs_.map(function(c){ return '<div class="cb-cm">' + head(c, mine) + '</div>'; }).join("");
+      // 답글 입력은 쓰기 가능한 방문자(세션키 보유)에게만 — 나머지는 읽기 전용
+      if (sk()){
+        th += '<div class="cb-rp"><input type="text" maxlength="140" placeholder="Write a reply…" aria-label="Reply">'
+            + '<button class="cb-rs" data-id="' + HN.esc(r.id) + '">Reply</button></div><div class="cb-rerr"></div>';
+      }
+      var label = cs_.length ? ("💬 " + cs_.length + (cs_.length === 1 ? " reply" : " replies")) : "💬 Reply";
+      var tg = (cs_.length || sk())
+        ? '<button class="cb-tg" data-id="' + HN.esc(r.id) + '">' + label + '</button>' : "";
+      return '<li data-pid="' + HN.esc(r.id) + '">' + head(r, mine) + tg
+           + '<div class="cb-th"' + (open ? "" : " hidden") + '>' + th + '</div></li>';
     }).join("");
 
     var more = !expanded && allRows.length > SHOW_N;
@@ -702,7 +742,10 @@
     expired:   "This browser is no longer linked — tap 💬 in the game again.",
     no_name:   "Set your player name in the game first.",
     cooldown:  "Hold on a moment before posting again.",
-    disabled:  "The board is closed right now."
+    disabled:  "The board is closed right now.",
+    no_post:     "That post is gone.",
+    thread_full: "This thread is full.",
+    author_limit:"You've replied enough on this post."
   };
 
   // 세션 만료/무효 — 쓰기 폼을 접는다. 앱은 가진 사람이므로 설치 안내가 아닌 재연결 안내를 띄운다.
@@ -751,17 +794,62 @@
     });
   };
 
-  // 내 글 삭제 (이벤트 위임)
+  // 스레드 펼치기/접기, 답글 작성, 내 글·댓글 삭제 (이벤트 위임)
   listEl.addEventListener("click", function(ev){
-    var b = ev.target && ev.target.closest ? ev.target.closest(".cb-del") : null;
+    var t = ev.target && ev.target.closest ? ev.target : null;
+    if (!t) return;
+
+    var tg = t.closest(".cb-tg");
+    if (tg){
+      var id = tg.getAttribute("data-id");
+      openTh[id] = !openTh[id];
+      var th = tg.parentNode.querySelector(".cb-th");
+      if (th) th.hidden = !openTh[id];
+      return;
+    }
+
+    var rs = t.closest(".cb-rs");
+    if (rs){
+      var box = rs.parentNode, inp = box.querySelector("input");
+      var errBox = box.nextSibling;                          // .cb-rerr
+      var txt = inp.value.replace(/^\s+|\s+$/g, "");
+      errBox.textContent = "";
+      if (!txt){ errBox.textContent = ERR.empty; return; }
+      rs.disabled = true;
+      cs("writeBoardComment", { sessionKey: sk(), postId: rs.getAttribute("data-id"), text: txt }).then(function(fr){
+        rs.disabled = false;
+        if (fr && fr.ok){ openTh[rs.getAttribute("data-id")] = true; loadBoard(); return; }
+        var why = (fr && fr.reason) || "";
+        if (why === "cooldown"){
+          var secs = Math.ceil(((fr && fr.retryMs) || 0) / 1000);
+          errBox.textContent = secs > 0 ? ("Please wait " + secs + "s before replying again.") : ERR.cooldown;
+        } else {
+          errBox.textContent = ERR[why] || "Couldn't reply — try again.";
+        }
+        if (why === "expired" || why === "read_only") expire();
+      }).catch(function(){
+        rs.disabled = false;
+        errBox.textContent = "Network hiccup — try again.";
+      });
+      return;
+    }
+
+    var b = t.closest(".cb-del");
     if (!b) return;
-    if (!confirm("Delete this post?")) return;
+    if (!confirm("Delete this?")) return;
     b.disabled = true;
     cs("deleteBoardPost", { sessionKey: sk(), id: b.getAttribute("data-id") }).then(function(fr){
       if (fr && fr.ok){ loadBoard(); return; }
       b.disabled = false;
       if (fr && fr.reason === "expired") expire();
     }).catch(function(){ b.disabled = false; });
+  });
+
+  // 답글 입력창에서 Enter = 전송
+  listEl.addEventListener("keydown", function(ev){
+    if (ev.key !== "Enter" || !ev.target || ev.target.tagName !== "INPUT") return;
+    var btn = ev.target.parentNode.querySelector(".cb-rs");
+    if (btn && !btn.disabled){ ev.preventDefault(); btn.click(); }
   });
 
   // 앱에서 넘어온 일회용 토큰(?wt=) — 스위치 상태와 무관하게 즉시 주소창에서 걷어낸다.

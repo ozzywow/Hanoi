@@ -96,12 +96,13 @@ function Get-BoardPosts {
                 Text   = Fix $j.t
                 Id     = $p.Name
                 Author = $j.p
+                Re     = $j.r
                 Ts     = [int64]$j.ts
             }
         } catch {
             $rows += [pscustomobject]@{
                 When = ""; Name = "(parse fail)"; CC = ""; Text = $p.Value.Value
-                Id = $p.Name; Author = ""; Ts = 0
+                Id = $p.Name; Author = ""; Re = ""; Ts = 0
             }
         }
     }
@@ -179,9 +180,10 @@ if ($rows.Count -eq 0) {
     return
 }
 
-$rows | Format-Table When, Name, CC, Text, Id, Author -AutoSize -Wrap
+$rows | Format-Table When, Name, CC, Text, Id, Re, Author -AutoSize -Wrap
 Write-Host ""
-Write-Host "총 $($rows.Count) 건 (서버 링버퍼 상한 50)." -ForegroundColor DarkGray
+$nc = @($rows | Where-Object { $_.Re }).Count
+Write-Host "총 $($rows.Count) 건 (글 $($rows.Count - $nc) + 댓글 $nc — 글 상한 50 / 댓글 상한 150). Re 열이 있으면 그 글 id 의 댓글." -ForegroundColor DarkGray
 Write-Host "  글 삭제      : .\admin_board.ps1 -Delete -Id <Id>"           -ForegroundColor DarkGray
 Write-Host "  작성자 일괄  : .\admin_board.ps1 -Delete -TargetId <Author>" -ForegroundColor DarkGray
 Write-Host "  도배 대응    : .\admin_board.ps1 -Delete -TargetId <Author> -Revoke" -ForegroundColor DarkGray
