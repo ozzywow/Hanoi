@@ -22,6 +22,22 @@ export const IMAGE_LIST = [
 ];
 
 const SHARE_URL = 'https://ozzywow.github.io/Hanoi/';
+const APP_STORE_URL = 'https://apps.apple.com/app/id430261581';
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.ozzywow.hanoi';
+
+/** iOS(iPadOS 포함)/Android 는 해당 스토어, 그 외(PC·판별 불가)는 SHARE_URL. */
+function storeUrlForDevice(): string {
+  try {
+    const ua = navigator.userAgent || '';
+    if (/Android/i.test(ua)) return PLAY_STORE_URL;
+    if (/iPhone|iPad|iPod/i.test(ua)) return APP_STORE_URL;
+    // iPadOS 13+ 는 데스크톱 Safari UA(Macintosh)로 위장 — 터치 지원 여부로 구분
+    if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return APP_STORE_URL;
+  } catch {
+    /* 판별 실패 → 홈 */
+  }
+  return SHARE_URL;
+}
 
 // 앱 PlayScene.cpp 상수
 const POLE_X = [105, 241, 377];
@@ -281,9 +297,10 @@ export class PlayScene implements Scene {
     track('finish');
   }
 
+  /** 모바일이면 해당 스토어, PC·불분명하면 홈(랜딩). */
   private openStore(): void {
     track('cta');
-    window.open(SHARE_URL, '_blank', 'noopener');
+    window.open(storeUrlForDevice(), '_blank', 'noopener');
   }
 
   private changeLevel(delta: number): void {
