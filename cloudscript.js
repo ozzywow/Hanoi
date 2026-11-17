@@ -1037,7 +1037,8 @@ handlers.cleanupJunkPlayer = function (args, context) {
 //  ■ 신원 이전 (앱 → 브라우저 원탭 링크)
 //    브라우저는 게임 계정을 알 방법이 없다(디바이스ID = 사실상 계정 비밀번호이므로 절대 전달 금지).
 //    대신 앱이 일회용 토큰을 발급받아 URL로 넘기고, 웹이 그것을 세션키로 교환한다.
-//      1) [앱] issueWebToken           → 토큰(5분, 1회용). Shared Group "web_link" 에 { p:pid, e:만료 }
+//      1) [앱] issueWebToken           → 토큰(5분, 1회용) = 비밀24자+pid. 비밀은 소유자 Internal Data "web_token"
+//                                        { s, e } 에만 저장(공개 그룹에 두면 탈취 가능 — SECURITY_AUDIT.md 참고)
 //      2) [앱] openURL(SHARE_URL + "?wt=" + 토큰)
 //      3) [웹] redeemWebToken(token)   → 토큰 소각 + 세션키 발급 + 이름/국가 반환
 //      4) [웹] localStorage 에 세션키 저장, 주소창의 ?wt= 는 즉시 제거(history.replaceState)

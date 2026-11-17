@@ -80,6 +80,20 @@ function makeEnv() {
   return { call, internal, groups, profiles, customIds, lb, calls };
 }
 
+/** 클라 b64encode 와 동일: 임의 길이 바이트 + '=' 패딩 */
+function blobBytes(discus, finalMs, extra) {
+  const b = [discus, extra.length & 255, (extra.length >> 8) & 255, finalMs & 255, (finalMs >> 8) & 255, (finalMs >> 16) & 255, ...extra];
+  let out = '';
+  for (let i = 0; i < b.length; i += 3) {
+    const n = (b[i] << 16) | ((b[i + 1] ?? 0) << 8) | (b[i + 2] ?? 0);
+    const c = [ALPHA[(n >> 18) & 63], ALPHA[(n >> 12) & 63], ALPHA[(n >> 6) & 63], ALPHA[n & 63]];
+    const rem = b.length - i;
+    if (rem === 1) { c[2] = '='; c[3] = '='; } else if (rem === 2) { c[3] = '='; }
+    out += c.join('');
+  }
+  return out;
+}
+
 const ALICE = 'A8B08D8743AD67C2';
 const BOB = 'B1C2D3E4F5061728';
 
@@ -183,5 +197,16 @@ test('관리자 핸들러는 adminKey 없이 거부된다', () => {
     const r = env.call(ALICE, name, { playFabId: BOB });
     assert.ok(r.reason === 'denied' || r.ok === false, name + ' → ' + JSON.stringify(r));
     assert.equal(r.reason, 'denied', name);
+  }
+});
+
+test('writeReplay: 실제 클라 형식(패딩 0/1/2, 이벤트 포함, 24비트 기록)도 통과한다', () => {
+  const env = makeEnv();
+  env.lb['BestTime_L05|' + ALICE] = { Position: 2, StatValue: 1234567 }; // 상위 10위 안(Position 0~9)
+  for (const extraLen of [0, 1, 2, 3, 40, 41, 42]) {
+    const extra = Array.from({ length: extraLen }, (_, i) => (i * 37 + 11) & 255);
+    const b = blobBytes(5, 1234567, extra);
+    const r = env.call(ALICE, 'writeReplay', { level: 5, blob: b });
+    assert.equal(r.ok, true, 'extra=' + extraLen + ' → ' + JSON.stringify(r));
   }
 });

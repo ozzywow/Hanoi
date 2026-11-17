@@ -46,11 +46,15 @@ GitHub Pages는 **사이트 방문 통계를 제공하지 않는다**. (저장�
 
 
 ### 진행 현황 (2026-11-17)
-- ✅ Phase 0: 스캐폴딩 (Vite+TS+Canvas2D, 레터박스/DPR, 입력, 씬)
-- ✅ Phase 1: 앱 PNG 리소스 기반 플레이 화면(상단 LED·좌측 도크·하단 LED·START·카운트다운·결과 팝업), 효과음·BGM·RPM 연동·이퀄라이저, 첫 방문 가이드(Lv.3)
-- ✅ Phase 2': 읽기 전용 랭킹(상단 티커·시상대·내 기록 비교), 국기 PNG 폴백, 이용 지표 `track()`(PlayFab Sum 통계 — `web_cta` 정의 정리 중)
-- ⏳ 남음: 랜딩 "PLAY ON WEB" 버튼·개인정보 문구(배포 시점에), gh-pages 시험 배포, 모바일 브라우저 점검
-- 배포 계획 없음 — 구현 완료 후 결정 (`deploy.ps1` 은 준비됨)
+- ✅ Phase 0·1·2' 구현 완료 및 **배포 완료**: https://ozzywow.github.io/Hanoi/play/ (gh-pages `/play/`, `web/deploy.ps1`)
+  - 앱 PNG 리소스 기반 플레이 화면, 효과음·BGM·RPM 연동·이퀄라이저, 첫 방문 가이드
+  - 읽기 전용 랭킹(상단 티커·시상대·결과 보드와 내 예상 순위), 국기 PNG 폴백
+  - 입력: 마우스·터치·키보드(Space, J/K/L), 키보드 안내는 데스크톱 전용, 기본 화면 최대 1280×853 + 전체화면 토글
+- ✅ 랜딩 연결: PLAY ON WEB 버튼, 개인정보처리방침(웹 항목·PlayFab), sitemap, SEO(구조화 데이터·FAQ)
+- ✅ 이용 지표: PlayFab Sum 통계 `web_start` · `web_finish` · `web_store` (스토어 클릭 — `web_cta` 는 정의가 꼬여 폐기)
+  - ⚠️ 통계 정의가 없는 이름으로 클라가 쓰면 Last 집계로 자동 생성된다. 세 통계를 지우지 말 것
+- ⏸ 보류(확대 판단 게이트 이후): 앱 연동(S2), 서버 검증, 리플레이/고스트, Cloudflare Analytics 토큰
+- 관련 서버 보강: `server/SECURITY_AUDIT.md` (CloudScript 리비전 35)
 
 ### 축소된 일정
 | 단계 | 내용 | 추정 |
