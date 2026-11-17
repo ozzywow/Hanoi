@@ -9,6 +9,8 @@ export default defineConfig(({ command }) => ({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
+    // 영어(/play/) + 한국어(/play/ko/) 두 진입 페이지 — 같은 번들을 공유한다
+    rollupOptions: { input: { main: 'index.html', ko: 'ko/index.html' } },
   },
   test: {
     include: ['tests/**/*.test.ts'],
