@@ -504,6 +504,26 @@ function replayStatName(level) {
     return "BestTime_L" + pad + level;
 }
 
+// 리플레이 헤더(앞 6바이트) 디코드 — 클라 encodeReplayBlob 형식: [discus u8][count u16 LE][finalMs u24 LE].
+// 표준 Base64 알파벳(클라 자체 구현 kB64 와 동일). 앞 8글자 = 6바이트만 읽는다.
+var REPLAY_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function replayHeader(b64) {
+    var str = String(b64 || "");
+    if (str.length < 8) return null;
+    var bytes = [];
+    for (var i = 0; i < 8; i += 4) {
+        var n = 0;
+        for (var j = 0; j < 4; j++) {
+            var c = str.charAt(i + j);
+            var v = (c === "=") ? 0 : REPLAY_B64.indexOf(c);
+            if (v < 0) return null;
+            n = n * 64 + v;
+        }
+        bytes.push(Math.floor(n / 65536) % 256, Math.floor(n / 256) % 256, n % 256);
+    }
+    return { discus: bytes[0], count: bytes[1] | (bytes[2] << 8), finalMs: bytes[3] | (bytes[4] << 8) | (bytes[5] << 16) };
+}
+
 // 리플레이 업로드 — 레벨≤5 + Top10 달성자만
 handlers.writeReplay = function(args, context) {
     var pid   = currentPlayerId;
@@ -514,6 +534,11 @@ handlers.writeReplay = function(args, context) {
         return { ok: false, reason: "bad_level" };
     if (!blob)                        return { ok: false, reason: "empty" };
     if (blob.length > REPLAY_MAX_CHARS) return { ok: false, reason: "too_big" };
+    // 형식 검증 — 공개 그룹에 임의 문자열(스팸/링크/악성 페이로드)을 실을 수 없게 Base64 문자만 허용하고,
+    // 헤더의 디스크 수가 요청 레벨과 맞는지 확인한다.
+    if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(blob)) return { ok: false, reason: "bad_blob" };
+    var hdr = replayHeader(blob);
+    if (!hdr || hdr.discus !== level) return { ok: false, reason: "bad_blob" };
 
     // 서버측 Top10 검증 (변조 클라의 비랭커 업로드 차단)
     try {
@@ -525,6 +550,9 @@ handlers.writeReplay = function(args, context) {
         var pos = (lb && lb.Leaderboard && lb.Leaderboard.length > 0)
                     ? lb.Leaderboard[0].Position : -1;   // 0-indexed
         if (pos < 0 || pos > 9) return { ok: false, reason: "not_top10", pos: pos };
+        // 리플레이가 주장하는 기록이 서버 통계보다 빠를 수는 없다(위조/타인 리플레이 차단). 더 느린 것은 허용(전파 지연 여유).
+        var sv = lb.Leaderboard[0].StatValue;
+        if (sv > 0 && hdr.finalMs < sv) return { ok: false, reason: "time_mismatch", server: sv, replay: hdr.finalMs };
     } catch (e) {
         return { ok: false, reason: "rank_check_failed", detail: String(e) };
     }
@@ -603,6 +631,15 @@ handlers.likeReplay = function(args, context) {
     if (!target)          return { ok: false, reason: "empty_target" };
     if (target === voter) return { ok: false, reason: "self" };    // 자기 좋아요 차단
     if (!likeEnabled())   return { ok: false, reason: "disabled" };
+    if (!/^[0-9A-Fa-f]{8,20}$/.test(target)) return { ok: false, reason: "bad_target" };   // PlayFabId 형식만
+
+    // 좋아요는 "관전한 리플레이"에만 가능 — 리플레이가 없는 id 로는 그룹에 키를 만들지 않는다.
+    try {
+        var rg = server.GetSharedGroupData({ SharedGroupId: replayGroupId(level), Keys: [target] });
+        if (!(rg && rg.Data && rg.Data[target])) return { ok: false, reason: "no_replay" };
+    } catch (e0) {
+        return { ok: false, reason: "no_group", detail: String(e0) };
+    }
 
     // 대상 키 읽기 → { n, v }. 그룹 미생성 시 no_group(클라 부트스트랩 후 재시도 유도).
     var obj = { n: 0, v: {} };
@@ -677,7 +714,13 @@ handlers.touchRecentPlayer = function(args, context) {
         }
     } catch (e) { /* 프로필 조회 실패 — 힌트로 폴백 */ }
 
-    if (!name) name = hint;                                // 프로필 미반영 시 클라 힌트 사용
+    if (!name) {
+        // 프로필 미반영(전파지연) 시 클라 힌트를 쓰되, 모든 앱 사용자 화면에 실리는 값이므로
+        // 이름 설정과 같은 규칙(길이·링크·욕설)으로 검증한다. 검증 실패면 힌트를 버린다.
+        var h  = hint.replace(/^\s+|\s+$/g, "");
+        var hl = codePointLength(h);
+        if (hl > 0 && hl <= NAME_MAX_CP && !awardHasLink(h) && !awardHasProfanity(h, awardLoadBanned())) name = h;
+    }
     if (!name) return { ok: false, reason: "no_name" };    // 무명 플레이어는 미기록
 
     var data = {};
@@ -1016,7 +1059,8 @@ handlers.cleanupJunkPlayer = function (args, context) {
 //    이름을 작성 시점에 박아둬서(비정규화) 웹은 GetSharedGroupData 한 번으로 렌더 가능(조인 불필요).
 //    링버퍼: BOARD_MAX 초과 시 오래된 키부터 삭제(writeBoardPost 인라인 — 별도 GC 태스크 불필요).
 // ─────────────────────────────────────────────────────────────
-var WEB_LINK_GROUP_ID  = "web_link";
+var WEB_LINK_GROUP_ID  = "web_link";   // (구) 토큰 저장소 — 클라이언트가 읽을 수 있어 폐기. 새 토큰은 소유자 Internal Data 에 둔다.
+var WEB_VIEWER_CUSTOM_ID = "web_public_viewer";   // landing / 웹 체험판이 쓰는 공용 읽기 계정
 var WEB_TOKEN_TTL_MS   = 5 * 60 * 1000;               // 원탭 토큰 5분
 var WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;    // 세션 30일(슬라이딩)
 var BOARD_GROUP_ID     = "board";
@@ -1100,6 +1144,13 @@ function webIsPublicViewer(pid) {
         var v = td && td.Data && td.Data.web_viewer_id;
         if (v && String(v) === String(pid)) return true;
     } catch (e) {}
+    // 보강: CustomId 로도 판별한다. 이 CustomId("web_public_viewer")는 공개 저장소·랜딩에 노출돼 있어
+    // 누구나 그 계정으로 로그인해 표시명을 바꿀 수 있다 → 설정 누락과 무관하게 게시판 쓰기를 막아야 한다.
+    try {
+        var ai = server.GetUserAccountInfo({ PlayFabId: pid });
+        var cid = ai && ai.UserInfo && ai.UserInfo.CustomIdInfo && ai.UserInfo.CustomIdInfo.CustomId;
+        if (cid === WEB_VIEWER_CUSTOM_ID) return true;
+    } catch (e2) {}
     return false;
 }
 
@@ -1142,9 +1193,24 @@ function webLookupSession(sk, slide) {
     return pid;
 }
 
-// 원탭 링크용 일회용 토큰 발급 (앱에서 호출, 인증된 호출자 기준).
+// 원탭 링크용 일회용 토큰.
+//  ⚠ 보안: 토큰을 공개 Shared Group 에 두면 그룹 ID(공개 저장소에 노출)만 아는 누구나 살아 있는 토큰을 읽어
+//    세션을 탈취할 수 있다. 그래서 토큰의 비밀 부분은 "발급받은 플레이어 본인의 Internal Data"에만 저장하고,
+//    토큰 문자열 = 비밀(24자) + playFabId 로 만들어 어느 계정의 것인지 서버가 바로 찾는다(열거 불가).
+//    문자는 [A-Za-z0-9] 만 쓴다 — 랜딩이 /wt=([A-Za-z0-9]+)/ 로 읽는다.
+var WEB_TOKEN_SECRET_LEN = 24;
+
+function webTokenSplit(token) {
+    token = String(token || "");
+    if (!/^[A-Za-z0-9]+$/.test(token) || token.length <= WEB_TOKEN_SECRET_LEN) return null;
+    var pid = token.substring(WEB_TOKEN_SECRET_LEN);
+    if (!/^[0-9A-Fa-f]{8,20}$/.test(pid)) return null;          // PlayFabId 는 16진 문자열
+    return { secret: token.substring(0, WEB_TOKEN_SECRET_LEN), pid: pid };
+}
+
+// 발급 (앱에서 호출, 인증된 호출자 기준).
 //  클라: ExecuteCloudScript { FunctionName:"issueWebToken" }
-//  반환: { ok:true, token, ttl } | { ok:false, reason:"no_name"|"no_group" }
+//  반환: { ok:true, token, ttl } | { ok:false, reason:"no_name"|"no_store"|"disabled"|"no_login" }
 handlers.issueWebToken = function(args, context) {
     if (!boardEnabled()) return { ok: false, reason: "disabled" };   // 꺼져 있으면 링크할 대상이 없다
 
@@ -1155,53 +1221,46 @@ handlers.issueWebToken = function(args, context) {
     var prof = webProfile(pid);
     if (!prof.name) return { ok: false, reason: "no_name" };
 
-    var token = webRandom(24);
-    var data  = {};
-    data[token] = JSON.stringify({ p: pid, e: Date.now() + WEB_TOKEN_TTL_MS });
-
-    // 만료 토큰 기회적 청소 — 수명이 5분이라 그룹이 커지지 않는다(별도 GC 태스크 불필요).
+    var secret = webRandom(WEB_TOKEN_SECRET_LEN);
     try {
-        var g = server.GetSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID });
-        if (g && g.Data) {
-            var now = Date.now();
-            for (var k in g.Data) {
-                var v = null;
-                try { v = JSON.parse(g.Data[k].Value); } catch (e2) {}
-                if (!v || !v.e || now > v.e) data[k] = null;
-            }
-        }
-    } catch (e) { /* 그룹 미생성 — webEnsureGroup이 생성 */ }
+        server.UpdateUserInternalData({
+            PlayFabId: pid,
+            Data: { web_token: JSON.stringify({ s: secret, e: Date.now() + WEB_TOKEN_TTL_MS }) }
+        });
+    } catch (e) { return { ok: false, reason: "no_store" }; }
 
-    if (!webEnsureGroup(WEB_LINK_GROUP_ID, data)) return { ok: false, reason: "no_group" };
-    return { ok: true, token: token, ttl: WEB_TOKEN_TTL_MS };
+    return { ok: true, token: secret + pid, ttl: WEB_TOKEN_TTL_MS };
 };
 
 // 토큰 → 세션키 교환 (웹에서 호출).
-//  반환: { ok:true, sessionKey, name, cc, ttl } | { ok:false, reason:"invalid"|"expired"|... }
+//  반환: { ok:true, sessionKey, name, cc, ttl } | { ok:false, reason:"invalid"|"expired"|"no_name"|"mint_failed"|"empty" }
 handlers.redeemWebToken = function(args, context) {
     var token = String((args && args.token) || "");
     if (!token) return { ok: false, reason: "empty" };
 
+    var parts = webTokenSplit(token);
+    if (!parts) return { ok: false, reason: "invalid" };
+
     var rec = null;
     try {
-        var g = server.GetSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID, Keys: [token] });
-        if (g && g.Data && g.Data[token] && g.Data[token].Value)
-            rec = JSON.parse(g.Data[token].Value);
-    } catch (e) { return { ok: false, reason: "no_group" }; }
-    if (!rec || !rec.p) return { ok: false, reason: "invalid" };
+        var d = server.GetUserInternalData({ PlayFabId: parts.pid, Keys: ["web_token"] });
+        if (d && d.Data && d.Data.web_token && d.Data.web_token.Value)
+            rec = JSON.parse(d.Data.web_token.Value);
+    } catch (e) { return { ok: false, reason: "invalid" }; }
+    if (!rec || !rec.s || rec.s !== parts.secret) return { ok: false, reason: "invalid" };
 
-    // 일회용 — 만료 여부와 무관하게 먼저 소각(재사용 차단)
-    var del = {}; del[token] = null;
+    // 일회용 — 비밀이 맞은 뒤에는 만료 여부와 무관하게 먼저 소각(재사용 차단).
+    // (틀린 비밀로는 소각하지 않는다 → 남이 추측만으로 내 토큰을 못 쓰게 만들 수 없다)
     try {
-        server.UpdateSharedGroupData({ SharedGroupId: WEB_LINK_GROUP_ID, Data: del, Permission: "Public" });
-    } catch (e) {}
+        server.UpdateUserInternalData({ PlayFabId: parts.pid, KeysToRemove: ["web_token"] });
+    } catch (e2) {}
 
     if (Date.now() > rec.e) return { ok: false, reason: "expired" };
 
-    var prof = webProfile(rec.p);
+    var prof = webProfile(parts.pid);
     if (!prof.name) return { ok: false, reason: "no_name" };
 
-    var sk = webMintSession(rec.p);
+    var sk = webMintSession(parts.pid);
     if (!sk) return { ok: false, reason: "mint_failed" };
     return { ok: true, sessionKey: sk, name: prof.name, cc: prof.cc, ttl: WEB_SESSION_TTL_MS };
 };
