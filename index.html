@@ -127,6 +127,18 @@
   .btn.and{background:var(--and); box-shadow:0 8px 24px rgba(52,199,89,.30)}
   /* 방문 기기에 해당하는 버튼 — 위 두 규칙의 box-shadow 를 덮어야 하므로 반드시 뒤에 온다 */
   .btn.you{box-shadow:0 0 0 2px var(--gold), 0 8px 24px rgba(0,0,0,.38)}
+  /* PLAY ON WEB — 히어로의 1순위 행동. 스토어 버튼 위에 단독 행으로 크게, 숨 쉬듯 은은히 빛나게 한다 */
+  .hero-play{margin-top:26px; text-align:center}
+  .btn.web{
+    background:linear-gradient(120deg,#19d3a2,#2f8cff); color:#04121f;
+    font-size:18px; padding:16px 34px; border-radius:15px; letter-spacing:.3px;
+    box-shadow:0 8px 28px rgba(25,211,162,.35); animation:webglow 2.6s ease-in-out infinite;
+  }
+  .btn.web:hover{box-shadow:0 10px 34px rgba(25,211,162,.6)}
+  @keyframes webglow{0%,100%{box-shadow:0 8px 24px rgba(25,211,162,.30)}50%{box-shadow:0 8px 38px rgba(47,140,255,.55)}}
+  .web-sub{color:var(--sub); font-size:13px; margin:10px 0 0}
+  .hero-play + .hero-dl{margin-top:24px}
+  @media (prefers-reduced-motion:reduce){ .btn.web{animation:none} }
   .btn .ud{                                  /* .btn 이 position:relative → 버튼 기준으로 뜬다 */
     position:absolute; top:-9px; left:50%; transform:translateX(-50%);
     background:var(--gold); color:#20160a; font-size:10px; font-weight:800;
@@ -328,6 +340,12 @@
     <!-- 스토어 버튼 — 방문자 상태와 무관하게 항상 노출.
          (앱을 이미 가진 사람에게도 다른 기기용 링크는 쓸모가 있다.)
          아래 배지 스크립트가 방문 기기에 해당하는 쪽에 "Your Device" 를 달아 준다. -->
+    <!-- PLAY ON WEB — 설치 없이 브라우저에서 바로 체험. 앱 설치 유도용이라 스토어 버튼보다 위. -->
+    <div class="hero-play">
+      <a class="btn web" href="play/">&#9654; <span>PLAY ON WEB</span></a>
+      <p class="web-sub">Try it free in your browser &mdash; no install needed</p>
+    </div>
+
     <div class="dl hero-dl">
       <a class="btn ios" href="https://apps.apple.com/app/id430261581">
         🍎 <span>Download on the App Store</span></a>
