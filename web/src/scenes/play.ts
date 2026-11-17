@@ -21,7 +21,9 @@ export const IMAGE_LIST = [
   'arrow.png', 'text_en.png',
 ];
 
-const SHARE_URL = 'https://ozzywow.github.io/Hanoi/';
+// 한국어 체험판(/play/ko/)에서는 홈도 한국어 랜딩(/ko/)으로 보낸다 — 언어가 영어로 튕기지 않도록
+const IS_KO = typeof location !== 'undefined' && /\/play\/ko(\/|$)/.test(location.pathname);
+const SHARE_URL = IS_KO ? 'https://ozzywow.github.io/Hanoi/ko/' : 'https://ozzywow.github.io/Hanoi/';
 const APP_STORE_URL = 'https://apps.apple.com/app/id430261581';
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.ozzywow.hanoi';
 
