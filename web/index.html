@@ -3,16 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <link rel="icon" type="image/png" href="/favicon.png">
-  <meta property="og:title" content="Tower of Hanoi - Speedrun | Play on Web">
-  <meta property="og:description" content="Race the clock in your browser, then take on the world rankings in the app.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://ozzywow.github.io/Hanoi/play/">
-  <meta property="og:image" content="https://ozzywow.github.io/Hanoi/shots/main.jpg">
-  <title>Tower of Hanoi - Speedrun | Play on Web</title>
-  <meta name="description" content="Try Tower of Hanoi - Speedrun in your browser. Race the clock, then take on the world rankings in the app.">
+  <title>Tower of Hanoi Online – Free Speedrun Game | Play in Browser</title>
+  <meta name="description" content="Play Tower of Hanoi online free in your browser. Race the clock, see how your time ranks worldwide, and take on top players in the app.">
+  <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0a0a26">
   <link rel="canonical" href="https://ozzywow.github.io/Hanoi/play/">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preconnect" href="https://119C4E.playfabapi.com" crossorigin>
+  <link rel="preload" as="image" href="/img/main_bg.png">
+
+  <meta property="og:site_name" content="Tower of Hanoi - Speedrun">
+  <meta property="og:title" content="Tower of Hanoi Online – Free Speedrun Game">
+  <meta property="og:description" content="Race the clock in your browser, see how your time ranks in the world, then take on the top players in the app.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ozzywow.github.io/Hanoi/play/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://ozzywow.github.io/Hanoi/shots/play.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="540">
+  <meta property="og:image:alt" content="Tower of Hanoi - Speedrun gameplay: moving discs between three poles">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Tower of Hanoi Online – Free Speedrun Game">
+  <meta name="twitter:description" content="Race the clock in your browser, see how your time ranks in the world, then take on the top players in the app.">
+  <meta name="twitter:image" content="https://ozzywow.github.io/Hanoi/shots/play.jpg">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Tower of Hanoi - Speedrun (Play on Web)",
+    "url": "https://ozzywow.github.io/Hanoi/play/",
+    "image": "https://ozzywow.github.io/Hanoi/shots/play.jpg",
+    "description": "Play Tower of Hanoi online for free in your browser. Race the clock on levels 3-4, see how your time ranks against the world rankings, and take on the top players in the iOS and Android app.",
+    "applicationCategory": "GameApplication",
+    "genre": "Puzzle",
+    "operatingSystem": "Any (web browser)",
+    "browserRequirements": "Requires JavaScript and HTML5 canvas",
+    "inLanguage": "en",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "ozzywow" },
+    "isBasedOn": "https://ozzywow.github.io/Hanoi/",
+    "sameAs": [
+      "https://apps.apple.com/app/id430261581",
+      "https://play.google.com/store/apps/details?id=com.ozzywow.hanoi"
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Tower of Hanoi - Speedrun", "item": "https://ozzywow.github.io/Hanoi/" },
+      { "@type": "ListItem", "position": 2, "name": "Play on Web", "item": "https://ozzywow.github.io/Hanoi/play/" }
+    ]
+  }
+  </script>
   <style>
     html, body { margin: 0; height: 100%; background: #0a0a26; overflow: hidden; }
     body { display: flex; align-items: center; justify-content: center; }
@@ -35,6 +82,9 @@
       transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
     }
     #fs svg { width: 18px; height: 18px; flex: none; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    #boot { position: fixed; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #50dcb4; font: 700 13px/1.2 sans-serif; letter-spacing: 3px; pointer-events: none; }
+    #boot b { color: #ffd700; font-size: clamp(20px, 5vw, 38px); letter-spacing: 2px; }
     #privacy { position: fixed; left: 12px; bottom: 8px; z-index: 5; color: rgba(152, 166, 190, .75); font: 11px/1 sans-serif; text-decoration: none; }
     #privacy:hover { color: #50dcb4; text-decoration: underline; }
     #fs:hover { transform: translateY(-1px); background: rgba(20, 40, 80, .95); box-shadow: 0 0 20px rgba(80, 220, 180, .6), 0 2px 12px rgba(0, 0, 0, .5); }
@@ -47,7 +97,23 @@
   </style>
 </head>
 <body>
-  <canvas id="game" tabindex="0"></canvas>
+  <div id="boot" aria-hidden="true"><b>TOWER OF HANOI</b><span>SPEEDRUN &middot; LOADING&hellip;</span></div>
+  <canvas id="game" tabindex="0" role="application" aria-label="Tower of Hanoi Speedrun game">Your browser does not support the HTML5 canvas this game needs. Please try a current version of Chrome, Edge, Firefox or Safari.</canvas>
+  <main class="sr-only">
+    <h1>Tower of Hanoi Online &ndash; Free Speedrun Game</h1>
+    <p>Play the classic Tower of Hanoi puzzle as a speedrun, right in your browser &ndash; no install and no sign-up. Move all the discs to the red pole as fast as you can, then see how your time would rank against the world rankings.</p>
+    <h2>How to play Tower of Hanoi</h2>
+    <ol>
+      <li>Only one disc may be moved at a time.</li>
+      <li>No disc may be placed on top of a smaller disc.</li>
+      <li>Move all the discs to the red pole.</li>
+    </ol>
+    <h2>Controls</h2>
+    <p>Click or tap a pole to pick up its top disc, then click or tap another pole to drop it. You can also drag and drop. On a keyboard, press Space to start and J, K and L to select the left, middle and right pole.</p>
+    <h2>Levels and world rankings</h2>
+    <p>The web version has levels 3 and 4. Your web time is for practice and is compared with the live world rankings. For all levels, official world rankings, ghost races and replays, get the free app.</p>
+    <p><a href="https://ozzywow.github.io/Hanoi/">Tower of Hanoi - Speedrun home page</a> &middot; <a href="https://apps.apple.com/app/id430261581">Download on the App Store</a> &middot; <a href="https://play.google.com/store/apps/details?id=com.ozzywow.hanoi">Get it on Google Play</a></p>
+  </main>
   <button id="fs" type="button" title="Fullscreen" aria-label="Toggle fullscreen">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>

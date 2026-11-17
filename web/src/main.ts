@@ -35,7 +35,10 @@ sound.attachUnlock();
 document.addEventListener('visibilitychange', () => sound.setPaused(document.hidden));
 
 loadImages(IMAGE_LIST)
-  .then((images) => app.start(new PlayScene(images, sound)))
+  .then((images) => {
+    app.start(new PlayScene(images, sound));
+    document.getElementById('boot')?.remove(); // 로딩 스플래시 제거
+  })
   .catch((err) => {
     console.error(err);
     document.body.insertAdjacentHTML(
